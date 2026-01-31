@@ -1,0 +1,104 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "create": "创建",
+    "search": "搜索",
+    "loading": "加载中...",
+    "noData": "暂无数据",
+    "confirm": "确认",
+    "success": "成功",
+    "error": "错误",
+    "back": "返回",
+    "show": "显示",
+    "hide": "隐藏"
+  },
+  "nav": {
+    "home": "首页",
+    "archive": "归档",
+    "categories": "分类",
+    "tags": "标签",
+    "about": "关于",
+    "login": "登录",
+    "register": "注册",
+    "logout": "退出登录",
+    "manage": "管理后台"
+  },
+  "auth": {
+    "login": "登录",
+    "register": "注册",
+    "usernameOrEmail": "用户名或邮箱",
+    "username": "用户名",
+    "email": "邮箱",
+    "password": "密码",
+    "confirmPassword": "确认密码",
+    "noAccount": "还没有账号？",
+    "hasAccount": "已有账号？",
+    "loginSuccess": "登录成功",
+    "loginFailed": "登录失败",
+    "registerSuccess": "注册成功",
+    "registerFailed": "注册失败",
+    "passwordMismatch": "两次输入的密码不一致",
+    "passwordTooShort": "密码长度至少6个字符",
+    "loginToAccount": "登录到您的账户",
+    "createAccount": "创建新账户"
+  },
+  "home": {
+    "welcome": "欢迎来到",
+    "subtitle": "一个简洁优雅的博客系统",
+    "latestPosts": "最新文章",
+    "readMore": "阅读更多",
+    "noPostsYet": "暂无文章"
+  },
+  "article": {
+    "totalArticles": "文章总数",
+    "noArticles": "暂无文章",
+    "pinned": "置顶"
+  },
+  "category": {
+    "totalCategories": "分类数",
+    "noCategories": "暂无分类"
+  },
+  "tag": {
+    "totalTags": "标签数",
+    "noTags": "暂无标签"
+  },
+  "comment": {
+    "title": "评论",
+    "placeholder": "写下你的评论...",
+    "replyPlaceholder": "写下你的回复...",
+    "nickname": "昵称",
+    "email": "邮箱（用于显示头像）",
+    "emailOptional": "邮箱（可选，用于显示头像）",
+    "submit": "发表评论",
+    "reply": "回复",
+    "noComments": "暂无评论，来发表第一条评论吧",
+    "loginRequired": "请登录后发表评论",
+    "contentRequired": "请输入评论内容",
+    "nicknameRequired": "请输入昵称",
+    "submitSuccess": "评论发表成功",
+    "submitFailed": "评论发表失败",
+    "liked": "已点赞",
+    "unliked": "已取消点赞",
+    "likeFailed": "点赞失败"
+  },
+  "theme": {
+    "light": "浅色",
+    "dark": "深色",
+    "system": "跟随系统"
+  },
+  "error": {
+    "notFound": "页面未找到",
+    "notFoundDesc": "抱歉，您访问的页面不存在或已被移除。",
+    "backHome": "返回首页"
+  },
+  "footer": {
+    "copyright": "© {year} {name}. 保留所有权利。",
+    "allRightsReserved": "保留所有权利"
+  },
+  "settings": {
+    "appearance": "外观设置"
+  }
+}

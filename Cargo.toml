@@ -1,0 +1,89 @@
+[package]
+name = "noteva"
+version = "0.0.1-beta"
+edition = "2021"
+description = "A lightweight modern blog system"
+authors = ["Noteva Team"]
+license = "MIT"
+repository = "https://github.com/noteva/noteva"
+keywords = ["blog", "cms", "rust", "axum"]
+categories = ["web-programming"]
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["macros", "multipart"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["fs", "cors", "compression-gzip", "trace"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "mysql", "chrono", "uuid"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# Template engine
+tera = "1"
+
+# Caching
+moka = { version = "0.12", features = ["future"] }
+
+# Password hashing
+argon2 = "0.5"
+
+# Markdown rendering
+pulldown-cmark = "0.10"
+syntect = "5"
+
+# WASM runtime (for plugin system)
+wasmtime = "18"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+urlencoding = "2"
+md5 = "0.7"
+sysinfo = "0.31"
+
+# Async utilities
+async-trait = "0.1"
+futures = "0.3"
+
+# HTTP client (for Redis, optional)
+redis = { version = "0.24", features = ["tokio-comp"], optional = true }
+
+# Embedded static files
+rust-embed = { version = "8", features = ["include-exclude"] }
+regex = "1.12.2"
+
+[dev-dependencies]
+# Property-based testing
+proptest = "1"
+
+# HTTP testing
+axum-test = "14"
+
+# Test utilities
+tokio-test = "0.4"
+tempfile = "3"
+
+# WAT to WASM compilation for tests
+wat = "1"
+
+[features]
+default = []
+redis-cache = ["redis"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

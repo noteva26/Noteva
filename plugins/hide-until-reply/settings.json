@@ -1,0 +1,35 @@
+{
+  "sections": [
+    {
+      "id": "general",
+      "title": "基本设置",
+      "fields": [
+        {
+          "id": "placeholder_text",
+          "type": "text",
+          "label": "占位文字",
+          "default": "回复后可见",
+          "description": "隐藏内容的提示文字"
+        },
+        {
+          "id": "require_login",
+          "type": "switch",
+          "label": "需要登录",
+          "default": true,
+          "description": "是否需要登录才能回复"
+        },
+        {
+          "id": "placeholder_style",
+          "type": "select",
+          "label": "占位样式",
+          "default": "default",
+          "options": [
+            {"value": "default", "label": "默认样式"},
+            {"value": "blur", "label": "模糊效果"},
+            {"value": "lock", "label": "锁定图标"}
+          ]
+        }
+      ]
+    }
+  ]
+}

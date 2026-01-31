@@ -1,0 +1,104 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "search": "Search",
+    "loading": "Loading...",
+    "noData": "No data",
+    "confirm": "Confirm",
+    "success": "Success",
+    "error": "Error",
+    "back": "Back",
+    "show": "Show",
+    "hide": "Hide"
+  },
+  "nav": {
+    "home": "Home",
+    "archive": "Archive",
+    "categories": "Categories",
+    "tags": "Tags",
+    "about": "About",
+    "login": "Login",
+    "register": "Register",
+    "logout": "Logout",
+    "manage": "Dashboard"
+  },
+  "auth": {
+    "login": "Login",
+    "register": "Register",
+    "usernameOrEmail": "Username or Email",
+    "username": "Username",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm Password",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?",
+    "loginSuccess": "Login successful",
+    "loginFailed": "Login failed",
+    "registerSuccess": "Registration successful",
+    "registerFailed": "Registration failed",
+    "passwordMismatch": "Passwords do not match",
+    "passwordTooShort": "Password must be at least 6 characters",
+    "loginToAccount": "Login to your account",
+    "createAccount": "Create a new account"
+  },
+  "home": {
+    "welcome": "Welcome to",
+    "subtitle": "A clean and elegant blog system",
+    "latestPosts": "Latest Posts",
+    "readMore": "Read More",
+    "noPostsYet": "No posts yet"
+  },
+  "article": {
+    "totalArticles": "Total Articles",
+    "noArticles": "No articles yet",
+    "pinned": "Pinned"
+  },
+  "category": {
+    "totalCategories": "Categories",
+    "noCategories": "No categories yet"
+  },
+  "tag": {
+    "totalTags": "Tags",
+    "noTags": "No tags yet"
+  },
+  "comment": {
+    "title": "Comments",
+    "placeholder": "Write your comment...",
+    "replyPlaceholder": "Write your reply...",
+    "nickname": "Nickname",
+    "email": "Email (for avatar)",
+    "emailOptional": "Email (optional, for avatar)",
+    "submit": "Submit",
+    "reply": "Reply",
+    "noComments": "No comments yet. Be the first to comment!",
+    "loginRequired": "Please login to comment",
+    "contentRequired": "Please enter comment content",
+    "nicknameRequired": "Please enter nickname",
+    "submitSuccess": "Comment submitted",
+    "submitFailed": "Failed to submit comment",
+    "liked": "Liked",
+    "unliked": "Unliked",
+    "likeFailed": "Failed to like"
+  },
+  "theme": {
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "error": {
+    "notFound": "Page Not Found",
+    "notFoundDesc": "Sorry, the page you're looking for doesn't exist or has been removed.",
+    "backHome": "Back to Home"
+  },
+  "footer": {
+    "copyright": "© {year} {name}. All rights reserved.",
+    "allRightsReserved": "All rights reserved"
+  },
+  "settings": {
+    "appearance": "Appearance"
+  }
+}

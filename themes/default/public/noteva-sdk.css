@@ -1,0 +1,562 @@
+/**
+ * Noteva SDK 基础样式
+ * 提供 UI 组件的默认样式
+ */
+
+/* Toast 容器 */
+#noteva-toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Toast 样式 */
+.noteva-toast {
+  padding: 12px 20px;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: noteva-toast-in 0.3s ease;
+  max-width: 350px;
+}
+
+.noteva-toast-info {
+  background: #3b82f6;
+}
+
+.noteva-toast-success {
+  background: #22c55e;
+}
+
+.noteva-toast-warning {
+  background: #f59e0b;
+}
+
+.noteva-toast-error {
+  background: #ef4444;
+}
+
+.noteva-toast-hide {
+  animation: noteva-toast-out 0.3s ease forwards;
+}
+
+@keyframes noteva-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes noteva-toast-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+/* 模态框遮罩 */
+.noteva-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+  animation: noteva-fade-in 0.2s ease;
+}
+
+/* 模态框 */
+.noteva-modal {
+  background: #fff;
+  border-radius: 12px;
+  min-width: 320px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  animation: noteva-scale-in 0.2s ease;
+}
+
+.noteva-modal-header {
+  padding: 16px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.noteva-modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #9ca3af;
+  line-height: 1;
+  padding: 0;
+}
+
+.noteva-modal-close:hover {
+  color: #374151;
+}
+
+.noteva-modal-body {
+  padding: 20px;
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.noteva-modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* 按钮 */
+.noteva-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.noteva-btn-cancel {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.noteva-btn-cancel:hover {
+  background: #e5e7eb;
+}
+
+.noteva-btn-confirm {
+  background: #3b82f6;
+  color: #fff;
+}
+
+.noteva-btn-confirm:hover {
+  background: #2563eb;
+}
+
+/* 加载动画 */
+#noteva-loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 10002;
+}
+
+.noteva-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: noteva-spin 0.8s linear infinite;
+}
+
+@keyframes noteva-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes noteva-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes noteva-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 深色模式支持 */
+@media (prefers-color-scheme: dark) {
+  .noteva-modal {
+    background: #1f2937;
+  }
+  
+  .noteva-modal-header {
+    border-bottom-color: #374151;
+    color: #f9fafb;
+  }
+  
+  .noteva-modal-body {
+    color: #d1d5db;
+  }
+  
+  .noteva-modal-footer {
+    border-top-color: #374151;
+  }
+  
+  .noteva-btn-cancel {
+    background: #374151;
+    color: #d1d5db;
+  }
+  
+  .noteva-btn-cancel:hover {
+    background: #4b5563;
+  }
+  
+  #noteva-loading {
+    background: rgba(17, 24, 39, 0.8);
+  }
+  
+  .noteva-spinner {
+    border-color: #374151;
+    border-top-color: #3b82f6;
+  }
+}
+
+/* 插件注入点占位 */
+[id^="noteva-slot-"] {
+  display: contents;
+}
+
+/* 插槽容器 */
+.noteva-slot {
+  display: contents;
+}
+
+/* 隐藏内容样式（用于回复可见等插件） */
+.noteva-hidden-content {
+  position: relative;
+  padding: 24px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+  border-radius: 8px;
+  text-align: center;
+  margin: 16px 0;
+}
+
+.noteva-hidden-content .noteva-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #6b7280;
+}
+
+.noteva-hidden-content .noteva-placeholder-icon {
+  font-size: 32px;
+}
+
+.noteva-hidden-content .noteva-placeholder-text {
+  font-size: 14px;
+}
+
+.noteva-hidden-content .noteva-hidden-template {
+  display: none;
+}
+
+.noteva-revealed-content {
+  padding: 16px;
+  background: #f0fdf4;
+  border-left: 4px solid #22c55e;
+  border-radius: 4px;
+  margin: 16px 0;
+  animation: noteva-reveal 0.5s ease;
+}
+
+@keyframes noteva-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 深色模式隐藏内容样式 */
+@media (prefers-color-scheme: dark) {
+  .noteva-hidden-content {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+  }
+  
+  .noteva-hidden-content .noteva-placeholder {
+    color: #9ca3af;
+  }
+  
+  .noteva-revealed-content {
+    background: #052e16;
+    border-left-color: #22c55e;
+  }
+}
+
+
+/* ============================================================================
+ * Shortcode 样式
+ * ============================================================================ */
+
+/* Note/Callout 样式 */
+.shortcode-note {
+  padding: 16px 20px;
+  border-radius: 8px;
+  margin: 16px 0;
+  border-left: 4px solid;
+}
+
+.shortcode-note-info {
+  background: #eff6ff;
+  border-left-color: #3b82f6;
+  color: #1e40af;
+}
+
+.shortcode-note-warning {
+  background: #fffbeb;
+  border-left-color: #f59e0b;
+  color: #92400e;
+}
+
+.shortcode-note-error {
+  background: #fef2f2;
+  border-left-color: #ef4444;
+  color: #991b1b;
+}
+
+.shortcode-note-success {
+  background: #f0fdf4;
+  border-left-color: #22c55e;
+  color: #166534;
+}
+
+/* Collapse/折叠 样式 */
+.shortcode-collapse {
+  margin: 16px 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.shortcode-collapse summary {
+  padding: 12px 16px;
+  background: #f9fafb;
+  cursor: pointer;
+  font-weight: 500;
+  user-select: none;
+  list-style: none;
+}
+
+.shortcode-collapse summary::-webkit-details-marker {
+  display: none;
+}
+
+.shortcode-collapse summary::before {
+  content: '▶';
+  display: inline-block;
+  margin-right: 8px;
+  transition: transform 0.2s;
+}
+
+.shortcode-collapse[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.shortcode-collapse-content {
+  padding: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+/* Button 样式 */
+.shortcode-button {
+  display: inline-block;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.shortcode-button-primary {
+  background: #3b82f6;
+  color: #fff;
+}
+
+.shortcode-button-primary:hover {
+  background: #2563eb;
+}
+
+.shortcode-button-secondary {
+  background: #6b7280;
+  color: #fff;
+}
+
+.shortcode-button-secondary:hover {
+  background: #4b5563;
+}
+
+.shortcode-button-success {
+  background: #22c55e;
+  color: #fff;
+}
+
+.shortcode-button-success:hover {
+  background: #16a34a;
+}
+
+.shortcode-button-danger {
+  background: #ef4444;
+  color: #fff;
+}
+
+.shortcode-button-danger:hover {
+  background: #dc2626;
+}
+
+.shortcode-button-outline {
+  background: transparent;
+  border: 2px solid #3b82f6;
+  color: #3b82f6;
+}
+
+.shortcode-button-outline:hover {
+  background: #3b82f6;
+  color: #fff;
+}
+
+/* Quote 样式 */
+.shortcode-quote {
+  margin: 16px 0;
+  padding: 20px 24px;
+  background: #f9fafb;
+  border-left: 4px solid #9ca3af;
+  font-style: italic;
+  position: relative;
+}
+
+.shortcode-quote::before {
+  content: '"';
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-size: 48px;
+  color: #d1d5db;
+  font-family: Georgia, serif;
+  line-height: 1;
+}
+
+.shortcode-quote footer {
+  margin-top: 12px;
+  font-size: 14px;
+  font-style: normal;
+  color: #6b7280;
+}
+
+.shortcode-quote cite {
+  font-style: italic;
+}
+
+/* Video 样式 */
+.shortcode-video {
+  margin: 16px 0;
+  position: relative;
+  padding-bottom: 56.25%; /* 16:9 */
+  height: 0;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.shortcode-video iframe,
+.shortcode-video video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* 深色模式 Shortcode 样式 */
+@media (prefers-color-scheme: dark) {
+  .shortcode-note-info {
+    background: #1e3a5f;
+    color: #93c5fd;
+  }
+  
+  .shortcode-note-warning {
+    background: #451a03;
+    color: #fcd34d;
+  }
+  
+  .shortcode-note-error {
+    background: #450a0a;
+    color: #fca5a5;
+  }
+  
+  .shortcode-note-success {
+    background: #052e16;
+    color: #86efac;
+  }
+  
+  .shortcode-collapse {
+    border-color: #374151;
+  }
+  
+  .shortcode-collapse summary {
+    background: #1f2937;
+    color: #f9fafb;
+  }
+  
+  .shortcode-collapse-content {
+    border-top-color: #374151;
+    background: #111827;
+  }
+  
+  .shortcode-quote {
+    background: #1f2937;
+    border-left-color: #6b7280;
+    color: #d1d5db;
+  }
+  
+  .shortcode-quote::before {
+    color: #4b5563;
+  }
+  
+  .shortcode-quote footer {
+    color: #9ca3af;
+  }
+}

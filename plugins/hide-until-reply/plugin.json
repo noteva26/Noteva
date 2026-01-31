@@ -1,0 +1,20 @@
+{
+  "id": "hide-until-reply",
+  "name": "回复可见",
+  "version": "1.0.0",
+  "description": "设置部分内容需要回复后才能查看",
+  "author": "Noteva Team",
+  "homepage": "https://github.com/noteva/plugin-hide-until-reply",
+  "license": "MIT",
+  "requires": {
+    "noteva": ">=0.1.0"
+  },
+  "hooks": {
+    "frontend": ["content_render", "comment_after_create"],
+    "editor": ["toolbar"]
+  },
+  "shortcodes": ["hide-until-reply"],
+  "permissions": ["read_comments", "read_users"],
+  "settings": true,
+  "database": false
+}

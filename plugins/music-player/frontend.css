@@ -1,0 +1,101 @@
+/* 音乐播放器插件样式 */
+
+#noteva-music-player {
+  position: fixed;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 24px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(10px);
+  transition: all 0.3s ease;
+}
+
+#noteva-music-player.position-bottom-right {
+  bottom: 20px;
+  right: 20px;
+}
+
+#noteva-music-player.position-bottom-left {
+  bottom: 20px;
+  left: 20px;
+}
+
+#noteva-music-player.position-top-right {
+  top: 20px;
+  right: 20px;
+}
+
+#noteva-music-player.position-top-left {
+  top: 20px;
+  left: 20px;
+}
+
+.music-player-toggle {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: #3b82f6;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.music-player-toggle:hover {
+  background: #2563eb;
+  transform: scale(1.05);
+}
+
+#noteva-music-player.playing .music-player-toggle {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
+}
+
+.music-player-volume {
+  width: 60px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #e5e7eb;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.music-player-volume::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #3b82f6;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* 深色模式 */
+@media (prefers-color-scheme: dark) {
+  #noteva-music-player {
+    background: rgba(31, 41, 55, 0.95);
+  }
+  
+  .music-player-volume {
+    background: #4b5563;
+  }
+}
+
+/* 移动端隐藏音量条 */
+@media (max-width: 640px) {
+  .music-player-volume {
+    display: none;
+  }
+}

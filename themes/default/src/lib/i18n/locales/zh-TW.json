@@ -1,0 +1,104 @@
+{
+  "common": {
+    "save": "儲存",
+    "cancel": "取消",
+    "delete": "刪除",
+    "edit": "編輯",
+    "create": "建立",
+    "search": "搜尋",
+    "loading": "載入中...",
+    "noData": "暫無資料",
+    "confirm": "確認",
+    "success": "成功",
+    "error": "錯誤",
+    "back": "返回",
+    "show": "顯示",
+    "hide": "隱藏"
+  },
+  "nav": {
+    "home": "首頁",
+    "archive": "歸檔",
+    "categories": "分類",
+    "tags": "標籤",
+    "about": "關於",
+    "login": "登入",
+    "register": "註冊",
+    "logout": "登出",
+    "manage": "管理後台"
+  },
+  "auth": {
+    "login": "登入",
+    "register": "註冊",
+    "usernameOrEmail": "使用者名稱或電子郵件",
+    "username": "使用者名稱",
+    "email": "電子郵件",
+    "password": "密碼",
+    "confirmPassword": "確認密碼",
+    "noAccount": "還沒有帳號？",
+    "hasAccount": "已有帳號？",
+    "loginSuccess": "登入成功",
+    "loginFailed": "登入失敗",
+    "registerSuccess": "註冊成功",
+    "registerFailed": "註冊失敗",
+    "passwordMismatch": "兩次輸入的密碼不一致",
+    "passwordTooShort": "密碼長度至少6個字元",
+    "loginToAccount": "登入到您的帳戶",
+    "createAccount": "建立新帳戶"
+  },
+  "home": {
+    "welcome": "歡迎來到",
+    "subtitle": "一個簡潔優雅的部落格系統",
+    "latestPosts": "最新文章",
+    "readMore": "閱讀更多",
+    "noPostsYet": "暫無文章"
+  },
+  "article": {
+    "totalArticles": "文章總數",
+    "noArticles": "暫無文章",
+    "pinned": "置頂"
+  },
+  "category": {
+    "totalCategories": "分類數",
+    "noCategories": "暫無分類"
+  },
+  "tag": {
+    "totalTags": "標籤數",
+    "noTags": "暫無標籤"
+  },
+  "comment": {
+    "title": "評論",
+    "placeholder": "寫下你的評論...",
+    "replyPlaceholder": "寫下你的回覆...",
+    "nickname": "暱稱",
+    "email": "電子郵件（用於顯示頭像）",
+    "emailOptional": "電子郵件（可選，用於顯示頭像）",
+    "submit": "發表評論",
+    "reply": "回覆",
+    "noComments": "暫無評論，來發表第一條評論吧",
+    "loginRequired": "請登入後發表評論",
+    "contentRequired": "請輸入評論內容",
+    "nicknameRequired": "請輸入暱稱",
+    "submitSuccess": "評論發表成功",
+    "submitFailed": "評論發表失敗",
+    "liked": "已按讚",
+    "unliked": "已取消按讚",
+    "likeFailed": "按讚失敗"
+  },
+  "theme": {
+    "light": "淺色",
+    "dark": "深色",
+    "system": "跟隨系統"
+  },
+  "error": {
+    "notFound": "頁面未找到",
+    "notFoundDesc": "抱歉，您訪問的頁面不存在或已被移除。",
+    "backHome": "返回首頁"
+  },
+  "footer": {
+    "copyright": "© {year} {name}. 保留所有權利。",
+    "allRightsReserved": "保留所有權利"
+  },
+  "settings": {
+    "appearance": "外觀設定"
+  }
+}

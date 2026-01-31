@@ -1,0 +1,71 @@
+{
+  "sections": [
+    {
+      "id": "general",
+      "title": "播放器设置",
+      "fields": [
+        {
+          "id": "source_type",
+          "type": "select",
+          "label": "音乐来源",
+          "default": "url",
+          "options": [
+            {"value": "url", "label": "直接 URL"},
+            {"value": "netease", "label": "网易云音乐 ID"}
+          ],
+          "description": "选择音乐来源方式"
+        },
+        {
+          "id": "music_url",
+          "type": "text",
+          "label": "音乐地址",
+          "default": "",
+          "placeholder": "https://example.com/music.mp3",
+          "description": "直接填写 MP3 文件 URL"
+        },
+        {
+          "id": "netease_id",
+          "type": "text",
+          "label": "网易云歌曲 ID",
+          "default": "",
+          "placeholder": "2083785152",
+          "description": "网易云音乐歌曲 ID（从歌曲链接获取）"
+        },
+        {
+          "id": "autoplay",
+          "type": "switch",
+          "label": "自动播放",
+          "default": false,
+          "description": "页面加载后自动播放（可能被浏览器阻止）"
+        },
+        {
+          "id": "loop",
+          "type": "switch",
+          "label": "循环播放",
+          "default": true
+        },
+        {
+          "id": "volume",
+          "type": "number",
+          "label": "默认音量",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "description": "0-100"
+        },
+        {
+          "id": "position",
+          "type": "select",
+          "label": "位置",
+          "default": "bottom-right",
+          "options": [
+            {"value": "bottom-right", "label": "右下角"},
+            {"value": "bottom-left", "label": "左下角"},
+            {"value": "top-right", "label": "右上角"},
+            {"value": "top-left", "label": "左上角"}
+          ]
+        }
+      ]
+    }
+  ]
+}

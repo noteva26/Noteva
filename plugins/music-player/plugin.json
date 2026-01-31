@@ -1,0 +1,15 @@
+{
+  "id": "music-player",
+  "name": "音乐播放器",
+  "version": "1.0.0",
+  "description": "在博客添加背景音乐播放器",
+  "author": "Noteva Team",
+  "license": "MIT",
+  "hooks": {
+    "frontend": ["body_end", "init"]
+  },
+  "shortcodes": [],
+  "permissions": [],
+  "settings": true,
+  "database": false
+}

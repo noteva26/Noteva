@@ -1,0 +1,69 @@
+# Noteva Docker Compose
+# 
+# Quick start (SQLite, no external dependencies):
+#   docker-compose up -d noteva
+#
+# With MySQL and Redis (uncomment services below):
+#   docker-compose up -d
+
+version: '3.8'
+
+services:
+  noteva:
+    image: ghcr.io/noteva26/noteva:latest
+    # build: .  # Uncomment to build from source
+    container_name: noteva
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./plugins:/app/plugins
+      - ./config.yml:/app/config.yml:ro
+    environment:
+      - RUST_LOG=noteva=info
+    # depends_on:
+    #   - mysql
+    #   - redis
+
+  # MySQL Database (optional)
+  # Uncomment to use MySQL instead of SQLite
+  # Update config.yml:
+  #   database:
+  #     driver: "mysql"
+  #     url: "mysql://noteva:noteva@mysql:3306/noteva"
+  #
+  # mysql:
+  #   image: mysql:8.0
+  #   container_name: noteva-mysql
+  #   restart: unless-stopped
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: rootpassword
+  #     MYSQL_DATABASE: noteva
+  #     MYSQL_USER: noteva
+  #     MYSQL_PASSWORD: noteva
+  #   volumes:
+  #     - mysql_data:/var/lib/mysql
+  #   ports:
+  #     - "3306:3306"
+
+  # Redis Cache (optional)
+  # Uncomment to use Redis for caching
+  # Update config.yml:
+  #   cache:
+  #     driver: "redis"
+  #     url: "redis://redis:6379"
+  #
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: noteva-redis
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redis_data:/data
+  #   ports:
+  #     - "6379:6379"
+
+# volumes:
+#   mysql_data:
+#   redis_data:

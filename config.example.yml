@@ -1,0 +1,37 @@
+# Noteva Configuration Example
+# Copy this file to config.yml and modify as needed
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  cors_origin: "*"
+
+database:
+  # SQLite (default, recommended for single server)
+  driver: "sqlite"
+  url: "data/noteva.db"
+  
+  # MySQL (uncomment below and comment SQLite above)
+  # driver: "mysql"
+  # url: "mysql://username:password@localhost:3306/noteva"
+
+cache:
+  # Memory cache (default, no external dependency)
+  driver: "memory"
+  
+  # Redis cache (uncomment below for better performance)
+  # driver: "redis"
+  # url: "redis://127.0.0.1:6379"
+
+upload:
+  dir: "uploads"
+  max_size: 10485760  # 10MB
+  allowed_types:
+    - "image/jpeg"
+    - "image/png"
+    - "image/gif"
+    - "image/webp"
+
+theme:
+  path: "themes"
+  active: "default"
