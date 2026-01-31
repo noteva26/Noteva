@@ -482,6 +482,17 @@ pub const MIGRATIONS: &[Migration] = &[
             CREATE INDEX idx_nav_items_sort_order ON nav_items(sort_order);
         "#,
     },
+    // Migration 15: Add user status field for ban functionality
+    Migration {
+        version: 15,
+        name: "add_user_status",
+        up_sqlite: r#"
+            ALTER TABLE users ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active';
+        "#,
+        up_mysql: r#"
+            ALTER TABLE users ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active';
+        "#,
+    },
 ];
 
 /// Run all pending migrations
@@ -1120,7 +1131,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_total_migrations() {
-        assert_eq!(total_migrations(), 11);
+        assert_eq!(total_migrations(), 15);
     }
 
     #[test]

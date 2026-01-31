@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
     );
 
     // Create repositories
-    let user_repo = Arc::new(SqlxUserRepository::new(pool.clone()));
+    let user_repo = SqlxUserRepository::boxed(pool.clone());
     let session_repo = Arc::new(SqlxSessionRepository::new(pool.clone()));
     let category_repo = Arc::new(SqlxCategoryRepository::new(pool.clone()));
     let tag_repo = Arc::new(SqlxTagRepository::new(pool.clone()));
@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
     let nav_repo = SqlxNavItemRepository::boxed(pool.clone());
 
     // Initialize services with hook support
-    let user_service = Arc::new(UserService::new(user_repo, session_repo));
+    let user_service = Arc::new(UserService::new(user_repo.clone(), session_repo));
     let category_service = Arc::new(CategoryService::new(
         category_repo,
         cache.clone(),
@@ -122,6 +122,7 @@ async fn main() -> Result<()> {
     let state = AppState {
         pool: pool.clone(),
         user_service,
+        user_repo,
         article_service,
         category_service,
         tag_service,

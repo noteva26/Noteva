@@ -100,5 +100,8 @@
   },
   "settings": {
     "appearance": "外觀設定"
+  },
+  "user": {
+    "userBanned": "該帳號已被封禁，無法登入"
   }
 }

@@ -22,6 +22,7 @@ use syntect::html::highlighted_html_for_string;
 use syntect::parsing::SyntaxSet;
 
 use crate::plugin::{ShortcodeManager, ShortcodeContext, HookManager, hook_names};
+use crate::services::emoji;
 
 /// Options for rendering markdown with shortcodes
 #[derive(Debug, Clone, Default)]
@@ -192,11 +193,14 @@ impl MarkdownRenderer {
         );
         
         // Get potentially modified HTML from hook
-        hook_data
+        let html_after_hook = hook_data
             .get("html")
             .and_then(|v| v.as_str())
             .unwrap_or(&html_output)
-            .to_string()
+            .to_string();
+        
+        // Process emoji (shortcodes and Unicode)
+        emoji::process_all_emoji(&html_after_hook)
     }
 
     /// Renders Markdown text to HTML with shortcode processing.

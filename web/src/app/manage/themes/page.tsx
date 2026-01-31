@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { adminApi, ThemeResponse } from "@/lib/api";
+import { useEffect, useState, useRef } from "react";
+import { adminApi, ThemeResponse, GitHubReleaseInfo, GitHubAssetInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Palette, Check, RefreshCw, ExternalLink, User, Tag } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Palette, Check, RefreshCw, ExternalLink, User, Tag, Upload, Download, Trash2, Github, Loader2, Search, Package } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
@@ -17,6 +19,15 @@ export default function ThemesPage() {
   const [currentTheme, setCurrentTheme] = useState("");
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // GitHub releases
+  const [repoUrl, setRepoUrl] = useState("");
+  const [releases, setReleases] = useState<GitHubReleaseInfo[]>([]);
+  const [loadingReleases, setLoadingReleases] = useState(false);
+  const [installingAsset, setInstallingAsset] = useState<string | null>(null);
 
   const fetchThemes = async () => {
     setLoading(true);
@@ -29,6 +40,35 @@ export default function ThemesPage() {
       setThemes([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchReleases = async () => {
+    if (!repoUrl.trim()) {
+      toast.error(t("theme.enterRepo") || "Please enter a GitHub repo");
+      return;
+    }
+    
+    // Parse repo from URL or direct input
+    let repo = repoUrl.trim();
+    // Handle full GitHub URLs
+    const match = repo.match(/github\.com\/([^\/]+\/[^\/]+)/);
+    if (match) {
+      repo = match[1].replace(/\.git$/, "");
+    }
+    
+    setLoadingReleases(true);
+    try {
+      const { data } = await adminApi.listGitHubReleases(repo);
+      setReleases(data || []);
+      if (!data?.length) {
+        toast.info(t("theme.noReleases") || "No releases found");
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+      setReleases([]);
+    } finally {
+      setLoadingReleases(false);
     }
   };
 
@@ -50,6 +90,61 @@ export default function ThemesPage() {
     }
   };
 
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setUploading(true);
+    try {
+      const { data } = await adminApi.uploadTheme(file);
+      toast.success(data.message);
+      fetchThemes();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleInstallAsset = async (asset: GitHubAssetInfo) => {
+    setInstallingAsset(asset.download_url);
+    try {
+      const { data } = await adminApi.installGitHubTheme(asset.download_url);
+      toast.success(data.message);
+      fetchThemes();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+    } finally {
+      setInstallingAsset(null);
+    }
+  };
+
+  const handleDelete = async (themeName: string) => {
+    if (!confirm(t("theme.confirmDelete")?.replace("{name}", themeName) || `Delete theme "${themeName}"?`)) {
+      return;
+    }
+    
+    setDeleting(themeName);
+    try {
+      await adminApi.deleteTheme(themeName);
+      toast.success(t("theme.deleteSuccess") || "Theme deleted");
+      fetchThemes();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -57,121 +152,288 @@ export default function ThemesPage() {
           <h1 className="text-3xl font-bold">{t("manage.themes")}</h1>
           <p className="text-muted-foreground">{t("settings.selectTheme")}</p>
         </div>
-        <Button variant="outline" onClick={fetchThemes} disabled={loading}>
-          <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
-          {t("common.loading").replace("...", "")}
-        </Button>
+        <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".zip,.tar,.tar.gz,.tgz"
+            onChange={handleUpload}
+            className="hidden"
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4 mr-2" />
+            )}
+            {t("theme.upload") || "Upload"}
+          </Button>
+          <Button variant="outline" onClick={fetchThemes} disabled={loading}>
+            <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
+            {t("common.refresh") || "Refresh"}
+          </Button>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Palette className="h-5 w-5" />
-            {t("settings.themeSettings")}
-          </CardTitle>
-          <CardDescription>
-            {t("settings.currentTheme")}: <span className="font-medium">{currentTheme}</span>
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} className="h-64" />
-              ))}
-            </div>
-          ) : themes.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <Palette className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>{t("common.noData")}</p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {themes.map((theme) => (
-                <div
-                  key={theme.name}
-                  className={cn(
-                    "relative rounded-lg border-2 overflow-hidden transition-all hover:border-primary hover:shadow-md",
-                    currentTheme === theme.name
-                      ? "border-primary bg-primary/5 shadow-sm"
-                      : "border-muted"
-                  )}
-                >
-                  {/* Preview Image */}
-                  <div className="relative h-36 bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
-                    {theme.preview ? (
-                      <Image
-                        src={`/themes/${theme.name}/${theme.preview}`}
-                        alt={theme.display_name}
-                        fill
-                        className="object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <Palette className="h-12 w-12 text-muted-foreground/30" />
-                    )}
-                    {currentTheme === theme.name && (
-                      <div className="absolute top-2 right-2 flex items-center gap-1 bg-primary text-primary-foreground px-2 py-1 rounded text-xs">
-                        <Check className="h-3 w-3" />
-                        {t("settings.currentTheme")}
-                      </div>
-                    )}
-                  </div>
+      <Tabs defaultValue="installed" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="installed" className="gap-2">
+            <Palette className="h-4 w-4" />
+            {t("theme.installed") || "Installed"}
+          </TabsTrigger>
+          <TabsTrigger value="github" className="gap-2">
+            <Github className="h-4 w-4" />
+            {t("theme.online") || "Online"}
+          </TabsTrigger>
+        </TabsList>
 
-                  {/* Theme Info */}
-                  <div className="p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <h3 className="font-semibold text-lg">{theme.display_name}</h3>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Tag className="h-3 w-3" />
-                          <span>v{theme.version}</span>
-                          {theme.author && (
-                            <>
-                              <span>•</span>
-                              <User className="h-3 w-3" />
-                              <span>{theme.author}</span>
-                            </>
-                          )}
+        <TabsContent value="installed">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Palette className="h-5 w-5" />
+                {t("settings.themeSettings")}
+              </CardTitle>
+              <CardDescription>
+                {t("settings.currentTheme")}: <span className="font-medium">{currentTheme}</span>
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-64" />
+                  ))}
+                </div>
+              ) : themes.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Palette className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>{t("common.noData")}</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {themes.map((theme) => (
+                    <ThemeCard
+                      key={theme.name}
+                      theme={theme}
+                      isActive={currentTheme === theme.name}
+                      isDefault={theme.name === "default"}
+                      switching={switching}
+                      deleting={deleting === theme.name}
+                      onSwitch={() => handleSwitchTheme(theme.name)}
+                      onDelete={() => handleDelete(theme.name)}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="github">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Github className="h-5 w-5" />
+                {t("theme.onlineThemes") || "Install from GitHub"}
+              </CardTitle>
+              <CardDescription>
+                {t("theme.onlineDesc") || "Enter a GitHub repository URL to browse releases"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="owner/repo or https://github.com/owner/repo"
+                  value={repoUrl}
+                  onChange={(e) => setRepoUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && fetchReleases()}
+                />
+                <Button onClick={fetchReleases} disabled={loadingReleases}>
+                  {loadingReleases ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+
+              {releases.length > 0 && (
+                <div className="space-y-4">
+                  {releases.map((release) => (
+                    <div key={release.tag_name} className="border rounded-lg p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-semibold flex items-center gap-2">
+                            <Tag className="h-4 w-4" />
+                            {release.name || release.tag_name}
+                          </h3>
+                          <p className="text-xs text-muted-foreground">
+                            {release.tag_name}
+                            {release.published_at && ` · ${new Date(release.published_at).toLocaleDateString()}`}
+                          </p>
                         </div>
                       </div>
-                      {theme.url && (
-                        <a
-                          href={theme.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-muted-foreground hover:text-foreground"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
+                      
+                      {release.assets.length > 0 ? (
+                        <div className="grid gap-2">
+                          {release.assets.map((asset) => (
+                            <div
+                              key={asset.download_url}
+                              className="flex items-center justify-between p-2 bg-muted/50 rounded"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Package className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-sm">{asset.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({formatSize(asset.size)})
+                                </span>
+                              </div>
+                              <Button
+                                size="sm"
+                                onClick={() => handleInstallAsset(asset)}
+                                disabled={installingAsset === asset.download_url}
+                              >
+                                {installingAsset === asset.download_url ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Download className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          {t("theme.noAssets") || "No downloadable assets"}
+                        </p>
                       )}
                     </div>
-                    
-                    {theme.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-                        {theme.description}
-                      </p>
-                    )}
-                    
-                    <Button
-                      onClick={() => handleSwitchTheme(theme.name)}
-                      disabled={switching || currentTheme === theme.name}
-                      variant={currentTheme === theme.name ? "secondary" : "default"}
-                      size="sm"
-                      className="w-full"
-                    >
-                      {currentTheme === theme.name ? t("settings.currentTheme") : t("settings.switchTheme")}
-                    </Button>
-                  </div>
+                  ))}
                 </div>
-              ))}
+              )}
+
+              {!loadingReleases && releases.length === 0 && repoUrl && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Github className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>{t("theme.searchHint") || "Enter a repo and click search"}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+interface ThemeCardProps {
+  theme: ThemeResponse;
+  isActive: boolean;
+  isDefault: boolean;
+  switching: boolean;
+  deleting: boolean;
+  onSwitch: () => void;
+  onDelete: () => void;
+  t: (key: string) => string;
+}
+
+function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, onDelete, t }: ThemeCardProps) {
+  return (
+    <div
+      className={cn(
+        "relative rounded-lg border-2 overflow-hidden transition-all hover:border-primary hover:shadow-md",
+        isActive ? "border-primary bg-primary/5 shadow-sm" : "border-muted"
+      )}
+    >
+      <div className="relative h-36 bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
+        {theme.preview ? (
+          <Image
+            src={`/themes/${theme.name}/${theme.preview}`}
+            alt={theme.display_name}
+            fill
+            className="object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        ) : (
+          <Palette className="h-12 w-12 text-muted-foreground/30" />
+        )}
+        {isActive && (
+          <div className="absolute top-2 right-2 flex items-center gap-1 bg-primary text-primary-foreground px-2 py-1 rounded text-xs">
+            <Check className="h-3 w-3" />
+            {t("settings.currentTheme")}
+          </div>
+        )}
+      </div>
+
+      <div className="p-4">
+        <div className="flex items-start justify-between mb-2">
+          <div>
+            <h3 className="font-semibold text-lg">{theme.display_name}</h3>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Tag className="h-3 w-3" />
+              <span>v{theme.version}</span>
+              {theme.author && (
+                <>
+                  <span>·</span>
+                  <User className="h-3 w-3" />
+                  <span>{theme.author}</span>
+                </>
+              )}
             </div>
+          </div>
+          {theme.url && (
+            <a
+              href={theme.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </a>
           )}
-        </CardContent>
-      </Card>
+        </div>
+        
+        {theme.description && (
+          <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
+            {theme.description}
+          </p>
+        )}
+        
+        <div className="flex gap-2">
+          <Button
+            onClick={onSwitch}
+            disabled={switching || isActive}
+            variant={isActive ? "secondary" : "default"}
+            size="sm"
+            className="flex-1"
+          >
+            {isActive ? t("settings.currentTheme") : t("settings.switchTheme")}
+          </Button>
+          {!isDefault && !isActive && (
+            <Button
+              onClick={onDelete}
+              disabled={deleting}
+              variant="destructive"
+              size="sm"
+            >
+              {deleting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

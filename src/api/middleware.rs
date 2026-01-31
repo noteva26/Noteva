@@ -86,6 +86,7 @@ impl Default for RequestStats {
 pub struct AppState {
     pub pool: crate::db::DynDatabasePool,
     pub user_service: Arc<UserService>,
+    pub user_repo: Arc<dyn crate::db::repositories::UserRepository>,
     pub article_service: Arc<crate::services::article::ArticleService>,
     pub category_service: Arc<crate::services::category::CategoryService>,
     pub tag_service: Arc<crate::services::tag::TagService>,
@@ -172,6 +173,7 @@ impl IntoResponse for ApiError {
             "NOT_FOUND" => StatusCode::NOT_FOUND,
             "VALIDATION_ERROR" => StatusCode::BAD_REQUEST,
             "CONFLICT" => StatusCode::CONFLICT,
+            "USER_BANNED" => StatusCode::FORBIDDEN,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
 

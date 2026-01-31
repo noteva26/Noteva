@@ -357,13 +357,19 @@ async fn inject_config_into_html(html_bytes: &[u8], state: &AppState) -> Option<
     // 3. SDK JS
     // 4. Plugin CSS
     // 5. Plugin JS
+    // Add version query string to prevent caching issues
+    let version = env!("CARGO_PKG_VERSION");
     let injection = format!(
         r#"<script>window.__SITE_CONFIG__={};</script>
-<link rel="stylesheet" href="/noteva-sdk.css">
-<script src="/noteva-sdk.js"></script>
-<link rel="stylesheet" href="/api/v1/plugins/assets/plugins.css">
-<script src="/api/v1/plugins/assets/plugins.js"></script>"#,
-        serde_json::to_string(&config_json).unwrap_or_else(|_| "{}".to_string())
+<link rel="stylesheet" href="/noteva-sdk.css?v={}">
+<script src="/noteva-sdk.js?v={}"></script>
+<link rel="stylesheet" href="/api/v1/plugins/assets/plugins.css?v={}">
+<script src="/api/v1/plugins/assets/plugins.js?v={}"></script>"#,
+        serde_json::to_string(&config_json).unwrap_or_else(|_| "{}".to_string()),
+        version,
+        version,
+        version,
+        version
     );
     
     // Inject before </head>

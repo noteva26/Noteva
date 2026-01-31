@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { pluginsApi, Plugin, PluginSettingsSchema } from "@/lib/api";
+import { useEffect, useState, useRef } from "react";
+import { pluginsApi, Plugin, PluginSettingsSchema, GitHubReleaseInfo, GitHubAssetInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -18,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Settings, Puzzle, Code, Save } from "lucide-react";
+import { Settings, Puzzle, Code, Save, Upload, Download, Trash2, Github, Loader2, RefreshCw, Search, Package, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 
@@ -27,8 +28,17 @@ export default function PluginsPage() {
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Settings sheet state
+  // GitHub releases
+  const [repoUrl, setRepoUrl] = useState("");
+  const [releases, setReleases] = useState<GitHubReleaseInfo[]>([]);
+  const [loadingReleases, setLoadingReleases] = useState(false);
+  const [installingAsset, setInstallingAsset] = useState<string | null>(null);
+  
+  // Settings dialog state
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedPlugin, setSelectedPlugin] = useState<Plugin | null>(null);
   const [schema, setSchema] = useState<PluginSettingsSchema | null>(null);
@@ -48,6 +58,34 @@ export default function PluginsPage() {
     }
   };
 
+  const fetchReleases = async () => {
+    if (!repoUrl.trim()) {
+      toast.error(t("plugin.enterRepo") || "Please enter a GitHub repo");
+      return;
+    }
+    
+    // Parse repo from URL or direct input
+    let repo = repoUrl.trim();
+    const match = repo.match(/github\.com\/([^\/]+\/[^\/]+)/);
+    if (match) {
+      repo = match[1].replace(/\.git$/, "");
+    }
+    
+    setLoadingReleases(true);
+    try {
+      const { data } = await pluginsApi.listGitHubReleases(repo);
+      setReleases(data || []);
+      if (!data?.length) {
+        toast.info(t("plugin.noReleases") || "No releases found");
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+      setReleases([]);
+    } finally {
+      setLoadingReleases(false);
+    }
+  };
+
   useEffect(() => {
     fetchPlugins();
   }, []);
@@ -62,6 +100,55 @@ export default function PluginsPage() {
       toast.error(t("plugin.toggleFailed"));
     } finally {
       setToggling(null);
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setUploading(true);
+    try {
+      const { data } = await pluginsApi.uploadPlugin(file);
+      toast.success(data.message);
+      fetchPlugins();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleInstallAsset = async (asset: GitHubAssetInfo) => {
+    setInstallingAsset(asset.download_url);
+    try {
+      const { data } = await pluginsApi.installGitHubPlugin(asset.download_url);
+      toast.success(data.message);
+      fetchPlugins();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+    } finally {
+      setInstallingAsset(null);
+    }
+  };
+
+  const handleUninstall = async (pluginId: string) => {
+    if (!confirm(t("plugin.confirmUninstall")?.replace("{name}", pluginId) || `Uninstall plugin "${pluginId}"?`)) {
+      return;
+    }
+    
+    setDeleting(pluginId);
+    try {
+      await pluginsApi.uninstall(pluginId);
+      toast.success(t("plugin.uninstallSuccess") || "Plugin uninstalled");
+      fetchPlugins();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -93,6 +180,12 @@ export default function PluginsPage() {
 
   const updateValue = (key: string, value: unknown) => {
     setValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const renderField = (field: PluginSettingsSchema["sections"][0]["fields"][0]) => {
@@ -177,90 +270,238 @@ export default function PluginsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">{t("plugin.title")}</h1>
-        <p className="text-muted-foreground">{t("plugin.description")}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">{t("plugin.title")}</h1>
+          <p className="text-muted-foreground">{t("plugin.description")}</p>
+        </div>
+        <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".zip,.tar,.tar.gz,.tgz"
+            onChange={handleUpload}
+            className="hidden"
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4 mr-2" />
+            )}
+            {t("plugin.upload") || "Upload"}
+          </Button>
+          <Button variant="outline" onClick={fetchPlugins} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            {t("common.refresh") || "Refresh"}
+          </Button>
+        </div>
       </div>
 
-      {loading ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Card key={i}>
-              <CardHeader>
-                <Skeleton className="h-5 w-32" />
-                <Skeleton className="h-4 w-48" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-4 w-full" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : plugins.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Puzzle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">{t("plugin.noPlugins")}</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {plugins.map((plugin) => (
-            <Card key={plugin.id} className={!plugin.enabled ? "opacity-60" : ""}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Puzzle className="h-4 w-4" />
-                      {plugin.name}
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      {t("plugin.version")}: {plugin.version}
-                      {plugin.author && ` · ${t("plugin.author")}: ${plugin.author}`}
-                    </CardDescription>
-                  </div>
-                  <Switch
-                    checked={plugin.enabled}
-                    onCheckedChange={() => handleToggle(plugin)}
-                    disabled={toggling === plugin.id}
-                  />
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  {plugin.description || "No description"}
-                </p>
-                
-                {plugin.shortcodes.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    <Code className="h-4 w-4 text-muted-foreground mr-1" />
-                    {plugin.shortcodes.map((sc) => (
-                      <Badge key={sc} variant="secondary" className="text-xs">[{sc}]</Badge>
-                    ))}
-                  </div>
-                )}
+      <Tabs defaultValue="installed" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="installed" className="gap-2">
+            <Puzzle className="h-4 w-4" />
+            {t("plugin.installed") || "Installed"}
+          </TabsTrigger>
+          <TabsTrigger value="github" className="gap-2">
+            <Github className="h-4 w-4" />
+            {t("plugin.online") || "Online"}
+          </TabsTrigger>
+        </TabsList>
 
-                <div className="flex items-center justify-between pt-2 border-t">
-                  <Badge variant={plugin.enabled ? "success" : "secondary"}>
-                    {plugin.enabled ? t("plugin.enabled") : t("plugin.disabled")}
-                  </Badge>
-                  {plugin.has_settings && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openSettings(plugin)}
-                      disabled={!plugin.enabled}
-                    >
-                      <Settings className="h-4 w-4 mr-1" />
-                      {t("plugin.settings")}
-                    </Button>
-                  )}
-                </div>
+        <TabsContent value="installed">
+          {loading ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Card key={i}>
+                  <CardHeader>
+                    <Skeleton className="h-5 w-32" />
+                    <Skeleton className="h-4 w-48" />
+                  </CardHeader>
+                  <CardContent>
+                    <Skeleton className="h-4 w-full" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : plugins.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Puzzle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">{t("plugin.noPlugins")}</p>
               </CardContent>
             </Card>
-          ))}
-        </div>
-      )}
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {plugins.map((plugin) => (
+                <Card key={plugin.id} className={!plugin.enabled ? "opacity-60" : ""}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-1">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Puzzle className="h-4 w-4" />
+                          {plugin.name}
+                        </CardTitle>
+                        <CardDescription className="text-xs">
+                          {t("plugin.version")}: {plugin.version}
+                          {plugin.author && ` · ${t("plugin.author")}: ${plugin.author}`}
+                        </CardDescription>
+                      </div>
+                      <Switch
+                        checked={plugin.enabled}
+                        onCheckedChange={() => handleToggle(plugin)}
+                        disabled={toggling === plugin.id}
+                      />
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      {plugin.description || "No description"}
+                    </p>
+                    
+                    {plugin.shortcodes.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        <Code className="h-4 w-4 text-muted-foreground mr-1" />
+                        {plugin.shortcodes.map((sc) => (
+                          <Badge key={sc} variant="secondary" className="text-xs">[{sc}]</Badge>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-2 border-t">
+                      <Badge variant={plugin.enabled ? "default" : "secondary"}>
+                        {plugin.enabled ? t("plugin.enabled") : t("plugin.disabled")}
+                      </Badge>
+                      <div className="flex gap-1">
+                        {plugin.has_settings && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openSettings(plugin)}
+                            disabled={!plugin.enabled}
+                          >
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleUninstall(plugin.id)}
+                          disabled={deleting === plugin.id}
+                        >
+                          {deleting === plugin.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="github">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Github className="h-5 w-5" />
+                {t("plugin.onlinePlugins") || "Install from GitHub"}
+              </CardTitle>
+              <CardDescription>
+                {t("plugin.onlineDesc") || "Enter a GitHub repository URL to browse releases"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="owner/repo or https://github.com/owner/repo"
+                  value={repoUrl}
+                  onChange={(e) => setRepoUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && fetchReleases()}
+                />
+                <Button onClick={fetchReleases} disabled={loadingReleases}>
+                  {loadingReleases ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+
+              {releases.length > 0 && (
+                <div className="space-y-4">
+                  {releases.map((release) => (
+                    <div key={release.tag_name} className="border rounded-lg p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-semibold flex items-center gap-2">
+                            <Tag className="h-4 w-4" />
+                            {release.name || release.tag_name}
+                          </h3>
+                          <p className="text-xs text-muted-foreground">
+                            {release.tag_name}
+                            {release.published_at && ` · ${new Date(release.published_at).toLocaleDateString()}`}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {release.assets.length > 0 ? (
+                        <div className="grid gap-2">
+                          {release.assets.map((asset) => (
+                            <div
+                              key={asset.download_url}
+                              className="flex items-center justify-between p-2 bg-muted/50 rounded"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Package className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-sm">{asset.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({formatSize(asset.size)})
+                                </span>
+                              </div>
+                              <Button
+                                size="sm"
+                                onClick={() => handleInstallAsset(asset)}
+                                disabled={installingAsset === asset.download_url}
+                              >
+                                {installingAsset === asset.download_url ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Download className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          {t("plugin.noAssets") || "No downloadable assets"}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!loadingReleases && releases.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Github className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>{t("plugin.searchHint") || "Enter a repo and click search"}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Settings Dialog */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>

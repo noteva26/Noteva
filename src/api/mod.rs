@@ -24,9 +24,11 @@ pub mod middleware;
 pub mod nav;
 pub mod pages;
 pub mod plugins;
+pub mod plugin_install;
 pub mod site;
 pub mod static_files;
 pub mod tags;
+pub mod theme_install;
 pub mod upload;
 
 use axum::{
@@ -46,21 +48,39 @@ pub use middleware::{
 
 /// Build the main API router
 pub fn build_api_router(state: AppState) -> Router<AppState> {
-    // Protected routes (need auth middleware)
-    let protected_routes = Router::new()
-        .nest("/auth", auth::protected_router())
+    // Admin routes (need admin role)
+    let admin_routes = Router::new()
         .nest("/admin", admin::router())
-        .nest("/upload", upload::router())
         .nest("/admin/pages", pages::router())
         .nest("/admin/nav", nav::router())
         .nest("/admin/plugins", plugins::router())
-        .route("/articles", axum::routing::post(articles::create_article_handler))
+        // Theme installation routes
+        .route("/admin/themes/upload", axum::routing::post(theme_install::upload_theme))
+        .route("/admin/themes/github/releases", axum::routing::get(theme_install::list_github_releases))
+        .route("/admin/themes/github/install", axum::routing::post(theme_install::install_github_theme))
+        .route("/admin/themes/:name", axum::routing::delete(theme_install::delete_theme))
+        // Plugin installation routes
+        .route("/admin/plugins/upload", axum::routing::post(plugin_install::upload_plugin))
+        .route("/admin/plugins/github/releases", axum::routing::get(plugin_install::list_github_releases))
+        .route("/admin/plugins/github/install", axum::routing::post(plugin_install::install_github_plugin))
+        .route("/admin/plugins/:id/uninstall", axum::routing::delete(plugin_install::uninstall_plugin))
         // Admin article operations by ID
         .route("/admin/articles/:id", axum::routing::get(articles::get_article_by_id_handler))
         .route("/admin/articles/:id", axum::routing::put(articles::update_article_handler))
         .route("/admin/articles/:id", axum::routing::delete(articles::delete_article_handler))
         // Admin comment operations
         .route("/admin/comments/:id", axum::routing::delete(comments::delete_comment))
+        .route_layer(axum_middleware::from_fn(middleware::require_admin))
+        .route_layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::require_auth,
+        ));
+
+    // Protected routes (need auth but not admin)
+    let protected_routes = Router::new()
+        .nest("/auth", auth::protected_router())
+        .nest("/upload", upload::router())
+        .route("/articles", axum::routing::post(articles::create_article_handler))
         .route_layer(axum_middleware::from_fn_with_state(
             state.clone(),
             middleware::require_auth,
@@ -87,6 +107,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .route("/like", axum::routing::post(comments::like))
         .route("/like/check", axum::routing::get(comments::check_like))
         .route("/view/:article_id", axum::routing::post(comments::increment_view))
+        .merge(admin_routes)
         .merge(protected_routes)
 }
 

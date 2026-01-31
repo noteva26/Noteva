@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "设置部分内容需要回复后才能查看",
   "author": "Noteva Team",
-  "homepage": "https://github.com/noteva/plugin-hide-until-reply",
+  "homepage": "https://github.com/noteva26/Noteva",
   "license": "MIT",
   "requires": {
     "noteva": ">=0.1.0"

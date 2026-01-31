@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "在博客添加背景音乐播放器",
   "author": "Noteva Team",
+  "homepage": "https://github.com/noteva26/Noteva",
   "license": "MIT",
   "hooks": {
     "frontend": ["body_end", "init"]

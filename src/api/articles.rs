@@ -36,6 +36,12 @@ pub struct ListArticlesQuery {
     /// If true, only return published articles (legacy)
     #[serde(default)]
     pub published_only: bool,
+    /// Search keyword for title and content
+    pub keyword: Option<String>,
+    /// Filter by category ID
+    pub category: Option<i64>,
+    /// Filter by tag ID
+    pub tag: Option<i64>,
 }
 
 fn default_page() -> u32 { 1 }
@@ -210,7 +216,28 @@ pub async fn list_articles(
     // Check if we should filter by published status
     let filter_published = query.published_only || query.status.as_deref() == Some("published");
 
-    let result = if filter_published {
+    let result = if let Some(ref keyword) = query.keyword {
+        // Search by keyword
+        state
+            .article_service
+            .search(keyword, &params, filter_published)
+            .await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?
+    } else if let Some(category_id) = query.category {
+        // Filter by category
+        state
+            .article_service
+            .list_by_category(category_id, &params)
+            .await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?
+    } else if let Some(tag_id) = query.tag {
+        // Filter by tag
+        state
+            .article_service
+            .list_by_tag(tag_id, &params)
+            .await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?
+    } else if filter_published {
         state
             .article_service
             .list_published(&params)

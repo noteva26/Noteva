@@ -131,10 +131,31 @@ export const adminApi = {
   switchTheme: (theme: string) =>
     api.post<ThemeResponse>("/admin/themes/switch", { theme }),
   
+  // Theme installation
+  uploadTheme: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<ThemeInstallResponse>("/admin/themes/upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  
+  listGitHubReleases: (repo: string) =>
+    api.get<GitHubReleaseInfo[]>("/admin/themes/github/releases", { params: { repo } }),
+  
+  installGitHubTheme: (downloadUrl: string) =>
+    api.post<ThemeInstallResponse>("/admin/themes/github/install", { download_url: downloadUrl }),
+  
+  deleteTheme: (name: string) =>
+    api.delete(`/admin/themes/${name}`),
+  
   getSettings: () => api.get<SiteSettings>("/admin/settings"),
   
   updateSettings: (data: SiteSettingsInput) =>
     api.put<SiteSettings>("/admin/settings", data),
+  
+  checkUpdate: (beta: boolean = false) =>
+    api.get<UpdateCheckResponse>("/admin/update-check", { params: { beta } }),
 };
 
 // Public site info API (no auth required)
@@ -156,6 +177,24 @@ export const pluginsApi = {
   
   updateSettings: (id: string, settings: Record<string, unknown>) =>
     api.post<{ success: boolean; settings: Record<string, unknown> }>(`/admin/plugins/${id}/settings`, settings),
+  
+  // Plugin installation
+  uploadPlugin: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<PluginInstallResponse>("/admin/plugins/upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  
+  listGitHubReleases: (repo: string) =>
+    api.get<GitHubReleaseInfo[]>("/admin/plugins/github/releases", { params: { repo } }),
+  
+  installGitHubPlugin: (downloadUrl: string) =>
+    api.post<PluginInstallResponse>("/admin/plugins/github/install", { download_url: downloadUrl }),
+  
+  uninstall: (id: string) =>
+    api.delete(`/admin/plugins/${id}/uninstall`),
 };
 
 // Upload API
@@ -374,3 +413,80 @@ export interface PluginSettingsResponse {
   schema: PluginSettingsSchema;
   values: Record<string, unknown>;
 }
+
+export interface UpdateCheckResponse {
+  current_version: string;
+  latest_version: string | null;
+  update_available: boolean;
+  release_url: string | null;
+  release_notes: string | null;
+  release_date: string | null;
+  is_beta: boolean;
+  error: string | null;
+}
+
+// Theme installation types
+export interface ThemeInstallResponse {
+  success: boolean;
+  theme_name: string;
+  message: string;
+}
+
+export interface GitHubReleaseInfo {
+  tag_name: string;
+  name: string;
+  published_at: string | null;
+  assets: GitHubAssetInfo[];
+}
+
+export interface GitHubAssetInfo {
+  name: string;
+  size: number;
+  download_url: string;
+}
+
+// Plugin installation types
+export interface PluginInstallResponse {
+  success: boolean;
+  plugin_name: string;
+  message: string;
+}
+
+// User management types
+export interface UserAdmin {
+  id: number;
+  username: string;
+  email: string;
+  role: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserListResponse {
+  users: UserAdmin[];
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}
+
+export interface UpdateUserInput {
+  username?: string;
+  email?: string;
+  role?: string;
+  status?: string;
+}
+
+// Users API (admin)
+export const usersApi = {
+  list: (params?: { page?: number; per_page?: number }) =>
+    api.get<UserListResponse>("/admin/users", { params }),
+  
+  get: (id: number) => api.get<UserAdmin>(`/admin/users/${id}`),
+  
+  update: (id: number, data: UpdateUserInput) =>
+    api.put<UserAdmin>(`/admin/users/${id}`, data),
+  
+  delete: (id: number) => api.delete(`/admin/users/${id}`),
+};

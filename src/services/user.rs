@@ -294,6 +294,22 @@ impl UserService {
             ));
         }
 
+        // Check if user is banned
+        if user.is_banned() {
+            // Trigger user_login_failed hook
+            self.trigger_hook(
+                hook_names::USER_LOGIN_FAILED,
+                json!({
+                    "username_or_email": input.username_or_email,
+                    "user_id": user.id,
+                    "reason": "user_banned",
+                })
+            );
+            return Err(UserServiceError::AuthenticationError(
+                "Your account has been banned. Please contact the administrator.".to_string(),
+            ));
+        }
+
         // Create session
         let session = self.create_session(user.id).await?;
 

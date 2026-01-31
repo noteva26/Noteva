@@ -207,14 +207,17 @@
   // ============================================
   const articles = {
     async list(params = {}) {
-      const result = await api.get('/articles', {
+      const queryParams = {
         page: params.page || 1,
         page_size: params.pageSize || 10,
-        category: params.category,
-        tag: params.tag,
-        keyword: params.keyword,
         published_only: true,  // 前台只显示已发布文章
-      });
+      };
+      // 只添加有值的可选参数
+      if (params.category) queryParams.category = params.category;
+      if (params.tag) queryParams.tag = params.tag;
+      if (params.keyword) queryParams.keyword = params.keyword;
+      
+      const result = await api.get('/articles', queryParams);
       return {
         articles: result.articles || [],
         total: result.total || 0,

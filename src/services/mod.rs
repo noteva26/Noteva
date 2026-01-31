@@ -9,6 +9,7 @@
 pub mod article;
 pub mod category;
 pub mod comment;
+pub mod emoji;
 pub mod markdown;
 pub mod nav_item;
 pub mod page;
@@ -23,6 +24,7 @@ pub use category::{
     generate_slug,
 };
 pub use comment::{CommentService, generate_fingerprint};
+pub use emoji::{process_all_emoji, process_shortcodes, process_unicode_emoji};
 pub use markdown::MarkdownRenderer;
 pub use nav_item::NavItemService;
 pub use page::PageService;

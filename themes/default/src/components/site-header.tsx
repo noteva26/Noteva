@@ -42,6 +42,20 @@ const BUILTIN_PATHS: Record<string, string> = {
   tags: "/tags",
 };
 
+// 从后端注入的配置读取初始值，避免闪烁
+const getInitialSiteInfo = () => {
+  if (typeof window !== "undefined") {
+    const config = (window as any).__SITE_CONFIG__;
+    if (config) {
+      return {
+        name: config.site_name || "Noteva",
+        logo: config.site_logo || "/logo.png",
+      };
+    }
+  }
+  return { name: "Noteva", logo: "/logo.png" };
+};
+
 export function SiteHeader() {
   const { t } = useTranslation();
   const router = useRouter();
@@ -49,9 +63,10 @@ export function SiteHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [navItems, setNavItems] = useState<NavItem[]>([]);
-  const [siteInfo, setSiteInfo] = useState({ name: "Noteva", logo: "/logo.png" });
+  const [siteInfo, setSiteInfo] = useState(getInitialSiteInfo);
   const [user, setUser] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   // 客户端挂载后才显示动态内容，避免水合错误
   useEffect(() => {
@@ -101,8 +116,10 @@ export function SiteHeader() {
         const currentUser = await Noteva.user.check();
         setUser(currentUser);
         setIsAuthenticated(!!currentUser);
+        setAuthChecked(true);
       } catch (err) {
         console.error(err);
+        setAuthChecked(true);
       }
     };
 
@@ -309,7 +326,7 @@ export function SiteHeader() {
           <LanguageSwitcher />
           <ThemeSwitcher />
           
-          {isAuthenticated ? (
+          {authChecked && isAuthenticated ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-2">
@@ -337,7 +354,7 @@ export function SiteHeader() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : (
+          ) : authChecked ? (
             <div className="hidden md:flex items-center gap-2">
               <Button variant="ghost" size="sm" asChild>
                 <Link href="/login">{t("nav.login")}</Link>
@@ -346,7 +363,7 @@ export function SiteHeader() {
                 <Link href="/register">{t("nav.register")}</Link>
               </Button>
             </div>
-          )}
+          ) : null}
           
           {/* Mobile Menu Button */}
           <Button

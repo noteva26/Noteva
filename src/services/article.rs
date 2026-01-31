@@ -426,6 +426,41 @@ impl ArticleService {
         Ok(PagedResult::new(articles, total, params))
     }
 
+    /// Search articles by keyword
+    ///
+    /// Searches in article title and content.
+    ///
+    /// # Arguments
+    /// * `keyword` - Search keyword
+    /// * `params` - Pagination parameters
+    /// * `published_only` - If true, only search published articles
+    ///
+    /// # Returns
+    /// Paginated result of matching articles
+    pub async fn search(
+        &self,
+        keyword: &str,
+        params: &ListParams,
+        published_only: bool,
+    ) -> Result<PagedResult<Article>, ArticleServiceError> {
+        let offset = params.offset();
+        let limit = params.limit();
+
+        let articles = self
+            .repo
+            .search(keyword, offset, limit, published_only)
+            .await
+            .context("Failed to search articles")?;
+
+        let total = self
+            .repo
+            .count_search(keyword, published_only)
+            .await
+            .context("Failed to count search results")?;
+
+        Ok(PagedResult::new(articles, total, params))
+    }
+
     /// Update an article
     ///
     /// # Arguments

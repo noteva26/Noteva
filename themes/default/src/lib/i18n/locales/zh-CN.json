@@ -100,5 +100,8 @@
   },
   "settings": {
     "appearance": "外观设置"
+  },
+  "user": {
+    "userBanned": "该账号已被封禁，无法登录"
   }
 }

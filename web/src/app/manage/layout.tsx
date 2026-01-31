@@ -26,6 +26,7 @@ import {
   FileCode,
   Navigation,
   Puzzle,
+  Users,
 } from "lucide-react";
 
 export default function AdminLayout({
@@ -48,6 +49,7 @@ export default function AdminLayout({
     { href: "/manage/tags", label: t("manage.tags"), icon: Tags },
     { href: "/manage/pages", label: t("manage.pages"), icon: FileCode },
     { href: "/manage/nav", label: t("manage.nav"), icon: Navigation },
+    { href: "/manage/users", label: t("manage.users"), icon: Users },
     { href: "/manage/plugins", label: t("manage.plugins"), icon: Puzzle },
     { href: "/manage/themes", label: t("manage.themes"), icon: Palette },
     { href: "/manage/settings", label: t("manage.settings"), icon: Settings },
@@ -80,8 +82,14 @@ export default function AdminLayout({
     if (!isAuthenticated) {
       // Redirect to frontend login page (different origin in production)
       window.location.href = "/login";
+      return;
     }
-  }, [isAuthenticated, isAuthPage, authChecked]);
+    // Check if user is admin
+    if (user && user.role !== "admin") {
+      alert("权限不足：只有管理员可以访问管理后台");
+      window.location.href = "/";
+    }
+  }, [isAuthenticated, isAuthPage, authChecked, user]);
 
   const handleLogout = async () => {
     await logout();

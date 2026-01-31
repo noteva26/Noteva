@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -10,13 +10,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTranslation } from "@/lib/i18n";
+import { useSiteStore } from "@/lib/store/site";
 
 export default function RegisterPage() {
   const router = useRouter();
   const { register: registerUser, isLoading } = useAuthStore();
+  const { settings, fetchSettings } = useSiteStore();
   const { t } = useTranslation();
   const [form, setForm] = useState({ username: "", email: "", password: "", confirmPassword: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Fetch site settings
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -54,7 +61,7 @@ export default function RegisterPage() {
     <div className="flex min-h-screen items-center justify-center bg-muted/50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Noteva</CardTitle>
+          <CardTitle className="text-2xl font-bold text-center">{settings.site_name}</CardTitle>
           <CardDescription className="text-center">
             {t("auth.createAccount")}
           </CardDescription>

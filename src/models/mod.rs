@@ -22,4 +22,4 @@ pub use nav_item::{CreateNavItemInput, NavItem, NavItemTree, NavItemType, NavOrd
 pub use page::{CreatePageInput, Page, PageStatus, UpdatePageInput};
 pub use session::Session;
 pub use tag::{Tag, TagWithCount};
-pub use user::{CreateUserInput, UpdateUserInput, User, UserRole};
+pub use user::{CreateUserInput, UpdateUserInput, User, UserRole, UserStatus};

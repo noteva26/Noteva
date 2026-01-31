@@ -10,15 +10,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTranslation } from "@/lib/i18n";
+import { useSiteStore } from "@/lib/store/site";
 
 export default function LoginPage() {
   const router = useRouter();
   const { login, isLoading } = useAuthStore();
+  const { settings, fetchSettings } = useSiteStore();
   const [showPassword, setShowPassword] = useState(false);
   const [checking, setChecking] = useState(true);
   const { t } = useTranslation();
   const [form, setForm] = useState({ usernameOrEmail: "", password: "" });
   const [errors, setErrors] = useState<{ usernameOrEmail?: string; password?: string }>({});
+
+  // Fetch site settings
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
 
   // Check if already logged in via SDK
   useEffect(() => {
@@ -54,8 +61,16 @@ export default function LoginPage() {
       toast.success(t("auth.loginSuccess"));
       router.replace("/");
     } catch (error: any) {
-      // SDK 错误格式: error.data?.error 或 error.message
-      toast.error(error.data?.error || error.message || t("auth.loginFailed"));
+      // SDK 错误格式: error.data = { error: { code, message, details } }
+      const errorData = error.data?.error || error.data;
+      const errorCode = errorData?.code || error.code;
+      const errorMessage = errorData?.message || error.message;
+      
+      if (errorCode === "USER_BANNED") {
+        toast.error(t("user.userBanned") || "This account has been banned");
+      } else {
+        toast.error(errorMessage || t("auth.loginFailed"));
+      }
     }
   };
 
@@ -71,7 +86,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-muted/50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Noteva</CardTitle>
+          <CardTitle className="text-2xl font-bold text-center">{settings.site_name}</CardTitle>
           <CardDescription className="text-center">
             {t("auth.loginToAccount")}
           </CardDescription>

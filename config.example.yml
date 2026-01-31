@@ -21,7 +21,7 @@ cache:
   
   # Redis cache (uncomment below for better performance)
   # driver: "redis"
-  # url: "redis://127.0.0.1:6379"
+  # redis_url: "redis://127.0.0.1:6379"
 
 upload:
   dir: "uploads"

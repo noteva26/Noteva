@@ -82,11 +82,14 @@ impl ThemeEngine {
         let theme_json_path = default_theme_path.join("theme.json");
         if !theme_json_path.exists() {
             let default_theme_json = serde_json::json!({
-                "name": "Default Theme",
+                "name": "Noteva Default Theme",
                 "short": default_theme,
-                "description": "Noteva default theme",
+                "description": "The default theme for Noteva blog system",
                 "version": "1.0.0",
-                "author": "Noteva"
+                "author": "Noteva Team",
+                "url": "https://github.com/noteva26/Noteva",
+                "preview": "preview.png",
+                "configuration": {}
             });
             fs::write(&theme_json_path, serde_json::to_string_pretty(&default_theme_json)?)
                 .with_context(|| format!("Failed to create theme.json: {:?}", theme_json_path))?;

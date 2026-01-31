@@ -163,6 +163,27 @@ pub struct SystemStatsResponse {
     pub avg_response_time_ms: f64,
 }
 
+/// Response for update check
+#[derive(Debug, Serialize)]
+pub struct UpdateCheckResponse {
+    /// Current version
+    pub current_version: String,
+    /// Latest version available
+    pub latest_version: Option<String>,
+    /// Whether an update is available
+    pub update_available: bool,
+    /// Release URL
+    pub release_url: Option<String>,
+    /// Release notes
+    pub release_notes: Option<String>,
+    /// Release date
+    pub release_date: Option<String>,
+    /// Whether checking beta releases
+    pub is_beta: bool,
+    /// Error message if check failed
+    pub error: Option<String>,
+}
+
 /// App version constant - update when releasing
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -173,19 +194,26 @@ pub fn router() -> Router<AppState> {
         .route("/dashboard", get(get_dashboard))
         // System stats
         .route("/stats", get(get_system_stats))
+        // Update check
+        .route("/update-check", get(check_update))
         // Category management
         .route("/categories", post(create_category))
-        .route("/categories/{id}", put(update_category))
-        .route("/categories/{id}", delete(delete_category))
+        .route("/categories/:id", put(update_category))
+        .route("/categories/:id", delete(delete_category))
         // Tag management
         .route("/tags", post(create_tag))
-        .route("/tags/{id}", delete(delete_tag))
+        .route("/tags/:id", delete(delete_tag))
         // Theme management
         .route("/themes", get(list_themes))
         .route("/themes/switch", post(switch_theme))
         // Site settings
         .route("/settings", get(get_settings))
         .route("/settings", put(update_settings))
+        // User management
+        .route("/users", get(list_users))
+        .route("/users/:id", get(get_user))
+        .route("/users/:id", put(update_user))
+        .route("/users/:id", delete(delete_user))
 }
 
 /// GET /api/v1/admin/dashboard - Get dashboard stats
@@ -571,4 +599,445 @@ async fn update_settings(
         site_logo: settings.site_logo,
         site_footer: settings.site_footer,
     }))
+}
+
+/// Query parameters for update check
+#[derive(Debug, Deserialize)]
+pub struct UpdateCheckQuery {
+    /// Whether to check beta releases
+    #[serde(default)]
+    pub beta: bool,
+}
+
+/// GitHub release info
+#[derive(Debug, Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    html_url: String,
+    body: Option<String>,
+    published_at: Option<String>,
+    prerelease: bool,
+}
+
+/// GET /api/v1/admin/update-check - Check for updates
+///
+/// Requires admin authentication.
+/// Checks GitHub releases for new versions.
+async fn check_update(
+    _user: AuthenticatedUser,
+    axum::extract::Query(query): axum::extract::Query<UpdateCheckQuery>,
+) -> Json<UpdateCheckResponse> {
+    let current_version = APP_VERSION.to_string();
+    
+    // Determine which branch to check
+    let api_url = if query.beta {
+        "https://api.github.com/repos/noteva26/Noteva/releases"
+    } else {
+        "https://api.github.com/repos/noteva26/Noteva/releases/latest"
+    };
+    
+    // Make HTTP request to GitHub API
+    let client = match reqwest::Client::builder()
+        .user_agent("Noteva-Update-Checker")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(UpdateCheckResponse {
+                current_version,
+                latest_version: None,
+                update_available: false,
+                release_url: None,
+                release_notes: None,
+                release_date: None,
+                is_beta: query.beta,
+                error: Some(format!("Failed to create HTTP client: {}", e)),
+            });
+        }
+    };
+    
+    let response = match client.get(api_url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return Json(UpdateCheckResponse {
+                current_version,
+                latest_version: None,
+                update_available: false,
+                release_url: None,
+                release_notes: None,
+                release_date: None,
+                is_beta: query.beta,
+                error: Some(format!("Failed to fetch releases: {}", e)),
+            });
+        }
+    };
+    
+    if !response.status().is_success() {
+        return Json(UpdateCheckResponse {
+            current_version,
+            latest_version: None,
+            update_available: false,
+            release_url: None,
+            release_notes: None,
+            release_date: None,
+            is_beta: query.beta,
+            error: Some(format!("GitHub API returned status: {}", response.status())),
+        });
+    }
+    
+    // Parse response
+    let release = if query.beta {
+        // For beta, get all releases and find the latest (including prereleases)
+        match response.json::<Vec<GitHubRelease>>().await {
+            Ok(releases) => {
+                releases.into_iter().next()
+            }
+            Err(e) => {
+                return Json(UpdateCheckResponse {
+                    current_version,
+                    latest_version: None,
+                    update_available: false,
+                    release_url: None,
+                    release_notes: None,
+                    release_date: None,
+                    is_beta: query.beta,
+                    error: Some(format!("Failed to parse releases: {}", e)),
+                });
+            }
+        }
+    } else {
+        // For stable, get the latest release
+        match response.json::<GitHubRelease>().await {
+            Ok(r) => Some(r),
+            Err(e) => {
+                return Json(UpdateCheckResponse {
+                    current_version,
+                    latest_version: None,
+                    update_available: false,
+                    release_url: None,
+                    release_notes: None,
+                    release_date: None,
+                    is_beta: query.beta,
+                    error: Some(format!("Failed to parse release: {}", e)),
+                });
+            }
+        }
+    };
+    
+    match release {
+        Some(rel) => {
+            // Remove 'v' prefix if present for comparison
+            let latest = rel.tag_name.trim_start_matches('v').to_string();
+            let current = current_version.trim_start_matches('v');
+            
+            // Simple version comparison (works for semver)
+            let update_available = version_compare(&latest, current);
+            
+            Json(UpdateCheckResponse {
+                current_version,
+                latest_version: Some(latest),
+                update_available,
+                release_url: Some(rel.html_url),
+                release_notes: rel.body,
+                release_date: rel.published_at,
+                is_beta: query.beta,
+                error: None,
+            })
+        }
+        None => {
+            Json(UpdateCheckResponse {
+                current_version,
+                latest_version: None,
+                update_available: false,
+                release_url: None,
+                release_notes: None,
+                release_date: None,
+                is_beta: query.beta,
+                error: Some("No releases found".to_string()),
+            })
+        }
+    }
+}
+
+/// Compare two version strings
+/// Returns true if latest > current
+fn version_compare(latest: &str, current: &str) -> bool {
+    // Parse versions into comparable parts
+    let parse_version = |v: &str| -> Vec<(u32, String)> {
+        let mut parts = Vec::new();
+        let mut num = String::new();
+        let mut suffix = String::new();
+        let mut in_suffix = false;
+        
+        for c in v.chars() {
+            if c.is_ascii_digit() && !in_suffix {
+                num.push(c);
+            } else if c == '.' || c == '-' {
+                if !num.is_empty() {
+                    parts.push((num.parse().unwrap_or(0), suffix.clone()));
+                    num.clear();
+                    suffix.clear();
+                }
+                if c == '-' {
+                    in_suffix = true;
+                }
+            } else {
+                suffix.push(c);
+                in_suffix = true;
+            }
+        }
+        if !num.is_empty() || !suffix.is_empty() {
+            parts.push((num.parse().unwrap_or(0), suffix));
+        }
+        parts
+    };
+    
+    let latest_parts = parse_version(latest);
+    let current_parts = parse_version(current);
+    
+    for i in 0..latest_parts.len().max(current_parts.len()) {
+        let (l_num, l_suffix) = latest_parts.get(i).cloned().unwrap_or((0, String::new()));
+        let (c_num, c_suffix) = current_parts.get(i).cloned().unwrap_or((0, String::new()));
+        
+        if l_num > c_num {
+            return true;
+        } else if l_num < c_num {
+            return false;
+        }
+        
+        // Compare suffixes (empty > "beta" > "alpha")
+        let suffix_order = |s: &str| -> i32 {
+            if s.is_empty() { 3 }
+            else if s.contains("rc") { 2 }
+            else if s.contains("beta") { 1 }
+            else if s.contains("alpha") { 0 }
+            else { 3 }
+        };
+        
+        let l_order = suffix_order(&l_suffix);
+        let c_order = suffix_order(&c_suffix);
+        
+        if l_order > c_order {
+            return true;
+        } else if l_order < c_order {
+            return false;
+        }
+    }
+    
+    false
+}
+
+// ============================================================================
+// User Management API
+// ============================================================================
+
+/// Response for user list
+#[derive(Debug, Serialize)]
+pub struct UserListResponse {
+    pub users: Vec<UserAdminResponse>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
+    pub total_pages: i64,
+}
+
+/// Response for a user in admin context
+#[derive(Debug, Serialize)]
+pub struct UserAdminResponse {
+    pub id: i64,
+    pub username: String,
+    pub email: String,
+    pub role: String,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<crate::models::User> for UserAdminResponse {
+    fn from(user: crate::models::User) -> Self {
+        Self {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            role: user.role.to_string(),
+            status: user.status.to_string(),
+            created_at: user.created_at.to_rfc3339(),
+            updated_at: user.updated_at.to_rfc3339(),
+        }
+    }
+}
+
+/// Request for updating a user
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserRequest {
+    pub username: Option<String>,
+    pub email: Option<String>,
+    pub role: Option<String>,
+    pub status: Option<String>,
+}
+
+/// Query params for user list
+#[derive(Debug, Deserialize)]
+pub struct UserListQuery {
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_per_page")]
+    pub per_page: i64,
+}
+
+fn default_page() -> i64 { 1 }
+fn default_per_page() -> i64 { 20 }
+
+/// GET /api/v1/admin/users - List all users
+pub async fn list_users(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+    axum::extract::Query(query): axum::extract::Query<UserListQuery>,
+) -> Result<Json<UserListResponse>, ApiError> {
+    let (users, total) = state
+        .user_repo
+        .list(query.page, query.per_page)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    let total_pages = (total as f64 / query.per_page as f64).ceil() as i64;
+
+    Ok(Json(UserListResponse {
+        users: users.into_iter().map(|u| u.into()).collect(),
+        total,
+        page: query.page,
+        per_page: query.per_page,
+        total_pages,
+    }))
+}
+
+/// GET /api/v1/admin/users/:id - Get a user by ID
+pub async fn get_user(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> Result<Json<UserAdminResponse>, ApiError> {
+    let user = state
+        .user_repo
+        .get_by_id(id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("User not found"))?;
+
+    Ok(Json(user.into()))
+}
+
+/// PUT /api/v1/admin/users/:id - Update a user
+pub async fn update_user(
+    State(state): State<AppState>,
+    current_user: AuthenticatedUser,
+    Path(id): Path<i64>,
+    Json(body): Json<UpdateUserRequest>,
+) -> Result<Json<UserAdminResponse>, ApiError> {
+    use std::str::FromStr;
+    use crate::models::{UserRole, UserStatus};
+
+    tracing::info!("Updating user {}: {:?}", id, body);
+
+    // Get existing user
+    let mut user = state
+        .user_repo
+        .get_by_id(id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("User not found"))?;
+
+    tracing::info!("Found user: {} ({})", user.username, user.email);
+
+    // Prevent self-demotion or self-ban for admins
+    if current_user.0.id == id {
+        if let Some(ref role) = body.role {
+            if role != "admin" {
+                return Err(ApiError::validation_error("Cannot change your own role"));
+            }
+        }
+        if let Some(ref status) = body.status {
+            if status == "banned" {
+                return Err(ApiError::validation_error("Cannot ban yourself"));
+            }
+        }
+    }
+
+    // Update fields
+    if let Some(username) = body.username {
+        // Check if username is taken by another user
+        if let Some(existing) = state.user_repo.get_by_username(&username).await
+            .map_err(|e| ApiError::internal_error(e.to_string()))? 
+        {
+            if existing.id != id {
+                return Err(ApiError::validation_error("Username already taken"));
+            }
+        }
+        user.username = username;
+    }
+
+    if let Some(email) = body.email {
+        // Check if email is taken by another user
+        if let Some(existing) = state.user_repo.get_by_email(&email).await
+            .map_err(|e| ApiError::internal_error(e.to_string()))? 
+        {
+            if existing.id != id {
+                return Err(ApiError::validation_error("Email already taken"));
+            }
+        }
+        user.email = email;
+    }
+
+    if let Some(role) = body.role {
+        user.role = UserRole::from_str(&role)
+            .map_err(|_| ApiError::validation_error("Invalid role"))?;
+    }
+
+    if let Some(status) = body.status {
+        user.status = UserStatus::from_str(&status)
+            .map_err(|_| ApiError::validation_error("Invalid status"))?;
+    }
+
+    tracing::info!("Saving user: {} ({}) role={:?} status={:?}", user.username, user.email, user.role, user.status);
+
+    // Save changes
+    let updated = state
+        .user_repo
+        .update(&user)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    tracing::info!("User updated successfully: {} ({})", updated.username, updated.email);
+
+    Ok(Json(updated.into()))
+}
+
+/// DELETE /api/v1/admin/users/:id - Delete a user
+pub async fn delete_user(
+    State(state): State<AppState>,
+    current_user: AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ApiError> {
+    // Prevent self-deletion
+    if current_user.0.id == id {
+        return Err(ApiError::validation_error("Cannot delete yourself"));
+    }
+
+    // Check if user exists
+    let _ = state
+        .user_repo
+        .get_by_id(id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("User not found"))?;
+
+    // Delete user
+    state
+        .user_repo
+        .delete(id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    Ok(StatusCode::NO_CONTENT)
 }

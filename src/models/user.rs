@@ -28,6 +28,8 @@ pub struct User {
     pub password_hash: String,
     /// User role
     pub role: UserRole,
+    /// User status (active/banned)
+    pub status: UserStatus,
     /// Creation timestamp
     pub created_at: DateTime<Utc>,
     /// Last update timestamp
@@ -52,6 +54,7 @@ impl User {
             email,
             password_hash,
             role,
+            status: UserStatus::Active,
             created_at: now,
             updated_at: now,
         }
@@ -73,6 +76,16 @@ impl User {
     /// Authors can only edit their own content.
     pub fn can_edit(&self, author_id: i64) -> bool {
         self.is_editor() || self.id == author_id
+    }
+
+    /// Check if the user is banned
+    pub fn is_banned(&self) -> bool {
+        self.status == UserStatus::Banned
+    }
+
+    /// Check if the user is active
+    pub fn is_active(&self) -> bool {
+        self.status == UserStatus::Active
     }
 }
 
@@ -122,6 +135,47 @@ impl FromStr for UserRole {
     }
 }
 
+/// User status for account state.
+///
+/// Status determines if a user can access the system:
+/// - Active: Normal access
+/// - Banned: Cannot login
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UserStatus {
+    /// Active - normal access
+    Active,
+    /// Banned - cannot login
+    Banned,
+}
+
+impl Default for UserStatus {
+    fn default() -> Self {
+        Self::Active
+    }
+}
+
+impl fmt::Display for UserStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UserStatus::Active => write!(f, "active"),
+            UserStatus::Banned => write!(f, "banned"),
+        }
+    }
+}
+
+impl FromStr for UserStatus {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "active" => Ok(UserStatus::Active),
+            "banned" => Ok(UserStatus::Banned),
+            _ => Err(anyhow::anyhow!("Invalid user status: {}", s)),
+        }
+    }
+}
+
 /// Input for creating a new user (before password hashing)
 #[derive(Debug, Clone)]
 pub struct CreateUserInput {
@@ -146,6 +200,8 @@ pub struct UpdateUserInput {
     pub password: Option<String>,
     /// New role (optional)
     pub role: Option<UserRole>,
+    /// New status (optional)
+    pub status: Option<UserStatus>,
 }
 
 #[cfg(test)]

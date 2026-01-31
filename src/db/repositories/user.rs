@@ -11,7 +11,7 @@
 
 use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
-use crate::models::{User, UserRole};
+use crate::models::{User, UserRole, UserStatus};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -42,6 +42,9 @@ pub trait UserRepository: Send + Sync {
 
     /// Count total users
     async fn count(&self) -> Result<i64>;
+
+    /// List all users with pagination
+    async fn list(&self, page: i64, per_page: i64) -> Result<(Vec<User>, i64)>;
 }
 
 /// SQLx-based user repository implementation
@@ -121,6 +124,13 @@ impl UserRepository for SqlxUserRepository {
             DatabaseDriver::Mysql => count_users_mysql(self.pool.as_mysql().unwrap()).await,
         }
     }
+
+    async fn list(&self, page: i64, per_page: i64) -> Result<(Vec<User>, i64)> {
+        match self.pool.driver() {
+            DatabaseDriver::Sqlite => list_users_sqlite(self.pool.as_sqlite().unwrap(), page, per_page).await,
+            DatabaseDriver::Mysql => list_users_mysql(self.pool.as_mysql().unwrap(), page, per_page).await,
+        }
+    }
 }
 
 // ============================================================================
@@ -130,17 +140,19 @@ impl UserRepository for SqlxUserRepository {
 async fn create_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
     let now = Utc::now();
     let role_str = user.role.to_string();
+    let status_str = user.status.to_string();
 
     let result = sqlx::query(
         r#"
-        INSERT INTO users (username, email, password_hash, role, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO users (username, email, password_hash, role, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&user.username)
     .bind(&user.email)
     .bind(&user.password_hash)
     .bind(&role_str)
+    .bind(&status_str)
     .bind(now)
     .bind(now)
     .execute(pool)
@@ -155,6 +167,7 @@ async fn create_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
         email: user.email.clone(),
         password_hash: user.password_hash.clone(),
         role: user.role,
+        status: user.status,
         created_at: now,
         updated_at: now,
     })
@@ -163,7 +176,7 @@ async fn create_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
 async fn get_user_by_id_sqlite(pool: &SqlitePool, id: i64) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, created_at, updated_at
         FROM users
         WHERE id = ?
         "#,
@@ -182,7 +195,7 @@ async fn get_user_by_id_sqlite(pool: &SqlitePool, id: i64) -> Result<Option<User
 async fn get_user_by_username_sqlite(pool: &SqlitePool, username: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, created_at, updated_at
         FROM users
         WHERE username = ?
         "#,
@@ -201,7 +214,7 @@ async fn get_user_by_username_sqlite(pool: &SqlitePool, username: &str) -> Resul
 async fn get_user_by_email_sqlite(pool: &SqlitePool, email: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, created_at, updated_at
         FROM users
         WHERE email = ?
         "#,
@@ -220,11 +233,12 @@ async fn get_user_by_email_sqlite(pool: &SqlitePool, email: &str) -> Result<Opti
 async fn update_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
     let now = Utc::now();
     let role_str = user.role.to_string();
+    let status_str = user.status.to_string();
 
     sqlx::query(
         r#"
         UPDATE users
-        SET username = ?, email = ?, password_hash = ?, role = ?, updated_at = ?
+        SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, updated_at = ?
         WHERE id = ?
         "#,
     )
@@ -232,6 +246,7 @@ async fn update_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
     .bind(&user.email)
     .bind(&user.password_hash)
     .bind(&role_str)
+    .bind(&status_str)
     .bind(now)
     .bind(user.id)
     .execute(pool)
@@ -268,15 +283,48 @@ fn row_to_user_sqlite(row: &sqlx::sqlite::SqliteRow) -> Result<User> {
     let role = UserRole::from_str(&role_str)
         .with_context(|| format!("Invalid role in database: {}", role_str))?;
 
+    let status_str: Option<String> = row.try_get("status").ok();
+    let status = status_str
+        .map(|s| UserStatus::from_str(&s).unwrap_or(UserStatus::Active))
+        .unwrap_or(UserStatus::Active);
+
     Ok(User {
         id: row.get("id"),
         username: row.get("username"),
         email: row.get("email"),
         password_hash: row.get("password_hash"),
         role,
+        status,
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
+}
+
+async fn list_users_sqlite(pool: &SqlitePool, page: i64, per_page: i64) -> Result<(Vec<User>, i64)> {
+    let offset = (page - 1) * per_page;
+    
+    let rows = sqlx::query(
+        r#"
+        SELECT id, username, email, password_hash, role, status, created_at, updated_at
+        FROM users
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        "#,
+    )
+    .bind(per_page)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .context("Failed to list users")?;
+
+    let mut users = Vec::new();
+    for row in rows {
+        users.push(row_to_user_sqlite(&row)?);
+    }
+
+    let total = count_users_sqlite(pool).await?;
+
+    Ok((users, total))
 }
 
 // ============================================================================
@@ -286,17 +334,19 @@ fn row_to_user_sqlite(row: &sqlx::sqlite::SqliteRow) -> Result<User> {
 async fn create_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
     let now = Utc::now();
     let role_str = user.role.to_string();
+    let status_str = user.status.to_string();
 
     let result = sqlx::query(
         r#"
-        INSERT INTO users (username, email, password_hash, role, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO users (username, email, password_hash, role, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&user.username)
     .bind(&user.email)
     .bind(&user.password_hash)
     .bind(&role_str)
+    .bind(&status_str)
     .bind(now)
     .bind(now)
     .execute(pool)
@@ -311,6 +361,7 @@ async fn create_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
         email: user.email.clone(),
         password_hash: user.password_hash.clone(),
         role: user.role,
+        status: user.status,
         created_at: now,
         updated_at: now,
     })
@@ -319,7 +370,7 @@ async fn create_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
 async fn get_user_by_id_mysql(pool: &MySqlPool, id: i64) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, created_at, updated_at
         FROM users
         WHERE id = ?
         "#,
@@ -338,7 +389,7 @@ async fn get_user_by_id_mysql(pool: &MySqlPool, id: i64) -> Result<Option<User>>
 async fn get_user_by_username_mysql(pool: &MySqlPool, username: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, created_at, updated_at
         FROM users
         WHERE username = ?
         "#,
@@ -357,7 +408,7 @@ async fn get_user_by_username_mysql(pool: &MySqlPool, username: &str) -> Result<
 async fn get_user_by_email_mysql(pool: &MySqlPool, email: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, created_at, updated_at
         FROM users
         WHERE email = ?
         "#,
@@ -376,11 +427,12 @@ async fn get_user_by_email_mysql(pool: &MySqlPool, email: &str) -> Result<Option
 async fn update_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
     let now = Utc::now();
     let role_str = user.role.to_string();
+    let status_str = user.status.to_string();
 
     sqlx::query(
         r#"
         UPDATE users
-        SET username = ?, email = ?, password_hash = ?, role = ?, updated_at = ?
+        SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, updated_at = ?
         WHERE id = ?
         "#,
     )
@@ -388,6 +440,7 @@ async fn update_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
     .bind(&user.email)
     .bind(&user.password_hash)
     .bind(&role_str)
+    .bind(&status_str)
     .bind(now)
     .bind(user.id)
     .execute(pool)
@@ -424,15 +477,48 @@ fn row_to_user_mysql(row: &sqlx::mysql::MySqlRow) -> Result<User> {
     let role = UserRole::from_str(&role_str)
         .with_context(|| format!("Invalid role in database: {}", role_str))?;
 
+    let status_str: Option<String> = row.try_get("status").ok();
+    let status = status_str
+        .map(|s| UserStatus::from_str(&s).unwrap_or(UserStatus::Active))
+        .unwrap_or(UserStatus::Active);
+
     Ok(User {
         id: row.get("id"),
         username: row.get("username"),
         email: row.get("email"),
         password_hash: row.get("password_hash"),
         role,
+        status,
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
+}
+
+async fn list_users_mysql(pool: &MySqlPool, page: i64, per_page: i64) -> Result<(Vec<User>, i64)> {
+    let offset = (page - 1) * per_page;
+    
+    let rows = sqlx::query(
+        r#"
+        SELECT id, username, email, password_hash, role, status, created_at, updated_at
+        FROM users
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        "#,
+    )
+    .bind(per_page)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .context("Failed to list users")?;
+
+    let mut users = Vec::new();
+    for row in rows {
+        users.push(row_to_user_mysql(&row)?);
+    }
+
+    let total = count_users_mysql(pool).await?;
+
+    Ok((users, total))
 }
 
 #[cfg(test)]

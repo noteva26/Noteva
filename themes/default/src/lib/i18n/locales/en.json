@@ -100,5 +100,8 @@
   },
   "settings": {
     "appearance": "Appearance"
+  },
+  "user": {
+    "userBanned": "This account has been banned and cannot login"
   }
 }

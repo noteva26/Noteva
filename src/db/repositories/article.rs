@@ -66,6 +66,12 @@ pub trait ArticleRepository: Send + Sync {
 
     /// Check if a slug exists for a different article (for updates)
     async fn exists_by_slug_excluding(&self, slug: &str, exclude_id: i64) -> Result<bool>;
+
+    /// Search articles by keyword in title and content
+    async fn search(&self, keyword: &str, offset: i64, limit: i64, published_only: bool) -> Result<Vec<Article>>;
+
+    /// Count search results
+    async fn count_search(&self, keyword: &str, published_only: bool) -> Result<i64>;
 }
 
 /// SQLx-based article repository implementation
@@ -238,6 +244,28 @@ impl ArticleRepository for SqlxArticleRepository {
             }
             DatabaseDriver::Mysql => {
                 exists_by_slug_excluding_mysql(self.pool.as_mysql().unwrap(), slug, exclude_id).await
+            }
+        }
+    }
+
+    async fn search(&self, keyword: &str, offset: i64, limit: i64, published_only: bool) -> Result<Vec<Article>> {
+        match self.pool.driver() {
+            DatabaseDriver::Sqlite => {
+                search_articles_sqlite(self.pool.as_sqlite().unwrap(), keyword, offset, limit, published_only).await
+            }
+            DatabaseDriver::Mysql => {
+                search_articles_mysql(self.pool.as_mysql().unwrap(), keyword, offset, limit, published_only).await
+            }
+        }
+    }
+
+    async fn count_search(&self, keyword: &str, published_only: bool) -> Result<i64> {
+        match self.pool.driver() {
+            DatabaseDriver::Sqlite => {
+                count_search_sqlite(self.pool.as_sqlite().unwrap(), keyword, published_only).await
+            }
+            DatabaseDriver::Mysql => {
+                count_search_mysql(self.pool.as_mysql().unwrap(), keyword, published_only).await
             }
         }
     }
@@ -595,6 +623,63 @@ fn row_to_article_sqlite(row: &sqlx::sqlite::SqliteRow) -> Result<Article> {
     })
 }
 
+async fn search_articles_sqlite(pool: &SqlitePool, keyword: &str, offset: i64, limit: i64, published_only: bool) -> Result<Vec<Article>> {
+    let search_pattern = format!("%{}%", keyword);
+    
+    let query = if published_only {
+        r#"
+        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+        FROM articles
+        WHERE status = 'published' AND (title LIKE ? OR content LIKE ?)
+        ORDER BY is_pinned DESC, pin_order ASC, published_at DESC
+        LIMIT ? OFFSET ?
+        "#
+    } else {
+        r#"
+        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+        FROM articles
+        WHERE title LIKE ? OR content LIKE ?
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        "#
+    };
+
+    let rows = sqlx::query(query)
+        .bind(&search_pattern)
+        .bind(&search_pattern)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .context("Failed to search articles")?;
+
+    let mut articles = Vec::new();
+    for row in rows {
+        articles.push(row_to_article_sqlite(&row)?);
+    }
+
+    Ok(articles)
+}
+
+async fn count_search_sqlite(pool: &SqlitePool, keyword: &str, published_only: bool) -> Result<i64> {
+    let search_pattern = format!("%{}%", keyword);
+    
+    let query = if published_only {
+        "SELECT COUNT(*) as count FROM articles WHERE status = 'published' AND (title LIKE ? OR content LIKE ?)"
+    } else {
+        "SELECT COUNT(*) as count FROM articles WHERE title LIKE ? OR content LIKE ?"
+    };
+
+    let row = sqlx::query(query)
+        .bind(&search_pattern)
+        .bind(&search_pattern)
+        .fetch_one(pool)
+        .await
+        .context("Failed to count search results")?;
+
+    Ok(row.get("count"))
+}
+
 
 // ============================================================================
 // MySQL implementations
@@ -945,6 +1030,63 @@ fn row_to_article_mysql(row: &sqlx::mysql::MySqlRow) -> Result<Article> {
         is_pinned: row.try_get("is_pinned").unwrap_or(false),
         pin_order: row.try_get("pin_order").unwrap_or(0),
     })
+}
+
+async fn search_articles_mysql(pool: &MySqlPool, keyword: &str, offset: i64, limit: i64, published_only: bool) -> Result<Vec<Article>> {
+    let search_pattern = format!("%{}%", keyword);
+    
+    let query = if published_only {
+        r#"
+        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+        FROM articles
+        WHERE status = 'published' AND (title LIKE ? OR content LIKE ?)
+        ORDER BY is_pinned DESC, pin_order ASC, published_at DESC
+        LIMIT ? OFFSET ?
+        "#
+    } else {
+        r#"
+        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+        FROM articles
+        WHERE title LIKE ? OR content LIKE ?
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        "#
+    };
+
+    let rows = sqlx::query(query)
+        .bind(&search_pattern)
+        .bind(&search_pattern)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .context("Failed to search articles")?;
+
+    let mut articles = Vec::new();
+    for row in rows {
+        articles.push(row_to_article_mysql(&row)?);
+    }
+
+    Ok(articles)
+}
+
+async fn count_search_mysql(pool: &MySqlPool, keyword: &str, published_only: bool) -> Result<i64> {
+    let search_pattern = format!("%{}%", keyword);
+    
+    let query = if published_only {
+        "SELECT COUNT(*) as count FROM articles WHERE status = 'published' AND (title LIKE ? OR content LIKE ?)"
+    } else {
+        "SELECT COUNT(*) as count FROM articles WHERE title LIKE ? OR content LIKE ?"
+    };
+
+    let row = sqlx::query(query)
+        .bind(&search_pattern)
+        .bind(&search_pattern)
+        .fetch_one(pool)
+        .await
+        .context("Failed to count search results")?;
+
+    Ok(row.get("count"))
 }
 
 

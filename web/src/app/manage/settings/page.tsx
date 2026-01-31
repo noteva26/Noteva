@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { adminApi } from "@/lib/api";
+import { adminApi, UpdateCheckResponse } from "@/lib/api";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, User, MessageSquare, Loader2 } from "lucide-react";
+import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 
@@ -40,6 +40,11 @@ export default function SettingsPage() {
     newPassword: "",
     confirmPassword: "",
   });
+
+  // Update check state
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [checkBeta, setCheckBeta] = useState(false);
 
   useEffect(() => {
     adminApi.getSettings()
@@ -123,6 +128,25 @@ export default function SettingsPage() {
     }
   };
 
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    try {
+      const { data } = await adminApi.checkUpdate(checkBeta);
+      setUpdateInfo(data);
+      if (data.error) {
+        toast.error(data.error);
+      } else if (data.update_available) {
+        toast.success(t("settings.updateAvailable"));
+      } else {
+        toast.info(t("settings.noUpdate"));
+      }
+    } catch (error) {
+      toast.error(t("settings.checkUpdateFailed"));
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
 
   return (
     <div className="space-y-6">
@@ -144,6 +168,10 @@ export default function SettingsPage() {
           <TabsTrigger value="account" className="gap-2">
             <User className="h-4 w-4" />
             {t("settings.account")}
+          </TabsTrigger>
+          <TabsTrigger value="update" className="gap-2">
+            <Download className="h-4 w-4" />
+            {t("settings.update")}
           </TabsTrigger>
         </TabsList>
 
@@ -339,6 +367,125 @@ export default function SettingsPage() {
                 />
               </div>
               <Button onClick={handleChangePassword}>{t("settings.updatePassword")}</Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="update" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("settings.systemUpdate")}</CardTitle>
+              <CardDescription>{t("settings.systemUpdateDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Beta toggle */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>{t("settings.checkBeta")}</Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t("settings.checkBetaDesc")}
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checkBeta}
+                    onChange={(e) => setCheckBeta(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              {/* Check update button */}
+              <Button onClick={handleCheckUpdate} disabled={checkingUpdate}>
+                {checkingUpdate ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                {t("settings.checkUpdate")}
+              </Button>
+
+              {/* Update info */}
+              {updateInfo && (
+                <div className="space-y-4 pt-4 border-t">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">{t("settings.currentVersion")}:</span>
+                    <span className="font-mono">v{updateInfo.current_version}</span>
+                  </div>
+                  
+                  {updateInfo.latest_version && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">{t("settings.latestVersion")}:</span>
+                      <span className="font-mono">v{updateInfo.latest_version}</span>
+                      {updateInfo.is_beta && (
+                        <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded">
+                          Beta
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {updateInfo.update_available ? (
+                    <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                      <div className="flex items-start gap-3">
+                        <Download className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5" />
+                        <div className="space-y-2">
+                          <p className="font-medium text-green-800 dark:text-green-200">
+                            {t("settings.newVersionAvailable")}
+                          </p>
+                          {updateInfo.release_date && (
+                            <p className="text-sm text-green-700 dark:text-green-300">
+                              {t("settings.releaseDate")}: {new Date(updateInfo.release_date).toLocaleDateString()}
+                            </p>
+                          )}
+                          {updateInfo.release_notes && (
+                            <div className="mt-2 p-3 bg-white dark:bg-gray-800 rounded text-sm max-h-40 overflow-y-auto">
+                              <pre className="whitespace-pre-wrap font-sans">{updateInfo.release_notes}</pre>
+                            </div>
+                          )}
+                          {updateInfo.release_url && (
+                            <a
+                              href={updateInfo.release_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 mt-2 text-sm text-green-700 dark:text-green-300 hover:underline"
+                            >
+                              <Download className="h-4 w-4" />
+                              {t("settings.downloadUpdate")}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : updateInfo.error ? (
+                    <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                      <div className="flex items-center gap-3">
+                        <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                        <p className="text-red-800 dark:text-red-200">{updateInfo.error}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <div className="flex items-center gap-3">
+                        <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                        <p className="text-blue-800 dark:text-blue-200">{t("settings.upToDate")}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Update instructions */}
+              <div className="pt-4 border-t">
+                <h4 className="font-medium mb-2">{t("settings.howToUpdate")}</h4>
+                <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
+                  <li>{t("settings.updateStep1")}</li>
+                  <li>{t("settings.updateStep2")}</li>
+                  <li>{t("settings.updateStep3")}</li>
+                </ol>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

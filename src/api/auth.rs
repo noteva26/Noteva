@@ -52,6 +52,7 @@ pub struct UserResponse {
     pub username: String,
     pub email: String,
     pub role: String,
+    pub status: String,
     pub created_at: String,
 }
 
@@ -62,6 +63,7 @@ impl From<crate::models::User> for UserResponse {
             username: user.username,
             email: user.email,
             role: user.role.to_string(),
+            status: user.status.to_string(),
             created_at: user.created_at.to_rfc3339(),
         }
     }
@@ -159,8 +161,13 @@ async fn login(
         .login(input)
         .await
         .map_err(|e| match e {
-            UserServiceError::AuthenticationError(_) => {
-                ApiError::unauthorized("Invalid username or password")
+            UserServiceError::AuthenticationError(msg) => {
+                // Check if it's a banned user error
+                if msg.contains("banned") || msg.contains("封禁") {
+                    ApiError::with_details("USER_BANNED", msg, serde_json::json!({}))
+                } else {
+                    ApiError::unauthorized("Invalid username or password")
+                }
             }
             _ => ApiError::internal_error(e.to_string()),
         })?;
