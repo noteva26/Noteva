@@ -103,24 +103,34 @@
     });
     
     // 使用 MutationObserver 监听 DOM 变化
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'childList') {
-          // 检查是否有新的隐藏内容元素
-          const hasHiddenContent = document.querySelector('.noteva-hidden-content[data-article-id]');
-          if (hasHiddenContent) {
-            setTimeout(initHiddenContent, 100);
-            break;
+    function startObserver() {
+      if (!document.body) {
+        // body 还没准备好，等一下再试
+        setTimeout(startObserver, 100);
+        return;
+      }
+      
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'childList') {
+            // 检查是否有新的隐藏内容元素
+            const hasHiddenContent = document.querySelector('.noteva-hidden-content[data-article-id]');
+            if (hasHiddenContent) {
+              setTimeout(initHiddenContent, 100);
+              break;
+            }
           }
         }
-      }
-    });
+      });
+      
+      // 开始监听
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    }
     
-    // 开始监听
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
+    startObserver();
     
     // 页面加载时初始化
     Noteva.ready(() => {

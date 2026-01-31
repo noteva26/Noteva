@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 
 // Import locale files
 import zhCN from "./locales/zh-CN.json";
@@ -31,17 +30,40 @@ interface I18nState {
   setLocale: (locale: Locale) => void;
 }
 
-export const useI18nStore = create<I18nState>()(
-  persist(
-    (set) => ({
-      locale: "zh-CN",
-      setLocale: (locale) => set({ locale }),
-    }),
-    {
-      name: "noteva-locale",
+// 从 localStorage 读取初始值
+function getInitialLocale(): Locale {
+  if (typeof window !== "undefined") {
+    const saved = localStorage.getItem("noteva-locale");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.state?.locale) {
+          return parsed.state.locale as Locale;
+        }
+      } catch {}
     }
-  )
-);
+  }
+  return "zh-CN";
+}
+
+export const useI18nStore = create<I18nState>((set) => ({
+  locale: "zh-CN",
+  setLocale: (locale) => {
+    set({ locale });
+    // 手动保存到 localStorage
+    if (typeof window !== "undefined") {
+      localStorage.setItem("noteva-locale", JSON.stringify({ state: { locale } }));
+    }
+  },
+}));
+
+// 客户端初始化
+if (typeof window !== "undefined") {
+  const initialLocale = getInitialLocale();
+  if (initialLocale !== "zh-CN") {
+    useI18nStore.setState({ locale: initialLocale });
+  }
+}
 
 // Get nested value from object using dot notation
 function getNestedValue(obj: Record<string, unknown>, path: string): string | undefined {

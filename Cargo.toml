@@ -1,11 +1,11 @@
 [package]
 name = "noteva"
-version = "0.0.1-beta"
+version = "0.0.2-beta"
 edition = "2021"
 description = "A lightweight modern blog system"
 authors = ["Noteva Team"]
 license = "MIT"
-repository = "https://github.com/noteva/noteva"
+repository = "https://github.com/noteva26/Noteva"
 keywords = ["blog", "cms", "rust", "axum"]
 categories = ["web-programming"]
 

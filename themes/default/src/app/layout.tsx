@@ -4,7 +4,6 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import PluginSlot from "@/components/plugin-slot";
-import Script from "next/script";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -44,10 +43,7 @@ export default function RootLayout({
         {/* body_end 插槽 - JS、悬浮组件、音乐播放器 */}
         <PluginSlot name="body_end" />
         
-        {/* Noteva SDK */}
-        <Script src="/noteva-sdk.js" strategy="beforeInteractive" />
-        {/* 插件 JS */}
-        <Script src="/api/v1/plugins/assets/plugins.js" strategy="afterInteractive" />
+        {/* SDK 和插件由后端自动注入到 </head> 前，无需手动引入 */}
       </body>
     </html>
   );

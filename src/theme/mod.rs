@@ -70,6 +70,28 @@ impl ThemeEngine {
             fs::create_dir_all(&themes_path)
                 .with_context(|| format!("Failed to create themes directory: {:?}", themes_path))?;
         }
+        
+        // Ensure default theme directory exists with minimal theme.json
+        let default_theme_path = themes_path.join(default_theme);
+        if !default_theme_path.exists() {
+            fs::create_dir_all(&default_theme_path)
+                .with_context(|| format!("Failed to create default theme directory: {:?}", default_theme_path))?;
+        }
+        
+        // Create theme.json if it doesn't exist (for embedded themes)
+        let theme_json_path = default_theme_path.join("theme.json");
+        if !theme_json_path.exists() {
+            let default_theme_json = serde_json::json!({
+                "name": "Default Theme",
+                "short": default_theme,
+                "description": "Noteva default theme",
+                "version": "1.0.0",
+                "author": "Noteva"
+            });
+            fs::write(&theme_json_path, serde_json::to_string_pretty(&default_theme_json)?)
+                .with_context(|| format!("Failed to create theme.json: {:?}", theme_json_path))?;
+            tracing::info!("Created default theme.json at {:?}", theme_json_path);
+        }
 
         let mut engine = Self {
             tera: Tera::default(),
@@ -80,8 +102,11 @@ impl ThemeEngine {
             hook_manager: None,
         };
 
-        // Load templates for the default theme
-        engine.load_theme_templates(default_theme)?;
+        // Load templates for the default theme (may be empty for embedded themes)
+        // This won't fail if there are no .html templates - embedded themes serve static files
+        if let Err(e) = engine.load_theme_templates(default_theme) {
+            tracing::warn!("No templates found for theme '{}': {} (this is OK for embedded themes)", default_theme, e);
+        }
         
         // Cache theme metadata
         engine.refresh_theme_cache()?;

@@ -365,7 +365,12 @@
     async login(credentials) {
       hooks.trigger('user_login_before', credentials);
       try {
-        const result = await api.post('/auth/login', credentials);
+        // 转换字段名：前端用 username，后端期望 username_or_email
+        const loginData = {
+          username_or_email: credentials.username || credentials.username_or_email,
+          password: credentials.password,
+        };
+        const result = await api.post('/auth/login', loginData);
         this._current = result.user;
         hooks.trigger('user_login_after', this._current);
         events.emit('user:login', this._current);
@@ -1225,7 +1230,7 @@
 
   function ready(callback) {
     if (_ready) {
-      callback();
+      if (callback) callback();
     } else if (callback) {
       _readyCallbacks.push(callback);
     }
