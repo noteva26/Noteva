@@ -322,13 +322,15 @@ export function SiteHeader() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <Link href="/manage" className="cursor-pointer">
-                    <Settings className="mr-2 h-4 w-4" />
-                    {t("nav.manage")}
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
+                {user?.role === "admin" && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/manage" className="cursor-pointer">
+                      <Settings className="mr-2 h-4 w-4" />
+                      {t("nav.manage")}
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {user?.role === "admin" && <DropdownMenuSeparator />}
                 <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
                   <LogOut className="mr-2 h-4 w-4" />
                   {t("nav.logout")}
