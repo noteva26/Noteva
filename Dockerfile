@@ -27,7 +27,7 @@ COPY themes/default/ ./
 RUN pnpm build
 
 # Stage 2: Build Rust backend
-FROM rust:1.83-bookworm AS rust-builder
+FROM rust:latest AS rust-builder
 
 WORKDIR /app
 
