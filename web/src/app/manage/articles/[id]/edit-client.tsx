@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
+import { EmojiPicker } from "@/components/ui/emoji-picker";
 
 function getArticleIdFromPath(): number {
   if (typeof window === 'undefined') return 0;
@@ -390,6 +391,7 @@ export default function EditArticleClient() {
                   <Button type="button" variant="ghost" size="sm" onClick={() => insertMarkdown("`", "`")} title="Code">
                     <Code className="h-4 w-4" />
                   </Button>
+                  <EmojiPicker onSelect={(emoji) => insertMarkdown(emoji)} />
                 </div>
                 <Textarea
                   ref={textareaRef}

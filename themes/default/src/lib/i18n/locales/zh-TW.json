@@ -13,7 +13,8 @@
     "error": "錯誤",
     "back": "返回",
     "show": "顯示",
-    "hide": "隱藏"
+    "hide": "隱藏",
+    "backToHome": "返回首頁"
   },
   "nav": {
     "home": "首頁",
@@ -24,7 +25,8 @@
     "login": "登入",
     "register": "註冊",
     "logout": "登出",
-    "manage": "管理後台"
+    "manage": "管理後台",
+    "profile": "個人主頁"
   },
   "auth": {
     "login": "登入",
@@ -43,7 +45,13 @@
     "passwordMismatch": "兩次輸入的密碼不一致",
     "passwordTooShort": "密碼長度至少6個字元",
     "loginToAccount": "登入到您的帳戶",
-    "createAccount": "建立新帳戶"
+    "createAccount": "建立新帳戶",
+    "verificationCode": "驗證碼",
+    "verificationCodeRequired": "請輸入驗證碼",
+    "sendCode": "發送驗證碼",
+    "codeSent": "驗證碼已發送",
+    "sendCodeFailed": "驗證碼發送失敗",
+    "enterValidEmail": "請輸入有效的電子郵件地址"
   },
   "home": {
     "welcome": "歡迎來到",
@@ -103,5 +111,25 @@
   },
   "user": {
     "userBanned": "該帳號已被封禁，無法登入"
+  },
+  "profile": {
+    "title": "個人主頁",
+    "description": "管理您的個人資訊和帳戶設定",
+    "info": "個人資訊",
+    "changePassword": "修改密碼",
+    "displayName": "顯示名稱",
+    "displayNamePlaceholder": "輸入您希望顯示的名稱",
+    "displayNameDesc": "此名稱將顯示在您發布的文章和評論中",
+    "avatar": "頭像",
+    "usernameCannotChange": "使用者名稱不可修改",
+    "emailCannotChange": "電子郵件不可修改",
+    "currentPassword": "當前密碼",
+    "newPassword": "新密碼",
+    "confirmNewPassword": "確認新密碼",
+    "updatePassword": "更新密碼",
+    "updateSuccess": "個人資訊更新成功",
+    "updateFailed": "更新失敗",
+    "passwordChanged": "密碼修改成功",
+    "passwordChangeFailed": "密碼修改失敗"
   }
 }

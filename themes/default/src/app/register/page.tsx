@@ -17,13 +17,51 @@ export default function RegisterPage() {
   const { register: registerUser, isLoading } = useAuthStore();
   const { settings, fetchSettings } = useSiteStore();
   const { t } = useTranslation();
-  const [form, setForm] = useState({ username: "", email: "", password: "", confirmPassword: "" });
+  const [form, setForm] = useState({ username: "", email: "", password: "", confirmPassword: "", verificationCode: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [emailVerificationEnabled, setEmailVerificationEnabled] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [countdown, setCountdown] = useState(0);
 
   // Fetch site settings
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
+
+  // Check if email verification is enabled - fetch directly from API
+  useEffect(() => {
+    const checkEmailVerification = async () => {
+      try {
+        // 直接从 API 获取，避免缓存问题
+        const response = await fetch('/api/v1/site/info');
+        const data = await response.json();
+        if (data.email_verification_enabled === "true") {
+          setEmailVerificationEnabled(true);
+        }
+      } catch (e) {
+        // 如果 API 失败，回退到 store 中的值
+        if (settings.email_verification_enabled === "true") {
+          setEmailVerificationEnabled(true);
+        }
+      }
+    };
+    checkEmailVerification();
+  }, [settings.email_verification_enabled]);
+
+  // Update page title
+  useEffect(() => {
+    if (settings.site_name) {
+      document.title = `${t("auth.register")} - ${settings.site_name}`;
+    }
+  }, [settings.site_name, t]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [countdown]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -39,8 +77,28 @@ export default function RegisterPage() {
     if (form.password !== form.confirmPassword) {
       newErrors.confirmPassword = t("auth.passwordMismatch");
     }
+    if (emailVerificationEnabled && !form.verificationCode) {
+      newErrors.verificationCode = t("auth.verificationCodeRequired");
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSendCode = async () => {
+    if (!form.email || !form.email.includes("@")) {
+      toast.error(t("auth.enterValidEmail"));
+      return;
+    }
+    setSendingCode(true);
+    try {
+      await window.Noteva.api.post('/auth/send-code', { email: form.email });
+      toast.success(t("auth.codeSent"));
+      setCountdown(60);
+    } catch (error: any) {
+      toast.error(error.data?.error || t("auth.sendCodeFailed"));
+    } finally {
+      setSendingCode(false);
+    }
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -48,7 +106,15 @@ export default function RegisterPage() {
     if (!validate()) return;
     
     try {
-      await registerUser(form.username, form.email, form.password);
+      const registerData: any = {
+        username: form.username,
+        email: form.email,
+        password: form.password,
+      };
+      if (emailVerificationEnabled) {
+        registerData.verification_code = form.verificationCode;
+      }
+      await registerUser(form.username, form.email, form.password, form.verificationCode || undefined);
       toast.success(t("auth.registerSuccess"));
       router.push("/login");
     } catch (error: any) {
@@ -93,6 +159,31 @@ export default function RegisterPage() {
                 <p className="text-sm text-destructive">{errors.email}</p>
               )}
             </div>
+            {emailVerificationEnabled && (
+              <div className="space-y-2">
+                <Label htmlFor="verificationCode">{t("auth.verificationCode")}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="verificationCode"
+                    placeholder="123456"
+                    value={form.verificationCode}
+                    onChange={(e) => setForm({ ...form, verificationCode: e.target.value })}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleSendCode}
+                    disabled={sendingCode || countdown > 0}
+                  >
+                    {countdown > 0 ? `${countdown}s` : sendingCode ? t("common.loading") : t("auth.sendCode")}
+                  </Button>
+                </div>
+                {errors.verificationCode && (
+                  <p className="text-sm text-destructive">{errors.verificationCode}</p>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="password">{t("auth.password")}</Label>
               <Input

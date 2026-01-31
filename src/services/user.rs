@@ -380,6 +380,25 @@ impl UserService {
         Ok(user)
     }
 
+    /// Update a user
+    ///
+    /// # Arguments
+    ///
+    /// * `user` - The user with updated fields
+    ///
+    /// # Returns
+    ///
+    /// The updated user
+    pub async fn update_user(&self, user: User) -> Result<User, UserServiceError> {
+        let updated = self
+            .user_repo
+            .update(&user)
+            .await
+            .context("Failed to update user")?;
+        
+        Ok(updated)
+    }
+
     /// Validate session token and return the associated user
     ///
     /// Checks if the session exists and is not expired. If valid, returns

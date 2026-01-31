@@ -20,6 +20,7 @@ pub struct SiteInfoResponse {
     pub site_subtitle: String,
     pub site_logo: String,
     pub site_footer: String,
+    pub email_verification_enabled: String,
 }
 
 /// Request for rendering markdown content
@@ -60,12 +61,22 @@ async fn get_site_info(
             posts_per_page: 10,
         });
 
+    // Get email verification setting
+    let email_verification_enabled = state
+        .settings_service
+        .get("email_verification_enabled")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "false".to_string());
+
     Json(SiteInfoResponse {
         site_name: settings.site_name,
         site_description: settings.site_description,
         site_subtitle: settings.site_subtitle,
         site_logo: settings.site_logo,
         site_footer: settings.site_footer,
+        email_verification_enabled,
     })
 }
 

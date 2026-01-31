@@ -12,7 +12,7 @@
 //! - 6.1: Theme switching
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{delete, get, post, put},
     Json, Router,
@@ -118,15 +118,8 @@ pub struct ThemeListResponse {
     pub current: String,
 }
 
-/// Request for updating site settings
-#[derive(Debug, Deserialize)]
-pub struct SiteSettingsRequest {
-    pub site_name: String,
-    pub site_description: String,
-    pub site_subtitle: String,
-    pub site_logo: String,
-    pub site_footer: String,
-}
+/// Request for updating site settings (supports dynamic fields)
+pub type SiteSettingsRequest = std::collections::HashMap<String, String>;
 
 /// Response for site settings
 #[derive(Debug, Serialize)]
@@ -136,6 +129,8 @@ pub struct SiteSettingsResponse {
     pub site_subtitle: String,
     pub site_logo: String,
     pub site_footer: String,
+    #[serde(flatten)]
+    pub extra: std::collections::HashMap<String, String>,
 }
 
 /// Response for system stats (CPU, memory usage)
@@ -214,6 +209,12 @@ pub fn router() -> Router<AppState> {
         .route("/users/:id", get(get_user))
         .route("/users/:id", put(update_user))
         .route("/users/:id", delete(delete_user))
+        // Comment moderation
+        .route("/comments/pending", get(list_pending_comments))
+        .route("/comments/:id/approve", post(approve_comment))
+        .route("/comments/:id/reject", post(reject_comment))
+        // Email test
+        .route("/email/test", post(test_email))
 }
 
 /// GET /api/v1/admin/dashboard - Get dashboard stats
@@ -556,12 +557,27 @@ async fn get_settings(
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
+    // Get all settings for extra fields
+    let all_settings = state
+        .settings_service
+        .get_all_settings()
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    // Filter out the main fields to put in extra
+    let main_keys = ["site_name", "site_description", "site_subtitle", "site_logo", "site_footer"];
+    let extra: std::collections::HashMap<String, String> = all_settings
+        .into_iter()
+        .filter(|(k, _)| !main_keys.contains(&k.as_str()))
+        .collect();
+
     Ok(Json(SiteSettingsResponse {
         site_name: settings.site_name,
         site_description: settings.site_description,
         site_subtitle: settings.site_subtitle,
         site_logo: settings.site_logo,
         site_footer: settings.site_footer,
+        extra,
     }))
 }
 
@@ -574,23 +590,35 @@ async fn update_settings(
     _user: AuthenticatedUser,
     Json(body): Json<SiteSettingsRequest>,
 ) -> Result<Json<SiteSettingsResponse>, ApiError> {
-    let mut settings = state
+    // Update each setting from the request
+    for (key, value) in body.iter() {
+        state
+            .settings_service
+            .set_setting(key, value)
+            .await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    }
+
+    // Return updated settings
+    let settings = state
         .settings_service
         .get_site_settings()
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
-    settings.site_name = body.site_name;
-    settings.site_description = body.site_description;
-    settings.site_subtitle = body.site_subtitle;
-    settings.site_logo = body.site_logo;
-    settings.site_footer = body.site_footer;
-
-    state
+    // Get all settings for extra fields
+    let all_settings = state
         .settings_service
-        .update_site_settings(&settings)
+        .get_all_settings()
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    // Filter out the main fields to put in extra
+    let main_keys = ["site_name", "site_description", "site_subtitle", "site_logo", "site_footer"];
+    let extra: std::collections::HashMap<String, String> = all_settings
+        .into_iter()
+        .filter(|(k, _)| !main_keys.contains(&k.as_str()))
+        .collect();
 
     Ok(Json(SiteSettingsResponse {
         site_name: settings.site_name,
@@ -598,6 +626,7 @@ async fn update_settings(
         site_subtitle: settings.site_subtitle,
         site_logo: settings.site_logo,
         site_footer: settings.site_footer,
+        extra,
     }))
 }
 
@@ -850,6 +879,8 @@ pub struct UserAdminResponse {
     pub email: String,
     pub role: String,
     pub status: String,
+    pub display_name: Option<String>,
+    pub avatar: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -862,6 +893,8 @@ impl From<crate::models::User> for UserAdminResponse {
             email: user.email,
             role: user.role.to_string(),
             status: user.status.to_string(),
+            display_name: user.display_name,
+            avatar: user.avatar,
             created_at: user.created_at.to_rfc3339(),
             updated_at: user.updated_at.to_rfc3339(),
         }
@@ -875,6 +908,7 @@ pub struct UpdateUserRequest {
     pub email: Option<String>,
     pub role: Option<String>,
     pub status: Option<String>,
+    pub display_name: Option<String>,
 }
 
 /// Query params for user list
@@ -999,6 +1033,10 @@ pub async fn update_user(
             .map_err(|_| ApiError::validation_error("Invalid status"))?;
     }
 
+    if let Some(display_name) = body.display_name {
+        user.display_name = if display_name.is_empty() { None } else { Some(display_name) };
+    }
+
     tracing::info!("Saving user: {} ({}) role={:?} status={:?}", user.username, user.email, user.role, user.status);
 
     // Save changes
@@ -1040,4 +1078,161 @@ pub async fn delete_user(
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ============================================================================
+// Comment Moderation
+// ============================================================================
+
+/// Query params for pending comments list
+#[derive(Debug, Deserialize)]
+pub struct PendingCommentsQuery {
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_per_page")]
+    pub per_page: i64,
+}
+
+/// Response for pending comments list
+#[derive(Debug, Serialize)]
+pub struct PendingCommentsResponse {
+    pub comments: Vec<PendingCommentResponse>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
+    pub total_pages: i64,
+}
+
+/// Response for a pending comment
+#[derive(Debug, Serialize)]
+pub struct PendingCommentResponse {
+    pub id: i64,
+    pub article_id: i64,
+    pub content: String,
+    pub nickname: Option<String>,
+    pub email: Option<String>,
+    pub avatar_url: Option<String>,
+    pub created_at: String,
+}
+
+/// GET /api/v1/admin/comments/pending - List pending comments
+pub async fn list_pending_comments(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+    Query(query): Query<PendingCommentsQuery>,
+) -> Result<Json<PendingCommentsResponse>, ApiError> {
+    use crate::db::repositories::CommentRepositoryImpl;
+    use crate::services::CommentService;
+    use std::sync::Arc;
+
+    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
+    let service = CommentService::new(repo);
+
+    let (comments, total) = service
+        .list_pending(query.page, query.per_page)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    let total_pages = (total as f64 / query.per_page as f64).ceil() as i64;
+
+    let comments: Vec<PendingCommentResponse> = comments
+        .into_iter()
+        .map(|c| PendingCommentResponse {
+            id: c.id,
+            article_id: c.article_id,
+            content: c.content,
+            nickname: c.nickname,
+            email: c.email.clone(),
+            avatar_url: Some(c.avatar_url),
+            created_at: c.created_at.to_rfc3339(),
+        })
+        .collect();
+
+    Ok(Json(PendingCommentsResponse {
+        comments,
+        total,
+        page: query.page,
+        per_page: query.per_page,
+        total_pages,
+    }))
+}
+
+/// POST /api/v1/admin/comments/:id/approve - Approve a comment
+pub async fn approve_comment(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ApiError> {
+    use crate::db::repositories::CommentRepositoryImpl;
+    use crate::services::CommentService;
+    use std::sync::Arc;
+
+    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
+    let service = CommentService::new(repo);
+
+    let success = service
+        .approve(id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    if success {
+        Ok(StatusCode::OK)
+    } else {
+        Err(ApiError::not_found("Comment not found"))
+    }
+}
+
+/// POST /api/v1/admin/comments/:id/reject - Reject a comment
+pub async fn reject_comment(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ApiError> {
+    use crate::db::repositories::CommentRepositoryImpl;
+    use crate::services::CommentService;
+    use std::sync::Arc;
+
+    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
+    let service = CommentService::new(repo);
+
+    let success = service
+        .reject(id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    if success {
+        Ok(StatusCode::OK)
+    } else {
+        Err(ApiError::not_found("Comment not found"))
+    }
+}
+
+
+// ============================================================================
+// Email Test
+// ============================================================================
+
+/// Request for testing email
+#[derive(Debug, Deserialize)]
+pub struct TestEmailRequest {
+    pub email: String,
+}
+
+/// POST /api/v1/admin/email/test - Send test email
+pub async fn test_email(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+    Json(body): Json<TestEmailRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    use crate::db::repositories::SqlxSettingsRepository;
+    use crate::services::EmailService;
+    use std::sync::Arc;
+
+    let settings_repo = Arc::new(SqlxSettingsRepository::new(state.pool.clone()));
+    let email_service = EmailService::new(settings_repo);
+
+    email_service.send_test_email(&body.email).await
+        .map_err(|e| ApiError::internal_error(format!("Failed to send test email: {}", e)))?;
+
+    Ok(Json(serde_json::json!({ "message": "Test email sent successfully" })))
 }

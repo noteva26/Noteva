@@ -15,7 +15,7 @@ use axum::{
     extract::State,
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,13 @@ pub struct RegisterRequest {
     pub username: String,
     pub email: String,
     pub password: String,
+    pub verification_code: Option<String>,
+}
+
+/// Request body for sending verification code
+#[derive(Debug, Deserialize)]
+pub struct SendCodeRequest {
+    pub email: String,
 }
 
 /// Request body for user login
@@ -53,6 +60,8 @@ pub struct UserResponse {
     pub email: String,
     pub role: String,
     pub status: String,
+    pub display_name: Option<String>,
+    pub avatar: Option<String>,
     pub created_at: String,
 }
 
@@ -64,6 +73,8 @@ impl From<crate::models::User> for UserResponse {
             email: user.email,
             role: user.role.to_string(),
             status: user.status.to_string(),
+            display_name: user.display_name,
+            avatar: user.avatar,
             created_at: user.created_at.to_rfc3339(),
         }
     }
@@ -76,6 +87,9 @@ pub fn router() -> Router<AppState> {
         .route("/login", post(login))
         .route("/logout", post(logout))
         .route("/me", get(get_current_user))
+        .route("/profile", put(update_profile))
+        .route("/password", put(change_password))
+        .route("/send-code", post(send_verification_code))
 }
 
 /// Build protected auth routes (requires auth middleware)
@@ -83,6 +97,8 @@ pub fn protected_router() -> Router<AppState> {
     Router::new()
         .route("/logout", post(logout))
         .route("/me", get(get_current_user))
+        .route("/profile", put(update_profile))
+        .route("/password", put(change_password))
 }
 
 /// Build public auth routes (no auth required)
@@ -90,6 +106,7 @@ pub fn public_router() -> Router<AppState> {
     Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
+        .route("/send-code", post(send_verification_code))
 }
 
 /// POST /api/v1/auth/register - User registration
@@ -101,6 +118,32 @@ async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::SqlxSettingsRepository;
+    use crate::services::EmailService;
+    use std::sync::Arc;
+
+    // Check if email verification is enabled
+    let settings_repo = Arc::new(SqlxSettingsRepository::new(state.pool.clone()));
+    let email_service = EmailService::new(settings_repo.clone());
+    
+    if email_service.is_verification_enabled().await {
+        // Verify the code
+        let code = body.verification_code.as_ref()
+            .ok_or_else(|| ApiError::validation_error("Verification code is required"))?;
+        
+        // Check code in database
+        let valid = verify_email_code(&state.pool, &body.email, code).await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?;
+        
+        if !valid {
+            return Err(ApiError::validation_error("Invalid or expired verification code"));
+        }
+        
+        // Delete used code
+        delete_email_code(&state.pool, &body.email).await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    }
+
     let password = body.password.clone();
     let input = RegisterInput::new(body.username, body.email, body.password);
 
@@ -248,4 +291,217 @@ async fn logout(
 /// Requires authentication.
 async fn get_current_user(user: AuthenticatedUser) -> Json<UserResponse> {
     Json(user.0.into())
+}
+
+/// Request body for updating profile
+#[derive(Debug, Deserialize)]
+pub struct UpdateProfileRequest {
+    pub display_name: Option<String>,
+    pub avatar: Option<String>,
+}
+
+/// PUT /api/v1/auth/profile - Update current user's profile
+async fn update_profile(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Json(body): Json<UpdateProfileRequest>,
+) -> Result<Json<UserResponse>, ApiError> {
+    let mut current_user = user.0;
+    
+    // Update fields
+    if let Some(display_name) = body.display_name {
+        current_user.display_name = if display_name.trim().is_empty() {
+            None
+        } else {
+            Some(display_name.trim().to_string())
+        };
+    }
+    if let Some(avatar) = body.avatar {
+        current_user.avatar = if avatar.trim().is_empty() {
+            None
+        } else {
+            Some(avatar.trim().to_string())
+        };
+    }
+    
+    let updated = state
+        .user_service
+        .update_user(current_user)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    
+    Ok(Json(updated.into()))
+}
+
+/// Request body for changing password
+#[derive(Debug, Deserialize)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+/// PUT /api/v1/auth/password - Change current user's password
+async fn change_password(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Json(body): Json<ChangePasswordRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::services::password::{hash_password, verify_password};
+    
+    // Validate new password
+    if body.new_password.len() < 8 {
+        return Err(ApiError::validation_error("Password must be at least 8 characters"));
+    }
+    
+    // Verify current password
+    let is_valid = verify_password(&body.current_password, &user.0.password_hash)
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    
+    if !is_valid {
+        return Err(ApiError::validation_error("Current password is incorrect"));
+    }
+    
+    // Hash new password
+    let new_hash = hash_password(&body.new_password)
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    
+    // Update user
+    let mut updated_user = user.0;
+    updated_user.password_hash = new_hash;
+    
+    state
+        .user_service
+        .update_user(updated_user)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// POST /api/v1/auth/send-code - Send verification code to email
+async fn send_verification_code(
+    State(state): State<AppState>,
+    Json(body): Json<SendCodeRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    use crate::db::repositories::SqlxSettingsRepository;
+    use crate::services::{EmailService, generate_verification_code};
+    use std::sync::Arc;
+
+    // Validate email format
+    if !body.email.contains('@') {
+        return Err(ApiError::validation_error("Invalid email format"));
+    }
+
+    // Check if email verification is enabled
+    let settings_repo = Arc::new(SqlxSettingsRepository::new(state.pool.clone()));
+    let email_service = EmailService::new(settings_repo);
+    
+    if !email_service.is_verification_enabled().await {
+        return Err(ApiError::validation_error("Email verification is not enabled"));
+    }
+
+    // Check if email is already registered
+    if let Some(_) = state.user_repo.get_by_email(&body.email).await
+        .map_err(|e| ApiError::internal_error(e.to_string()))? 
+    {
+        return Err(ApiError::validation_error("Email is already registered"));
+    }
+
+    // Generate and save verification code
+    let code = generate_verification_code();
+    save_email_code(&state.pool, &body.email, &code).await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    // Send email
+    email_service.send_verification_code(&body.email, &code).await
+        .map_err(|e| ApiError::internal_error(format!("Failed to send email: {}", e)))?;
+
+    Ok(Json(serde_json::json!({ "message": "Verification code sent" })))
+}
+
+// Helper functions for email verification codes
+
+use crate::db::DynDatabasePool;
+use crate::config::DatabaseDriver;
+use anyhow::Result;
+use chrono::{Duration, Utc};
+
+async fn save_email_code(pool: &DynDatabasePool, email: &str, code: &str) -> Result<()> {
+    let expires_at = Utc::now() + Duration::minutes(10);
+    
+    // Delete any existing codes for this email first
+    delete_email_code(pool, email).await?;
+    
+    match pool.driver() {
+        DatabaseDriver::Sqlite => {
+            sqlx::query(
+                "INSERT INTO email_verifications (email, code, expires_at, created_at) VALUES (?, ?, ?, ?)"
+            )
+            .bind(email)
+            .bind(code)
+            .bind(expires_at)
+            .bind(Utc::now())
+            .execute(pool.as_sqlite().unwrap())
+            .await?;
+        }
+        DatabaseDriver::Mysql => {
+            sqlx::query(
+                "INSERT INTO email_verifications (email, code, expires_at, created_at) VALUES (?, ?, ?, ?)"
+            )
+            .bind(email)
+            .bind(code)
+            .bind(expires_at)
+            .bind(Utc::now())
+            .execute(pool.as_mysql().unwrap())
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn verify_email_code(pool: &DynDatabasePool, email: &str, code: &str) -> Result<bool> {
+    let now = Utc::now();
+    
+    let count: i64 = match pool.driver() {
+        DatabaseDriver::Sqlite => {
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM email_verifications WHERE email = ? AND code = ? AND expires_at > ?"
+            )
+            .bind(email)
+            .bind(code)
+            .bind(now)
+            .fetch_one(pool.as_sqlite().unwrap())
+            .await?
+        }
+        DatabaseDriver::Mysql => {
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM email_verifications WHERE email = ? AND code = ? AND expires_at > ?"
+            )
+            .bind(email)
+            .bind(code)
+            .bind(now)
+            .fetch_one(pool.as_mysql().unwrap())
+            .await?
+        }
+    };
+    
+    Ok(count > 0)
+}
+
+async fn delete_email_code(pool: &DynDatabasePool, email: &str) -> Result<()> {
+    match pool.driver() {
+        DatabaseDriver::Sqlite => {
+            sqlx::query("DELETE FROM email_verifications WHERE email = ?")
+                .bind(email)
+                .execute(pool.as_sqlite().unwrap())
+                .await?;
+        }
+        DatabaseDriver::Mysql => {
+            sqlx::query("DELETE FROM email_verifications WHERE email = ?")
+                .bind(email)
+                .execute(pool.as_mysql().unwrap())
+                .await?;
+        }
+    }
+    Ok(())
 }

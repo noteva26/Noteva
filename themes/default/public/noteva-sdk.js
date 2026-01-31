@@ -147,8 +147,20 @@
 
   const api = {
     get: (url, params) => {
-      const query = params ? '?' + new URLSearchParams(params).toString() : '';
-      return request('GET', url + query);
+      if (params) {
+        // 过滤掉 undefined, null, 空字符串
+        const filtered = {};
+        for (const [key, value] of Object.entries(params)) {
+          if (value !== undefined && value !== null && value !== '') {
+            filtered[key] = value;
+          }
+        }
+        const query = Object.keys(filtered).length > 0 
+          ? '?' + new URLSearchParams(filtered).toString() 
+          : '';
+        return request('GET', url + query);
+      }
+      return request('GET', url);
     },
     post: (url, data) => request('POST', url, data),
     put: (url, data) => request('PUT', url, data),
@@ -399,6 +411,23 @@
       await api.post('/auth/logout');
       this._current = null;
       events.emit('user:logout');
+    },
+    
+    async updateProfile(data) {
+      const result = await api.put('/auth/profile', data);
+      // 更新本地缓存的用户信息
+      if (this._current) {
+        this._current = { ...this._current, ...result };
+      }
+      events.emit('user:update', this._current);
+      return result;
+    },
+    
+    async changePassword(currentPassword, newPassword) {
+      await api.put('/auth/password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
     },
     
     hasPermission(permission) {
@@ -1248,7 +1277,7 @@
   // ============================================
   window.Noteva = {
     // 版本
-    version: '0.0.3-beta',
+    version: '0.0.5-beta',
     
     // 核心系统
     hooks,

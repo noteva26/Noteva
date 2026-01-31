@@ -1,6 +1,6 @@
 [package]
 name = "noteva"
-version = "0.0.4-beta"
+version = "0.0.5-beta"
 edition = "2021"
 description = "A lightweight modern blog system"
 authors = ["Noteva Team"]
@@ -64,6 +64,9 @@ redis = { version = "0.24", features = ["tokio-comp"], optional = true }
 
 # HTTP client for update checking
 reqwest = { version = "0.11", features = ["json"] }
+
+# Email sending
+lettre = { version = "0.11", features = ["tokio1-native-tls", "builder"] }
 
 # Archive handling
 zip = "0.6"

@@ -30,6 +30,10 @@ pub struct User {
     pub role: UserRole,
     /// User status (active/banned)
     pub status: UserStatus,
+    /// Display name (shown in articles and comments)
+    pub display_name: Option<String>,
+    /// Avatar URL
+    pub avatar: Option<String>,
     /// Creation timestamp
     pub created_at: DateTime<Utc>,
     /// Last update timestamp
@@ -55,9 +59,16 @@ impl User {
             password_hash,
             role,
             status: UserStatus::Active,
+            display_name: None,
+            avatar: None,
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// Get the display name, falling back to username if not set
+    pub fn get_display_name(&self) -> &str {
+        self.display_name.as_deref().unwrap_or(&self.username)
     }
 
     /// Check if the user is an administrator
@@ -202,6 +213,10 @@ pub struct UpdateUserInput {
     pub role: Option<UserRole>,
     /// New status (optional)
     pub status: Option<UserStatus>,
+    /// New display name (optional)
+    pub display_name: Option<String>,
+    /// New avatar URL (optional)
+    pub avatar: Option<String>,
 }
 
 #[cfg(test)]

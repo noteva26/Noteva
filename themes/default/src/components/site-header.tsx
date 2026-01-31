@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
-import { Settings, LogOut, Menu, X, Search, ChevronDown } from "lucide-react";
+import { Settings, LogOut, Menu, X, Search, ChevronDown, User } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
 import { getNoteva } from "@/hooks/useNoteva";
 
@@ -339,6 +339,12 @@ export function SiteHeader() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link href="/profile" className="cursor-pointer">
+                    <User className="mr-2 h-4 w-4" />
+                    {t("nav.profile")}
+                  </Link>
+                </DropdownMenuItem>
                 {user?.role === "admin" && (
                   <DropdownMenuItem asChild>
                     <Link href="/manage" className="cursor-pointer">
@@ -347,7 +353,7 @@ export function SiteHeader() {
                     </Link>
                   </DropdownMenuItem>
                 )}
-                {user?.role === "admin" && <DropdownMenuSeparator />}
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
                   <LogOut className="mr-2 h-4 w-4" />
                   {t("nav.logout")}

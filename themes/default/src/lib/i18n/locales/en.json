@@ -13,7 +13,8 @@
     "error": "Error",
     "back": "Back",
     "show": "Show",
-    "hide": "Hide"
+    "hide": "Hide",
+    "backToHome": "Back to Home"
   },
   "nav": {
     "home": "Home",
@@ -24,7 +25,8 @@
     "login": "Login",
     "register": "Register",
     "logout": "Logout",
-    "manage": "Dashboard"
+    "manage": "Dashboard",
+    "profile": "Profile"
   },
   "auth": {
     "login": "Login",
@@ -43,7 +45,33 @@
     "passwordMismatch": "Passwords do not match",
     "passwordTooShort": "Password must be at least 6 characters",
     "loginToAccount": "Login to your account",
-    "createAccount": "Create a new account"
+    "createAccount": "Create a new account",
+    "verificationCode": "Verification Code",
+    "verificationCodeRequired": "Please enter verification code",
+    "sendCode": "Send Code",
+    "codeSent": "Verification code sent",
+    "sendCodeFailed": "Failed to send verification code",
+    "enterValidEmail": "Please enter a valid email address"
+  },
+  "profile": {
+    "title": "Profile",
+    "description": "Manage your personal information and account settings",
+    "info": "Personal Info",
+    "changePassword": "Change Password",
+    "displayName": "Display Name",
+    "displayNamePlaceholder": "Enter your display name",
+    "displayNameDesc": "This name will be shown on your articles and comments",
+    "avatar": "Avatar",
+    "usernameCannotChange": "Username cannot be changed",
+    "emailCannotChange": "Email cannot be changed",
+    "currentPassword": "Current Password",
+    "newPassword": "New Password",
+    "confirmNewPassword": "Confirm New Password",
+    "updatePassword": "Update Password",
+    "updateSuccess": "Profile updated successfully",
+    "updateFailed": "Update failed",
+    "passwordChanged": "Password changed successfully",
+    "passwordChangeFailed": "Failed to change password"
   },
   "home": {
     "welcome": "Welcome to",

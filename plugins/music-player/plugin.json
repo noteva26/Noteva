@@ -1,8 +1,8 @@
 {
   "id": "music-player",
   "name": "音乐播放器",
-  "version": "1.0.0",
-  "description": "在博客添加背景音乐播放器",
+  "version": "2.0.0",
+  "description": "黑胶唱片风格的歌单播放器，支持多首歌曲顺序播放",
   "author": "Noteva Team",
   "homepage": "https://github.com/noteva26/Noteva",
   "license": "MIT",

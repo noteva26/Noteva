@@ -24,9 +24,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Save, Eye, X, Bold, Italic, Link, Image as ImageIcon, List, ListOrdered, Quote, Code, Heading1, Heading2 } from "lucide-react";
+import { ArrowLeft, Save, Eye, X, Bold, Italic, Link, Image as ImageIcon, List, ListOrdered, Quote, Code, Heading1, Heading2, Smile } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
+import { EmojiPicker } from "@/components/ui/emoji-picker";
 
 export default function NewArticlePage() {
   const router = useRouter();
@@ -306,6 +307,7 @@ export default function NewArticlePage() {
                   <Button type="button" variant="ghost" size="sm" onClick={() => insertMarkdown("`", "`")} title="Code">
                     <Code className="h-4 w-4" />
                   </Button>
+                  <EmojiPicker onSelect={(emoji) => insertMarkdown(emoji)} />
                 </div>
                 <Textarea
                   ref={textareaRef}

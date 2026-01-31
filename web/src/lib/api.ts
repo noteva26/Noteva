@@ -390,13 +390,21 @@ export interface PluginListResponse {
 
 export interface PluginSettingsField {
   id: string;
-  type: "text" | "textarea" | "number" | "switch" | "select" | "radio" | "checkbox" | "color" | "image";
+  type: "text" | "textarea" | "number" | "switch" | "select" | "radio" | "checkbox" | "color" | "image" | "array";
   label: string;
   default?: unknown;
   description?: string;
   options?: { value: string; label: string }[];
   min?: number;
   max?: number;
+  // array 类型专用：定义数组项的字段结构
+  itemFields?: {
+    id: string;
+    label: string;
+    type: "text" | "number";
+    placeholder?: string;
+    required?: boolean;
+  }[];
 }
 
 export interface PluginSettingsSection {
@@ -459,6 +467,8 @@ export interface UserAdmin {
   email: string;
   role: string;
   status: string;
+  display_name?: string | null;
+  avatar?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -489,4 +499,42 @@ export const usersApi = {
     api.put<UserAdmin>(`/admin/users/${id}`, data),
   
   delete: (id: number) => api.delete(`/admin/users/${id}`),
+};
+
+// Comment moderation types
+export interface PendingComment {
+  id: number;
+  article_id: number;
+  content: string;
+  nickname?: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
+  created_at: string;
+}
+
+export interface PendingCommentsResponse {
+  comments: PendingComment[];
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}
+
+// Comments API (admin)
+export const commentsApi = {
+  listPending: (params?: { page?: number; per_page?: number }) =>
+    api.get<PendingCommentsResponse>("/admin/comments/pending", { params }),
+  
+  approve: (id: number) => api.post(`/admin/comments/${id}/approve`),
+  
+  reject: (id: number) => api.post(`/admin/comments/${id}/reject`),
+};
+
+// Email API
+export const emailApi = {
+  sendCode: (email: string) =>
+    api.post<{ message: string }>("/auth/send-code", { email }),
+  
+  testEmail: (to: string) =>
+    api.post<{ success: boolean; message: string }>("/admin/email/test", { email: to }),
 };

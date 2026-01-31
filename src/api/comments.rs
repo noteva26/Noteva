@@ -103,7 +103,9 @@ pub async fn create_comment(
     }
     
     let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
-    let service = CommentService::with_hooks(repo, state.hook_manager.clone());
+    let settings_repo = Arc::new(SqlxSettingsRepository::new(state.pool.clone()));
+    let service = CommentService::with_hooks(repo, state.hook_manager.clone())
+        .with_settings(settings_repo);
     
     let ip = extract_ip(&headers);
     let ua = headers

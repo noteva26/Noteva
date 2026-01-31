@@ -144,8 +144,8 @@ async fn create_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
 
     let result = sqlx::query(
         r#"
-        INSERT INTO users (username, email, password_hash, role, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (username, email, password_hash, role, status, display_name, avatar, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&user.username)
@@ -153,6 +153,8 @@ async fn create_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
     .bind(&user.password_hash)
     .bind(&role_str)
     .bind(&status_str)
+    .bind(&user.display_name)
+    .bind(&user.avatar)
     .bind(now)
     .bind(now)
     .execute(pool)
@@ -168,6 +170,8 @@ async fn create_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
         password_hash: user.password_hash.clone(),
         role: user.role,
         status: user.status,
+        display_name: user.display_name.clone(),
+        avatar: user.avatar.clone(),
         created_at: now,
         updated_at: now,
     })
@@ -176,7 +180,7 @@ async fn create_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
 async fn get_user_by_id_sqlite(pool: &SqlitePool, id: i64) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
         FROM users
         WHERE id = ?
         "#,
@@ -195,7 +199,7 @@ async fn get_user_by_id_sqlite(pool: &SqlitePool, id: i64) -> Result<Option<User
 async fn get_user_by_username_sqlite(pool: &SqlitePool, username: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
         FROM users
         WHERE username = ?
         "#,
@@ -214,7 +218,7 @@ async fn get_user_by_username_sqlite(pool: &SqlitePool, username: &str) -> Resul
 async fn get_user_by_email_sqlite(pool: &SqlitePool, email: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
         FROM users
         WHERE email = ?
         "#,
@@ -238,7 +242,7 @@ async fn update_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
     sqlx::query(
         r#"
         UPDATE users
-        SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, updated_at = ?
+        SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, display_name = ?, avatar = ?, updated_at = ?
         WHERE id = ?
         "#,
     )
@@ -247,6 +251,8 @@ async fn update_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
     .bind(&user.password_hash)
     .bind(&role_str)
     .bind(&status_str)
+    .bind(&user.display_name)
+    .bind(&user.avatar)
     .bind(now)
     .bind(user.id)
     .execute(pool)
@@ -295,6 +301,8 @@ fn row_to_user_sqlite(row: &sqlx::sqlite::SqliteRow) -> Result<User> {
         password_hash: row.get("password_hash"),
         role,
         status,
+        display_name: row.try_get("display_name").ok(),
+        avatar: row.try_get("avatar").ok(),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
@@ -305,9 +313,9 @@ async fn list_users_sqlite(pool: &SqlitePool, page: i64, per_page: i64) -> Resul
     
     let rows = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
         FROM users
-        ORDER BY created_at DESC
+        ORDER BY id ASC
         LIMIT ? OFFSET ?
         "#,
     )
@@ -338,8 +346,8 @@ async fn create_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
 
     let result = sqlx::query(
         r#"
-        INSERT INTO users (username, email, password_hash, role, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (username, email, password_hash, role, status, display_name, avatar, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&user.username)
@@ -347,6 +355,8 @@ async fn create_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
     .bind(&user.password_hash)
     .bind(&role_str)
     .bind(&status_str)
+    .bind(&user.display_name)
+    .bind(&user.avatar)
     .bind(now)
     .bind(now)
     .execute(pool)
@@ -362,6 +372,8 @@ async fn create_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
         password_hash: user.password_hash.clone(),
         role: user.role,
         status: user.status,
+        display_name: user.display_name.clone(),
+        avatar: user.avatar.clone(),
         created_at: now,
         updated_at: now,
     })
@@ -370,7 +382,7 @@ async fn create_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
 async fn get_user_by_id_mysql(pool: &MySqlPool, id: i64) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
         FROM users
         WHERE id = ?
         "#,
@@ -389,7 +401,7 @@ async fn get_user_by_id_mysql(pool: &MySqlPool, id: i64) -> Result<Option<User>>
 async fn get_user_by_username_mysql(pool: &MySqlPool, username: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
         FROM users
         WHERE username = ?
         "#,
@@ -408,7 +420,7 @@ async fn get_user_by_username_mysql(pool: &MySqlPool, username: &str) -> Result<
 async fn get_user_by_email_mysql(pool: &MySqlPool, email: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
         FROM users
         WHERE email = ?
         "#,
@@ -432,7 +444,7 @@ async fn update_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
     sqlx::query(
         r#"
         UPDATE users
-        SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, updated_at = ?
+        SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, display_name = ?, avatar = ?, updated_at = ?
         WHERE id = ?
         "#,
     )
@@ -441,6 +453,8 @@ async fn update_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
     .bind(&user.password_hash)
     .bind(&role_str)
     .bind(&status_str)
+    .bind(&user.display_name)
+    .bind(&user.avatar)
     .bind(now)
     .bind(user.id)
     .execute(pool)
@@ -489,6 +503,8 @@ fn row_to_user_mysql(row: &sqlx::mysql::MySqlRow) -> Result<User> {
         password_hash: row.get("password_hash"),
         role,
         status,
+        display_name: row.try_get("display_name").ok(),
+        avatar: row.try_get("avatar").ok(),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
@@ -499,9 +515,9 @@ async fn list_users_mysql(pool: &MySqlPool, page: i64, per_page: i64) -> Result<
     
     let rows = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
         FROM users
-        ORDER BY created_at DESC
+        ORDER BY id ASC
         LIMIT ? OFFSET ?
         "#,
     )

@@ -27,6 +27,7 @@ import {
   Navigation,
   Puzzle,
   Users,
+  MessageSquare,
 } from "lucide-react";
 
 export default function AdminLayout({
@@ -49,6 +50,7 @@ export default function AdminLayout({
     { href: "/manage/tags", label: t("manage.tags"), icon: Tags },
     { href: "/manage/pages", label: t("manage.pages"), icon: FileCode },
     { href: "/manage/nav", label: t("manage.nav"), icon: Navigation },
+    { href: "/manage/comments", label: t("manage.comments"), icon: MessageSquare },
     { href: "/manage/users", label: t("manage.users"), icon: Users },
     { href: "/manage/plugins", label: t("manage.plugins"), icon: Puzzle },
     { href: "/manage/themes", label: t("manage.themes"), icon: Palette },

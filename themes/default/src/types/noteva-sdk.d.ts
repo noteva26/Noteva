@@ -60,6 +60,7 @@ interface NotevaUser {
   username: string;
   email: string;
   avatar?: string;
+  display_name?: string;
   role: string;
 }
 
@@ -69,6 +70,12 @@ interface NotevaSiteInfo {
   subtitle: string;
   logo: string;
   footer: string;
+  site_name?: string;
+  site_description?: string;
+  site_subtitle?: string;
+  site_logo?: string;
+  site_footer?: string;
+  email_verification_enabled?: string;
 }
 
 interface NotevaNavItem {
@@ -181,9 +188,11 @@ interface NotevaSDK {
     getCurrent(): NotevaUser | null;
     check(): Promise<NotevaUser | null>;
     login(credentials: { username: string; password: string }): Promise<{ user: NotevaUser }>;
-    register(data: { username: string; email: string; password: string }): Promise<{ user: NotevaUser }>;
+    register(data: { username: string; email: string; password: string; verification_code?: string }): Promise<{ user: NotevaUser }>;
     logout(): Promise<void>;
     hasPermission(permission: string): boolean;
+    updateProfile(data: { display_name?: string; avatar?: string }): Promise<NotevaUser>;
+    changePassword(data: { current_password: string; new_password: string }): Promise<void>;
   };
   
   // 路由辅助

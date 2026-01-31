@@ -27,6 +27,13 @@ export default function LoginPage() {
     fetchSettings();
   }, [fetchSettings]);
 
+  // Update page title
+  useEffect(() => {
+    if (settings.site_name) {
+      document.title = `${t("auth.login")} - ${settings.site_name}`;
+    }
+  }, [settings.site_name, t]);
+
   // Check if already logged in via SDK
   useEffect(() => {
     useAuthStore.getState().checkAuth().then(() => {

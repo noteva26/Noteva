@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { adminApi, UpdateCheckResponse } from "@/lib/api";
+import { adminApi, emailApi, UpdateCheckResponse } from "@/lib/api";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 
@@ -21,6 +21,8 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [savingSite, setSavingSite] = useState(false);
   const [savingComment, setSavingComment] = useState(false);
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
 
   const [siteForm, setSiteForm] = useState({
     siteName: "",
@@ -33,7 +35,18 @@ export default function SettingsPage() {
   const [commentForm, setCommentForm] = useState({
     requireLoginToComment: false,
     commentModeration: false,
+    moderationKeywords: "",
   });
+
+  const [emailForm, setEmailForm] = useState({
+    smtpHost: "",
+    smtpPort: "587",
+    smtpUsername: "",
+    smtpPassword: "",
+    smtpFrom: "",
+    emailVerificationEnabled: false,
+  });
+  const [testEmailAddress, setTestEmailAddress] = useState("");
 
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
@@ -44,7 +57,8 @@ export default function SettingsPage() {
   // Update check state
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [checkBeta, setCheckBeta] = useState(false);
+  // 默认开启 Beta 检查，因为当前版本是 beta
+  const [checkBeta, setCheckBeta] = useState(true);
 
   useEffect(() => {
     adminApi.getSettings()
@@ -59,6 +73,15 @@ export default function SettingsPage() {
         setCommentForm({
           requireLoginToComment: data.require_login_to_comment === "true",
           commentModeration: data.comment_moderation === "true",
+          moderationKeywords: data.moderation_keywords || "",
+        });
+        setEmailForm({
+          smtpHost: data.smtp_host || "",
+          smtpPort: data.smtp_port || "587",
+          smtpUsername: data.smtp_username || "",
+          smtpPassword: data.smtp_password || "",
+          smtpFrom: data.smtp_from || "",
+          emailVerificationEnabled: data.email_verification_enabled === "true",
         });
       })
       .catch((err) => {
@@ -119,12 +142,53 @@ export default function SettingsPage() {
       await adminApi.updateSettings({
         require_login_to_comment: commentForm.requireLoginToComment ? "true" : "false",
         comment_moderation: commentForm.commentModeration ? "true" : "false",
+        moderation_keywords: commentForm.moderationKeywords,
       });
       toast.success(t("settings.saveSuccess"));
     } catch (error) {
       toast.error(t("settings.saveFailed"));
     } finally {
       setSavingComment(false);
+    }
+  };
+
+  const handleSaveEmailSettings = async () => {
+    setSavingEmail(true);
+    try {
+      await adminApi.updateSettings({
+        smtp_host: emailForm.smtpHost,
+        smtp_port: emailForm.smtpPort,
+        smtp_username: emailForm.smtpUsername,
+        smtp_password: emailForm.smtpPassword,
+        smtp_from: emailForm.smtpFrom,
+        email_verification_enabled: emailForm.emailVerificationEnabled ? "true" : "false",
+      });
+      toast.success(t("settings.saveSuccess"));
+    } catch (error) {
+      toast.error(t("settings.saveFailed"));
+    } finally {
+      setSavingEmail(false);
+    }
+  };
+
+  const handleTestEmail = async () => {
+    if (!testEmailAddress) {
+      toast.error(t("settings.enterTestEmail"));
+      return;
+    }
+    setTestingEmail(true);
+    try {
+      const { data } = await emailApi.testEmail(testEmailAddress);
+      toast.success(t("settings.testEmailSuccess"));
+    } catch (error: any) {
+      const message = error.response?.data?.error?.message 
+        || error.response?.data?.error 
+        || error.response?.data?.message
+        || error.message 
+        || t("settings.testEmailFailed");
+      toast.error(message);
+    } finally {
+      setTestingEmail(false);
     }
   };
 
@@ -164,6 +228,10 @@ export default function SettingsPage() {
           <TabsTrigger value="comments" className="gap-2">
             <MessageSquare className="h-4 w-4" />
             {t("settings.comments")}
+          </TabsTrigger>
+          <TabsTrigger value="email" className="gap-2">
+            <Mail className="h-4 w-4" />
+            {t("settings.email")}
           </TabsTrigger>
           <TabsTrigger value="account" className="gap-2">
             <User className="h-4 w-4" />
@@ -293,12 +361,137 @@ export default function SettingsPage() {
                       <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
                     </label>
                   </div>
+                  <div className="space-y-2">
+                    <Label>{t("settings.moderationKeywords")}</Label>
+                    <p className="text-sm text-muted-foreground">
+                      {t("settings.moderationKeywordsDesc")}
+                    </p>
+                    <Input
+                      value={commentForm.moderationKeywords}
+                      onChange={(e) => setCommentForm((f) => ({ ...f, moderationKeywords: e.target.value }))}
+                      placeholder={t("settings.moderationKeywordsPlaceholder")}
+                    />
+                  </div>
                   <Button onClick={handleSaveCommentSettings} disabled={savingComment}>
                     {savingComment && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                     {t("settings.saveSettings")}
                   </Button>
                 </>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="email" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("settings.emailSettings")}</CardTitle>
+              <CardDescription>{t("settings.emailSettingsDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {loading ? (
+                <div className="space-y-4">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>{t("settings.emailVerification")}</Label>
+                      <p className="text-sm text-muted-foreground">
+                        {t("settings.emailVerificationDesc")}
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={emailForm.emailVerificationEnabled}
+                        onChange={(e) => setEmailForm((f) => ({ ...f, emailVerificationEnabled: e.target.checked }))}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="smtpHost">{t("settings.smtpHost")}</Label>
+                      <Input
+                        id="smtpHost"
+                        placeholder="smtp.example.com"
+                        value={emailForm.smtpHost}
+                        onChange={(e) => setEmailForm((f) => ({ ...f, smtpHost: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="smtpPort">{t("settings.smtpPort")}</Label>
+                      <Input
+                        id="smtpPort"
+                        placeholder="587"
+                        value={emailForm.smtpPort}
+                        onChange={(e) => setEmailForm((f) => ({ ...f, smtpPort: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="smtpUsername">{t("settings.smtpUsername")}</Label>
+                      <Input
+                        id="smtpUsername"
+                        placeholder="your@email.com"
+                        value={emailForm.smtpUsername}
+                        onChange={(e) => setEmailForm((f) => ({ ...f, smtpUsername: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="smtpPassword">{t("settings.smtpPassword")}</Label>
+                      <Input
+                        id="smtpPassword"
+                        type="password"
+                        placeholder="••••••••"
+                        value={emailForm.smtpPassword}
+                        onChange={(e) => setEmailForm((f) => ({ ...f, smtpPassword: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="smtpFrom">{t("settings.smtpFrom")}</Label>
+                    <Input
+                      id="smtpFrom"
+                      placeholder="noreply@example.com"
+                      value={emailForm.smtpFrom}
+                      onChange={(e) => setEmailForm((f) => ({ ...f, smtpFrom: e.target.value }))}
+                    />
+                    <p className="text-sm text-muted-foreground">{t("settings.smtpFromDesc")}</p>
+                  </div>
+                  <Button onClick={handleSaveEmailSettings} disabled={savingEmail}>
+                    {savingEmail && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    {t("settings.saveSettings")}
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("settings.testEmail")}</CardTitle>
+              <CardDescription>{t("settings.testEmailDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-4">
+                <Input
+                  placeholder={t("settings.testEmailPlaceholder")}
+                  value={testEmailAddress}
+                  onChange={(e) => setTestEmailAddress(e.target.value)}
+                  className="flex-1"
+                />
+                <Button onClick={handleTestEmail} disabled={testingEmail}>
+                  {testingEmail && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  {t("settings.sendTestEmail")}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

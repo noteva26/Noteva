@@ -493,6 +493,46 @@ pub const MIGRATIONS: &[Migration] = &[
             ALTER TABLE users ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active';
         "#,
     },
+    // Migration 16: Add display_name and avatar fields to users
+    Migration {
+        version: 16,
+        name: "add_user_profile_fields",
+        up_sqlite: r#"
+            ALTER TABLE users ADD COLUMN display_name VARCHAR(100);
+            ALTER TABLE users ADD COLUMN avatar VARCHAR(500);
+        "#,
+        up_mysql: r#"
+            ALTER TABLE users ADD COLUMN display_name VARCHAR(100);
+            ALTER TABLE users ADD COLUMN avatar VARCHAR(500);
+        "#,
+    },
+    // Migration 17: Create email_verifications table
+    Migration {
+        version: 17,
+        name: "create_email_verifications_table",
+        up_sqlite: r#"
+            CREATE TABLE IF NOT EXISTS email_verifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email VARCHAR(255) NOT NULL,
+                code VARCHAR(10) NOT NULL,
+                expires_at DATETIME NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_email_verifications_email ON email_verifications(email);
+            CREATE INDEX IF NOT EXISTS idx_email_verifications_expires ON email_verifications(expires_at);
+        "#,
+        up_mysql: r#"
+            CREATE TABLE IF NOT EXISTS email_verifications (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                email VARCHAR(255) NOT NULL,
+                code VARCHAR(10) NOT NULL,
+                expires_at DATETIME NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX idx_email_verifications_email ON email_verifications(email);
+            CREATE INDEX idx_email_verifications_expires ON email_verifications(expires_at);
+        "#,
+    },
 ];
 
 /// Run all pending migrations

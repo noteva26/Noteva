@@ -25,7 +25,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Users, Pencil, Trash2, RefreshCw, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Users, Pencil, Trash2, RefreshCw, Loader2, ChevronLeft, ChevronRight, UserCircle } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 
@@ -44,7 +45,7 @@ export default function UsersPage() {
   // Edit dialog
   const [editOpen, setEditOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserAdmin | null>(null);
-  const [editForm, setEditForm] = useState({ username: "", email: "", role: "", status: "" });
+  const [editForm, setEditForm] = useState({ username: "", email: "", role: "", status: "", display_name: "" });
   const [saving, setSaving] = useState(false);
   
   // Delete
@@ -89,6 +90,7 @@ export default function UsersPage() {
       email: user.email,
       role: user.role,
       status: user.status,
+      display_name: user.display_name || "",
     });
     setEditOpen(true);
   };
@@ -199,7 +201,9 @@ export default function UsersPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>{t("user.avatar")}</TableHead>
                     <TableHead>{t("user.username")}</TableHead>
+                    <TableHead>{t("user.displayName")}</TableHead>
                     <TableHead>{t("user.email")}</TableHead>
                     <TableHead>{t("user.role")}</TableHead>
                     <TableHead>{t("user.status")}</TableHead>
@@ -210,7 +214,16 @@ export default function UsersPage() {
                 <TableBody>
                   {users.map((user) => (
                     <TableRow key={user.id}>
+                      <TableCell>
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={user.avatar || undefined} alt={user.username} />
+                          <AvatarFallback>
+                            {(user.display_name || user.username)?.[0]?.toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                      </TableCell>
                       <TableCell className="font-medium">{user.username}</TableCell>
+                      <TableCell>{user.display_name || "-"}</TableCell>
                       <TableCell>{user.email}</TableCell>
                       <TableCell>{getRoleBadge(user.role)}</TableCell>
                       <TableCell>{getStatusBadge(user.status)}</TableCell>
@@ -286,6 +299,16 @@ export default function UsersPage() {
                 id="username"
                 value={editForm.username}
                 onChange={(e) => setEditForm(f => ({ ...f, username: e.target.value }))}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="display_name">{t("user.displayName")}</Label>
+              <Input
+                id="display_name"
+                value={editForm.display_name}
+                onChange={(e) => setEditForm(f => ({ ...f, display_name: e.target.value }))}
+                placeholder={t("user.displayNamePlaceholder")}
               />
             </div>
             

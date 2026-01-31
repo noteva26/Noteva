@@ -3,13 +3,14 @@
 use std::sync::Arc;
 use anyhow::Result;
 use serde_json::json;
-use crate::db::repositories::CommentRepository;
-use crate::models::{CommentWithMeta, CreateCommentInput, LikeTargetType};
+use crate::db::repositories::{CommentRepository, SettingsRepository};
+use crate::models::{CommentStatus, CommentWithMeta, CreateCommentInput, LikeTargetType};
 use crate::plugin::{HookManager, hook_names};
 
 /// Comment service
 pub struct CommentService {
     repo: Arc<dyn CommentRepository>,
+    settings_repo: Option<Arc<dyn SettingsRepository>>,
     hook_manager: Option<Arc<HookManager>>,
 }
 
@@ -17,6 +18,7 @@ impl CommentService {
     pub fn new(repo: Arc<dyn CommentRepository>) -> Self {
         Self { 
             repo,
+            settings_repo: None,
             hook_manager: None,
         }
     }
@@ -24,8 +26,14 @@ impl CommentService {
     pub fn with_hooks(repo: Arc<dyn CommentRepository>, hook_manager: Arc<HookManager>) -> Self {
         Self {
             repo,
+            settings_repo: None,
             hook_manager: Some(hook_manager),
         }
+    }
+
+    pub fn with_settings(mut self, settings_repo: Arc<dyn SettingsRepository>) -> Self {
+        self.settings_repo = Some(settings_repo);
+        self
     }
 
     /// Trigger a hook if hook manager is available
@@ -67,7 +75,10 @@ impl CommentService {
             input.content = content.to_string();
         }
 
-        let comment = self.repo.create(input, user_id, ip, user_agent).await?;
+        // Determine comment status based on moderation settings
+        let status = self.determine_comment_status(&input.content).await;
+
+        let comment = self.repo.create_with_status(input, user_id, ip, user_agent, status).await?;
 
         // Trigger comment_after_create hook
         self.trigger_hook(
@@ -79,15 +90,62 @@ impl CommentService {
                 "content": comment.content,
                 "nickname": comment.nickname,
                 "user_id": comment.user_id,
+                "status": comment.status.to_string(),
             })
         );
 
         Ok(comment)
     }
 
+    /// Determine comment status based on moderation settings
+    async fn determine_comment_status(&self, content: &str) -> CommentStatus {
+        if let Some(ref settings_repo) = self.settings_repo {
+            // Check if global moderation is enabled
+            if let Ok(Some(setting)) = settings_repo.get("comment_moderation").await {
+                if setting.value == "true" {
+                    return CommentStatus::Pending;
+                }
+            }
+            
+            // Check for moderation keywords
+            if let Ok(Some(setting)) = settings_repo.get("moderation_keywords").await {
+                if !setting.value.is_empty() {
+                    let keywords: Vec<&str> = setting.value.split(',')
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    
+                    let content_lower = content.to_lowercase();
+                    for keyword in keywords {
+                        if content_lower.contains(&keyword.to_lowercase()) {
+                            return CommentStatus::Pending;
+                        }
+                    }
+                }
+            }
+        }
+        
+        CommentStatus::Approved
+    }
+
     /// Get comments for an article
     pub async fn get_by_article(&self, article_id: i64, fingerprint: Option<&str>) -> Result<Vec<CommentWithMeta>> {
         self.repo.get_by_article(article_id, fingerprint).await
+    }
+
+    /// Get pending comments for moderation
+    pub async fn list_pending(&self, page: i64, per_page: i64) -> Result<(Vec<CommentWithMeta>, i64)> {
+        self.repo.list_pending(page, per_page).await
+    }
+
+    /// Approve a comment
+    pub async fn approve(&self, id: i64) -> Result<bool> {
+        self.repo.update_status(id, CommentStatus::Approved).await
+    }
+
+    /// Reject a comment (delete it)
+    pub async fn reject(&self, id: i64) -> Result<bool> {
+        self.repo.delete(id).await
     }
 
     /// Delete a comment

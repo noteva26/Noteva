@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { pluginsApi, Plugin, PluginSettingsSchema, GitHubReleaseInfo, GitHubAssetInfo } from "@/lib/api";
+import { pluginsApi, Plugin, PluginSettingsSchema, PluginSettingsField, GitHubReleaseInfo, GitHubAssetInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,9 +19,106 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Settings, Puzzle, Code, Save, Upload, Download, Trash2, Github, Loader2, RefreshCw, Search, Package, Tag } from "lucide-react";
+import { Settings, Puzzle, Code, Save, Upload, Download, Trash2, Github, Loader2, RefreshCw, Search, Package, Tag, Plus, X, List } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
+
+// 通用数组字段编辑器
+interface ArrayFieldEditorProps {
+  value: Record<string, unknown>[];
+  onChange: (v: Record<string, unknown>[]) => void;
+  itemFields: NonNullable<PluginSettingsField["itemFields"]>;
+}
+
+function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps) {
+  const items = Array.isArray(value) ? value : [];
+  
+  const addItem = () => {
+    const newItem: Record<string, unknown> = {};
+    itemFields.forEach(f => { newItem[f.id] = ""; });
+    onChange([...items, newItem]);
+  };
+  
+  const removeItem = (index: number) => {
+    onChange(items.filter((_, i) => i !== index));
+  };
+  
+  const updateItem = (index: number, fieldId: string, val: unknown) => {
+    const newItems = [...items];
+    newItems[index] = { ...newItems[index], [fieldId]: val };
+    onChange(newItems);
+  };
+  
+  const moveItem = (from: number, to: number) => {
+    if (to < 0 || to >= items.length) return;
+    const newItems = [...items];
+    const [item] = newItems.splice(from, 1);
+    newItems.splice(to, 0, item);
+    onChange(newItems);
+  };
+  
+  return (
+    <div className="space-y-3">
+      {items.map((item, index) => (
+        <div key={index} className="border rounded-lg p-3 space-y-2 bg-muted/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <List className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">#{index + 1}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => moveItem(index, index - 1)}
+                disabled={index === 0}
+              >
+                <span className="text-xs">↑</span>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => moveItem(index, index + 1)}
+                disabled={index === items.length - 1}
+              >
+                <span className="text-xs">↓</span>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-destructive hover:text-destructive"
+                onClick={() => removeItem(index)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="grid gap-2" style={{ gridTemplateColumns: itemFields.length <= 2 ? `repeat(${itemFields.length}, 1fr)` : 'repeat(2, 1fr)' }}>
+            {itemFields.map(field => (
+              <Input
+                key={field.id}
+                type={field.type === "number" ? "number" : "text"}
+                placeholder={field.placeholder || field.label + (field.required ? " *" : "")}
+                value={(item[field.id] as string) || ""}
+                onChange={(e) => updateItem(index, field.id, field.type === "number" ? Number(e.target.value) : e.target.value)}
+                className={itemFields.length > 2 && itemFields.indexOf(field) >= itemFields.length - (itemFields.length % 2 || 2) ? "col-span-1" : ""}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline" className="w-full" onClick={addItem}>
+        <Plus className="h-4 w-4 mr-2" />
+        添加项目
+      </Button>
+    </div>
+  );
+}
 
 export default function PluginsPage() {
   const { t } = useTranslation();
@@ -257,6 +354,14 @@ export default function PluginsPage() {
             />
           </div>
         );
+      case "array":
+        return field.itemFields ? (
+          <ArrayFieldEditor 
+            value={value as Record<string, unknown>[]} 
+            onChange={(v) => updateValue(field.id, v)} 
+            itemFields={field.itemFields}
+          />
+        ) : null;
       default:
         return (
           <Input

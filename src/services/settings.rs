@@ -141,4 +141,16 @@ impl SettingsService {
             .map_err(|e| SettingsServiceError::SaveError(e.to_string()))?;
         Ok(())
     }
+    
+    /// Set a single setting (alias for set)
+    pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), SettingsServiceError> {
+        self.set(key, value).await
+    }
+    
+    /// Get all settings as a HashMap
+    pub async fn get_all_settings(&self) -> Result<HashMap<String, String>, SettingsServiceError> {
+        let settings = self.repo.get_all().await
+            .map_err(|e| SettingsServiceError::LoadError(e.to_string()))?;
+        Ok(settings.into_iter().map(|s| (s.key, s.value)).collect())
+    }
 }

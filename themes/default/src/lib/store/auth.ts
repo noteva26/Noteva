@@ -9,6 +9,7 @@ interface User {
   username: string;
   email: string;
   avatar?: string;
+  display_name?: string;
   role: string;
 }
 
@@ -19,9 +20,11 @@ interface AuthState {
   error: string | null;
   
   login: (usernameOrEmail: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string) => Promise<void>;
+  register: (username: string, email: string, password: string, verificationCode?: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  updateProfile: (data: { display_name?: string; avatar?: string }) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -67,11 +70,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  register: async (username: string, email: string, password: string) => {
+  register: async (username: string, email: string, password: string, verificationCode?: string) => {
     set({ isLoading: true, error: null });
     try {
       const sdk = await waitForSDK();
-      await sdk.user.register({ username, email, password });
+      const registerData: any = { username, email, password };
+      if (verificationCode) {
+        registerData.verification_code = verificationCode;
+      }
+      await sdk.user.register(registerData);
       set({ isLoading: false });
     } catch (error: any) {
       const message = error.data?.error || error.message || "Registration failed";
@@ -109,6 +116,32 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
     } catch {
       set({ user: null, isAuthenticated: false });
+    }
+  },
+
+  updateProfile: async (data: { display_name?: string; avatar?: string }) => {
+    set({ isLoading: true, error: null });
+    try {
+      const sdk = await waitForSDK();
+      const updatedUser = await sdk.user.updateProfile(data);
+      set({ user: updatedUser, isLoading: false });
+    } catch (error: any) {
+      const message = error.data?.error?.message || error.message || "Update failed";
+      set({ error: message, isLoading: false });
+      throw error;
+    }
+  },
+
+  changePassword: async (currentPassword: string, newPassword: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const sdk = await waitForSDK();
+      await sdk.user.changePassword({ current_password: currentPassword, new_password: newPassword });
+      set({ isLoading: false });
+    } catch (error: any) {
+      const message = error.data?.error?.message || error.message || "Password change failed";
+      set({ error: message, isLoading: false });
+      throw error;
     }
   },
 

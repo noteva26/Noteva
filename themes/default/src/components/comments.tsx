@@ -10,6 +10,7 @@ import { Heart, MessageSquare, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import { getNoteva } from "@/hooks/useNoteva";
+import { EmojiPicker } from "@/components/emoji-picker";
 
 interface Comment {
   id: number;
@@ -249,12 +250,17 @@ export function Comments({ articleId, requireLogin = false }: CommentsProps) {
         
         {/* Comment form */}
         <div className="space-y-3">
-          <Textarea
-            placeholder={t("comment.placeholder")}
-            value={form.content}
-            onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
-            rows={3}
-          />
+          <div className="relative">
+            <Textarea
+              placeholder={t("comment.placeholder")}
+              value={form.content}
+              onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
+              rows={3}
+            />
+            <div className="absolute bottom-2 right-2">
+              <EmojiPicker onSelect={(emoji) => setForm((f) => ({ ...f, content: f.content + emoji }))} />
+            </div>
+          </div>
           {!user && (
             <div className="flex gap-2">
               <Input
