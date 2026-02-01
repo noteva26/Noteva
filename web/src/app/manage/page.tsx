@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "motion/react";
 import { adminApi, articlesApi, DashboardStats, Article, SystemStats } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileText, FolderTree, Tags, Eye, TrendingUp, Activity, HardDrive, Clock, Zap } from "lucide-react";
@@ -12,6 +13,9 @@ import {
   Tooltip,
 } from "recharts";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
+import { AnimatedGrid } from "@/components/motion";
+import { LoadingState } from "@/components/ui/loading-state";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -91,32 +95,56 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      {/* 标题区域 - 带入场动画 */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+      >
         <h1 className="text-3xl font-bold">{t("manage.dashboard")}</h1>
         <p className="text-muted-foreground">{t("manage.welcome")}</p>
-      </div>
+      </motion.div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* 统计卡片 - 错开入场动画 */}
+      <AnimatedGrid className="grid gap-4 md:grid-cols-2 lg:grid-cols-4" staggerDelay={0.08}>
         {statCards.map((card) => (
-          <Card key={card.title}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                {card.title}
-              </CardTitle>
-              <card.icon className={`h-4 w-4 ${card.color}`} />
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="h-8 w-16 bg-muted animate-pulse rounded" />
-              ) : (
-                <div className="text-2xl font-bold">{card.value}</div>
-              )}
-            </CardContent>
-          </Card>
+          <motion.div
+            key={card.title}
+            whileHover={{ y: -2, boxShadow: "0 8px 30px rgba(0,0,0,0.08)" }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+          >
+            <Card className="transition-colors">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">
+                  {card.title}
+                </CardTitle>
+                <card.icon className={`h-4 w-4 ${card.color}`} />
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="h-8 w-16 skeleton-shimmer rounded" />
+                ) : (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                    className="text-2xl font-bold"
+                  >
+                    {card.value}
+                  </motion.div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
         ))}
-      </div>
+      </AnimatedGrid>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.3 }}
+        className="grid gap-4 md:grid-cols-2 lg:grid-cols-7"
+      >
         {/* Article Status Chart */}
         <Card className="lg:col-span-4">
           <CardHeader>
@@ -205,9 +233,14 @@ export default function DashboardPage() {
             </a>
           </CardContent>
         </Card>
-      </div>
+      </motion.div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.4 }}
+        className="grid gap-4 md:grid-cols-2"
+      >
         {/* Recent Articles */}
         <Card>
           <CardHeader>
@@ -217,16 +250,20 @@ export default function DashboardPage() {
             {loading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-12 bg-muted animate-pulse rounded" />
+                  <div key={i} className="h-12 skeleton-shimmer rounded" />
                 ))}
               </div>
             ) : recentArticles.length > 0 ? (
               <div className="space-y-3">
-                {recentArticles.map((article) => (
-                  <a
+                {recentArticles.map((article, index) => (
+                  <motion.a
                     key={article.id}
                     href={`/manage/articles/${article.id}`}
                     className="flex items-center justify-between p-3 rounded-lg hover:bg-muted transition-colors"
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    whileHover={{ x: 4 }}
                   >
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{article.title}</p>
@@ -243,13 +280,15 @@ export default function DashboardPage() {
                     >
                       {article.status === "published" ? t("article.published") : t("article.draft")}
                     </span>
-                  </a>
+                  </motion.a>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                {t("article.noArticles")}
-              </p>
+              <EmptyState
+                size="sm"
+                description={t("article.noArticles")}
+                icon={FileText}
+              />
             )}
           </CardContent>
         </Card>
@@ -266,7 +305,7 @@ export default function DashboardPage() {
             {loading || !systemStats ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-8 bg-muted animate-pulse rounded" />
+                  <div key={i} className="h-8 skeleton-shimmer rounded" />
                 ))}
               </div>
             ) : (
@@ -330,7 +369,7 @@ export default function DashboardPage() {
             )}
           </CardContent>
         </Card>
-      </div>
+      </motion.div>
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "motion/react";
 import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,8 +16,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { TopLoader } from "@/components/ui/top-loader";
 import { Settings, LogOut, Menu, X, Search, ChevronDown, User } from "lucide-react";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, Suspense } from "react";
 import { getNoteva } from "@/hooks/useNoteva";
 
 // 导航项类型（兼容 SDK 和后端返回格式）
@@ -42,20 +44,6 @@ const BUILTIN_PATHS: Record<string, string> = {
   tags: "/tags",
 };
 
-// 从后端注入的配置读取初始值，避免闪烁
-const getInitialSiteInfo = () => {
-  if (typeof window !== "undefined") {
-    const config = (window as any).__SITE_CONFIG__;
-    if (config) {
-      return {
-        name: config.site_name || "Noteva",
-        logo: config.site_logo || "/logo.png",
-      };
-    }
-  }
-  return { name: "Noteva", logo: "/logo.png" };
-};
-
 export function SiteHeader() {
   const { t } = useTranslation();
   const router = useRouter();
@@ -63,14 +51,26 @@ export function SiteHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [navItems, setNavItems] = useState<NavItem[]>([]);
-  const [siteInfo, setSiteInfo] = useState(getInitialSiteInfo);
+  // 初始值为 null，避免 SSR 时使用默认值导致闪烁
+  const [siteInfo, setSiteInfo] = useState<{ name: string; logo: string } | null>(null);
   const [user, setUser] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // 客户端挂载后才显示动态内容，避免水合错误
+  // 客户端挂载后立即从注入的配置读取，避免闪烁
   useEffect(() => {
     setMounted(true);
+    // 立即从 __SITE_CONFIG__ 读取（此时 script 已执行）
+    const config = (window as any).__SITE_CONFIG__;
+    if (config) {
+      setSiteInfo({
+        name: config.site_name || "Noteva",
+        logo: config.site_logo || "/logo.png",
+      });
+    } else {
+      // 没有注入配置时使用默认值
+      setSiteInfo({ name: "Noteva", logo: "/logo.png" });
+    }
   }, []);
 
   useEffect(() => {
@@ -84,7 +84,7 @@ export function SiteHeader() {
       }
 
       try {
-        // 加载站点信息
+        // 加载站点信息（如果注入的配置不完整，从 API 补充）
         const info = await Noteva.site.getInfo();
         setSiteInfo({
           name: info.name || "Noteva",
@@ -281,20 +281,35 @@ export function SiteHeader() {
   ], [mounted, t]);
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <>
+      {/* Top Loading Bar */}
+      <Suspense fallback={null}>
+        <TopLoader />
+      </Suspense>
+      
+      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">
         <div className="mr-4 flex">
           <Link href="/" className="mr-6 flex items-center space-x-2">
-            {siteInfo.logo && (
-              <Image
-                src={siteInfo.logo}
-                alt={siteInfo.name}
-                width={28}
-                height={28}
-                className="rounded"
-              />
+            {siteInfo ? (
+              <>
+                {siteInfo.logo && (
+                  <Image
+                    src={siteInfo.logo}
+                    alt={siteInfo.name}
+                    width={28}
+                    height={28}
+                    className="rounded"
+                  />
+                )}
+                <span className="font-bold text-xl">{siteInfo.name}</span>
+              </>
+            ) : (
+              <>
+                <div className="w-7 h-7 rounded bg-muted animate-pulse" />
+                <div className="w-24 h-6 rounded bg-muted animate-pulse" />
+              </>
             )}
-            <span className="font-bold text-xl">{siteInfo.name}</span>
           </Link>
           <nav className="hidden md:flex items-center space-x-6 text-sm font-medium">
             {navItems.length > 0
@@ -383,33 +398,40 @@ export function SiteHeader() {
         </div>
       </div>
       
-      {/* Mobile Menu */}
-      {mobileMenuOpen && (
-        <div className="md:hidden border-t">
-          <nav className="container py-4 flex flex-col gap-4">
-            <form onSubmit={handleSearch} className="flex items-center">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="search"
-                  placeholder={t("common.search") + "..."}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 w-full"
-                />
-              </div>
-            </form>
-            {navItems.length > 0
-              ? navItems.filter(item => !item.parent_id).map((item) => {
-                  const href = getNavHref(item);
-                  
-                  // Skip group items without href in mobile menu
-                  if (!href) {
-                    // Show children directly for group items
-                    if (item.children && item.children.length > 0) {
-                      return item.children.map((child) => {
-                        const childHref = getNavHref(child);
-                        if (!childHref) return null;
+      {/* Mobile Menu with Animation */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="md:hidden border-t overflow-hidden"
+          >
+            <nav className="container py-4 flex flex-col gap-4">
+              <form onSubmit={handleSearch} className="flex items-center">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    placeholder={t("common.search") + "..."}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-8 w-full"
+                  />
+                </div>
+              </form>
+              {navItems.length > 0
+                ? navItems.filter(item => !item.parent_id).map((item) => {
+                    const href = getNavHref(item);
+                    
+                    // Skip group items without href in mobile menu
+                    if (!href) {
+                      // Show children directly for group items
+                      if (item.children && item.children.length > 0) {
+                        return item.children.map((child) => {
+                          const childHref = getNavHref(child);
+                          if (!childHref) return null;
                         const isChildExternal = child.nav_type === "external";
                         if (isChildExternal) {
                           return (
@@ -478,19 +500,21 @@ export function SiteHeader() {
                     {item.label}
                   </Link>
                 ))}
-            {!isAuthenticated && (
-              <div className="flex gap-2 pt-2 border-t">
-                <Button variant="outline" size="sm" asChild className="flex-1">
-                  <Link href="/login">{t("nav.login")}</Link>
-                </Button>
-                <Button size="sm" asChild className="flex-1">
-                  <Link href="/register">{t("nav.register")}</Link>
-                </Button>
-              </div>
-            )}
-          </nav>
-        </div>
-      )}
+              {!isAuthenticated && (
+                <div className="flex gap-2 pt-2 border-t">
+                  <Button variant="outline" size="sm" asChild className="flex-1">
+                    <Link href="/login">{t("nav.login")}</Link>
+                  </Button>
+                  <Button size="sm" asChild className="flex-1">
+                    <Link href="/register">{t("nav.register")}</Link>
+                  </Button>
+                </div>
+              )}
+            </nav>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </header>
+    </>
   );
 }

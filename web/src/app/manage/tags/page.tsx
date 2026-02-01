@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "motion/react";
 import { tagsApi, Tag, TagWithCount } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +29,7 @@ import { Plus, Search, Trash2, Tags } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export default function TagsPage() {
   const { t } = useTranslation();
@@ -132,24 +133,36 @@ export default function TagsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex items-center justify-between"
+      >
         <div>
           <h1 className="text-3xl font-bold">{t("manage.tags")}</h1>
           <p className="text-muted-foreground">{t("tag.totalTags")}</p>
         </div>
         <div className="flex items-center gap-2">
           {selectedTags.size > 0 && (
-            <Button variant="destructive" onClick={handleBatchDelete}>
-              <Trash2 className="h-4 w-4 mr-2" />
-              {t("tag.batchDelete")} ({selectedTags.size})
-            </Button>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+            >
+              <Button variant="destructive" onClick={handleBatchDelete}>
+                <Trash2 className="h-4 w-4 mr-2" />
+                {t("tag.batchDelete")} ({selectedTags.size})
+              </Button>
+            </motion.div>
           )}
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            {t("tag.newTag")}
-          </Button>
+          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              {t("tag.newTag")}
+            </Button>
+          </motion.div>
         </div>
-      </div>
+      </motion.div>
 
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-sm">
@@ -166,7 +179,12 @@ export default function TagsPage() {
         </span>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="grid gap-6 md:grid-cols-2"
+      >
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t("tag.tagCloud")}</CardTitle>
@@ -175,22 +193,28 @@ export default function TagsPage() {
             {loading ? (
               <div className="flex flex-wrap gap-2">
                 {Array.from({ length: 12 }).map((_, i) => (
-                  <Skeleton key={i} className="h-8 w-20" />
+                  <div key={i} className="h-8 w-20 skeleton-shimmer rounded" />
                 ))}
               </div>
             ) : filteredTags.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Tags className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>{t("tag.noTags")}</p>
-              </div>
+              <EmptyState
+                size="sm"
+                icon={Tags}
+                description={t("tag.noTags")}
+              />
             ) : (
               <div className="flex flex-wrap gap-3 items-center">
-                {filteredTags.map((tag) => (
-                  <span
+                {filteredTags.map((tag, index) => (
+                  <motion.span
                     key={tag.id}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.02 }}
+                    whileHover={{ scale: 1.1 }}
                     className={cn(
                       "cursor-pointer hover:text-primary transition-colors",
-                      getTagSize(tag.count)
+                      getTagSize(tag.count),
+                      selectedTags.has(tag.id) && "text-primary"
                     )}
                     onClick={() => toggleSelect(tag.id)}
                   >
@@ -198,7 +222,7 @@ export default function TagsPage() {
                     <span className="text-xs text-muted-foreground ml-1">
                       ({tag.count})
                     </span>
-                  </span>
+                  </motion.span>
                 ))}
               </div>
             )}
@@ -213,16 +237,20 @@ export default function TagsPage() {
             {loading ? (
               <div className="space-y-2">
                 {Array.from({ length: 8 }).map((_, i) => (
-                  <Skeleton key={i} className="h-10 w-full" />
+                  <div key={i} className="h-10 w-full skeleton-shimmer rounded" />
                 ))}
               </div>
             ) : filteredTags.length === 0 ? (
-              <p className="text-center py-8 text-muted-foreground">{t("tag.noTags")}</p>
+              <EmptyState size="sm" description={t("tag.noTags")} />
             ) : (
               <div className="space-y-2 max-h-[400px] overflow-auto">
-                {filteredTags.map((tag) => (
-                  <div
+                {filteredTags.map((tag, index) => (
+                  <motion.div
                     key={tag.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.02 }}
+                    whileHover={{ x: 2 }}
                     className={cn(
                       "flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors",
                       selectedTags.has(tag.id) && "bg-muted"
@@ -250,13 +278,13 @@ export default function TagsPage() {
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
             )}
           </CardContent>
         </Card>
-      </div>
+      </motion.div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>

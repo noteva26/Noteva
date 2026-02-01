@@ -46,6 +46,7 @@ package-lock.json
 
 # Backup & Reference folders
 /default-backup/
+/web-backup/
 /Komari/
 
 # Uploads (user content)

@@ -1,56 +1,45 @@
 //! Comment API endpoints
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
-use crate::api::middleware::AppState;
-use crate::db::repositories::{CommentRepositoryImpl, SettingsRepository, SqlxSettingsRepository};
-use crate::models::{CreateCommentInput, LikeTargetType};
-use crate::services::{generate_fingerprint, CommentService};
+use crate::api::middleware::{ApiError, AppState};
+use crate::models::{CommentWithMeta, CreateCommentInput, LikeTargetType};
+use crate::services::generate_fingerprint;
 
-/// Get comments for an article
-pub async fn get_comments(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(article_id): Path<i64>,
-) -> impl IntoResponse {
-    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
-    let service = CommentService::with_hooks(repo, state.hook_manager.clone());
-    
-    let fingerprint = extract_fingerprint(&headers);
-    
-    match service.get_by_article(article_id, fingerprint.as_deref()).await {
-        Ok(comments) => {
-            // Trigger comment_before_display hook
-            let hook_data = serde_json::json!({
-                "article_id": article_id,
-                "comments": &comments,
-                "count": comments.len()
-            });
-            let modified = state.hook_manager.trigger(
-                crate::plugin::hook_names::COMMENT_BEFORE_DISPLAY,
-                hook_data
-            );
-            
-            // Use modified comments if hook returned them
-            if let Some(modified_comments) = modified.get("comments") {
-                return Json(serde_json::json!({ "comments": modified_comments })).into_response();
-            }
-            
-            Json(serde_json::json!({ "comments": comments })).into_response()
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ).into_response(),
-    }
+// ============================================================================
+// Response Types
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct CommentsResponse {
+    pub comments: Vec<CommentWithMeta>,
 }
+
+#[derive(Debug, Serialize)]
+pub struct CommentResponse {
+    pub comment: crate::models::Comment,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LikeResponse {
+    pub success: bool,
+    pub liked: bool,
+    pub like_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LikeStatusResponse {
+    pub liked: bool,
+}
+
+// ============================================================================
+// Request Types
+// ============================================================================
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCommentRequest {
@@ -61,51 +50,85 @@ pub struct CreateCommentRequest {
     pub content: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LikeRequest {
+    pub target_type: String,
+    pub target_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CheckLikeQuery {
+    pub target_type: String,
+    pub target_id: i64,
+}
+
+// ============================================================================
+// Handlers
+// ============================================================================
+
+/// Get comments for an article
+pub async fn get_comments(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(article_id): Path<i64>,
+) -> Result<Json<CommentsResponse>, ApiError> {
+    let fingerprint = extract_fingerprint(&headers);
+    
+    let comments = state
+        .comment_service
+        .get_by_article(article_id, fingerprint.as_deref())
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    
+    // Trigger comment_before_display hook
+    let hook_data = serde_json::json!({
+        "article_id": article_id,
+        "comments": &comments,
+        "count": comments.len()
+    });
+    let modified = state.hook_manager.trigger(
+        crate::plugin::hook_names::COMMENT_BEFORE_DISPLAY,
+        hook_data,
+    );
+    
+    // Use modified comments if hook returned them
+    if let Some(modified_comments) = modified.get("comments") {
+        if let Ok(comments) = serde_json::from_value(modified_comments.clone()) {
+            return Ok(Json(CommentsResponse { comments }));
+        }
+    }
+    
+    Ok(Json(CommentsResponse { comments }))
+}
+
 /// Create a comment
 pub async fn create_comment(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<CreateCommentRequest>,
-) -> impl IntoResponse {
+) -> Result<(StatusCode, Json<CommentResponse>), ApiError> {
     // Check if login is required
-    let settings_repo = SqlxSettingsRepository::new(state.pool.clone());
-    let require_login = settings_repo
-        .get("require_login_to_comment")
+    let require_login = state
+        .comment_service
+        .check_require_login()
         .await
-        .ok()
-        .flatten()
-        .map(|s| s.value == "true")
         .unwrap_or(false);
     
     // Try to get user from session
     let user_id = get_user_id_from_headers(&state, &headers).await;
     
     if require_login && user_id.is_none() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": "Login required to comment" })),
-        ).into_response();
+        return Err(ApiError::unauthorized("Login required to comment"));
     }
     
     // For guest comments, require nickname
     if user_id.is_none() && req.nickname.as_ref().map(|n| n.trim().is_empty()).unwrap_or(true) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "Nickname is required for guest comments" })),
-        ).into_response();
+        return Err(ApiError::validation_error("Nickname is required for guest comments"));
     }
     
     if req.content.trim().is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "Content is required" })),
-        ).into_response();
+        return Err(ApiError::validation_error("Content is required"));
     }
-    
-    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
-    let settings_repo = Arc::new(SqlxSettingsRepository::new(state.pool.clone()));
-    let service = CommentService::with_hooks(repo, state.hook_manager.clone())
-        .with_settings(settings_repo);
     
     let ip = extract_ip(&headers);
     let ua = headers
@@ -121,50 +144,22 @@ pub async fn create_comment(
         content: req.content,
     };
     
-    match service.create(input, user_id, ip, ua).await {
-        Ok(comment) => (StatusCode::CREATED, Json(serde_json::json!({ "comment": comment }))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ).into_response(),
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LikeRequest {
-    pub target_type: String,
-    pub target_id: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct LikeResponse {
-    pub success: bool,
-    pub liked: bool,
-    pub like_count: i64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CheckLikeQuery {
-    pub target_type: String,
-    pub target_id: i64,
+    let comment = state
+        .comment_service
+        .create(input, user_id, ip, ua)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    
+    Ok((StatusCode::CREATED, Json(CommentResponse { comment })))
 }
 
 /// Check if user has liked an article or comment
 pub async fn check_like(
     State(state): State<AppState>,
     headers: HeaderMap,
-    axum::extract::Query(query): axum::extract::Query<CheckLikeQuery>,
-) -> impl IntoResponse {
-    let target_type = match query.target_type.as_str() {
-        "article" => LikeTargetType::Article,
-        "comment" => LikeTargetType::Comment,
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": "Invalid target type" })),
-            ).into_response();
-        }
-    };
+    Query(query): Query<CheckLikeQuery>,
+) -> Result<Json<LikeStatusResponse>, ApiError> {
+    let target_type = parse_target_type(&query.target_type)?;
     
     let user_id = get_user_id_from_headers(&state, &headers).await;
     let fingerprint = if user_id.is_none() {
@@ -173,15 +168,13 @@ pub async fn check_like(
         None
     };
     
-    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
-    let service = CommentService::new(repo);
-    
-    let is_liked = service
+    let liked = state
+        .comment_service
         .is_liked(target_type, query.target_id, user_id, fingerprint.as_deref())
         .await
         .unwrap_or(false);
     
-    Json(serde_json::json!({ "liked": is_liked })).into_response()
+    Ok(Json(LikeStatusResponse { liked }))
 }
 
 /// Like an article or comment
@@ -189,17 +182,8 @@ pub async fn like(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<LikeRequest>,
-) -> impl IntoResponse {
-    let target_type = match req.target_type.as_str() {
-        "article" => LikeTargetType::Article,
-        "comment" => LikeTargetType::Comment,
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": "Invalid target type" })),
-            ).into_response();
-        }
-    };
+) -> Result<Json<LikeResponse>, ApiError> {
+    let target_type = parse_target_type(&req.target_type)?;
     
     let user_id = get_user_id_from_headers(&state, &headers).await;
     let fingerprint = if user_id.is_none() {
@@ -209,37 +193,30 @@ pub async fn like(
     };
     
     if user_id.is_none() && fingerprint.is_none() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "Unable to identify user" })),
-        ).into_response();
+        return Err(ApiError::validation_error("Unable to identify user"));
     }
     
-    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
-    let service = CommentService::new(repo);
-    
     // Check if already liked
-    let is_liked = service
+    let is_liked = state
+        .comment_service
         .is_liked(target_type.clone(), req.target_id, user_id, fingerprint.as_deref())
         .await
         .unwrap_or(false);
     
     let result = if is_liked {
-        // Unlike
-        service.unlike(target_type.clone(), req.target_id, user_id, fingerprint).await
+        state.comment_service.unlike(target_type.clone(), req.target_id, user_id, fingerprint).await
     } else {
-        // Like
-        service.like(target_type.clone(), req.target_id, user_id, fingerprint).await
+        state.comment_service.like(target_type.clone(), req.target_id, user_id, fingerprint).await
     };
+    
+    result.map_err(|e| ApiError::internal_error(e.to_string()))?;
     
     // Get updated like count for articles and clear cache
     let like_count = if target_type == LikeTargetType::Article {
-        // Query the article to get updated like_count
         let article_repo = crate::db::repositories::SqlxArticleRepository::new(state.pool.clone());
         use crate::db::repositories::ArticleRepository;
         let article = article_repo.get_by_id(req.target_id).await.ok().flatten();
         
-        // Clear article cache so next request gets fresh data
         if let Some(ref art) = article {
             let _ = state.article_service.invalidate_article_cache(art.id, &art.slug).await;
         }
@@ -249,59 +226,62 @@ pub async fn like(
         0
     };
     
-    match result {
-        Ok(_) => Json(LikeResponse {
-            success: true,
-            liked: !is_liked,
-            like_count,
-        }).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ).into_response(),
-    }
+    Ok(Json(LikeResponse {
+        success: true,
+        liked: !is_liked,
+        like_count,
+    }))
 }
 
 /// Increment view count for an article
 pub async fn increment_view(
     State(state): State<AppState>,
     Path(article_id): Path<i64>,
-) -> impl IntoResponse {
-    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
-    let service = CommentService::new(repo);
+) -> Result<StatusCode, ApiError> {
+    state
+        .comment_service
+        .increment_view(article_id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
     
-    match service.increment_view(article_id).await {
-        Ok(_) => {
-            // Clear article cache so next request gets fresh view count
-            let article_repo = crate::db::repositories::SqlxArticleRepository::new(state.pool.clone());
-            use crate::db::repositories::ArticleRepository;
-            if let Ok(Some(art)) = article_repo.get_by_id(article_id).await {
-                let _ = state.article_service.invalidate_article_cache(art.id, &art.slug).await;
-            }
-            StatusCode::OK.into_response()
-        }
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    // Clear article cache so next request gets fresh view count
+    let article_repo = crate::db::repositories::SqlxArticleRepository::new(state.pool.clone());
+    use crate::db::repositories::ArticleRepository;
+    if let Ok(Some(art)) = article_repo.get_by_id(article_id).await {
+        let _ = state.article_service.invalidate_article_cache(art.id, &art.slug).await;
     }
+    
+    Ok(StatusCode::OK)
 }
 
 /// Delete a comment (admin only)
 pub async fn delete_comment(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
-    let service = CommentService::new(repo);
+) -> Result<StatusCode, ApiError> {
+    let deleted = state
+        .comment_service
+        .delete(id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
     
-    match service.delete(id).await {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
-        Ok(false) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "Comment not found" })),
-        ).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ).into_response(),
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("Comment not found"))
+    }
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Parse target type string to enum
+fn parse_target_type(s: &str) -> Result<LikeTargetType, ApiError> {
+    match s {
+        "article" => Ok(LikeTargetType::Article),
+        "comment" => Ok(LikeTargetType::Comment),
+        _ => Err(ApiError::validation_error("Invalid target type")),
     }
 }
 
@@ -332,16 +312,10 @@ fn extract_fingerprint(headers: &HeaderMap) -> Option<String> {
 /// Get user ID from session cookie
 async fn get_user_id_from_headers(state: &AppState, headers: &HeaderMap) -> Option<i64> {
     let cookie = headers.get("cookie")?.to_str().ok()?;
-    let session_id = cookie
-        .split(';')
-        .find_map(|c| {
-            let c = c.trim();
-            if c.starts_with("session=") {
-                Some(c.trim_start_matches("session="))
-            } else {
-                None
-            }
-        })?;
+    let session_id = cookie.split(';').find_map(|c| {
+        let c = c.trim();
+        c.strip_prefix("session=")
+    })?;
     
     let user = state.user_service.validate_session(session_id).await.ok()??;
     Some(user.id)

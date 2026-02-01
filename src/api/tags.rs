@@ -15,7 +15,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::api::common::{default_page, default_page_size};
 use crate::api::middleware::{ApiError, AppState};
+use crate::api::responses::{ArticleSummary, PaginatedArticleSummaryResponse};
 use crate::models::ListParams;
 
 /// Query parameters for tag list
@@ -39,9 +41,6 @@ pub struct ListArticlesQuery {
     #[serde(default = "default_page_size")]
     pub page_size: u32,
 }
-
-fn default_page() -> u32 { 1 }
-fn default_page_size() -> u32 { 10 }
 
 /// Response for tag list
 #[derive(Debug, Serialize)]
@@ -77,40 +76,6 @@ impl From<crate::models::TagWithCount> for TagResponse {
             slug: twc.tag.slug,
             name: twc.tag.name,
             article_count: Some(twc.article_count),
-        }
-    }
-}
-
-/// Response for article list
-#[derive(Debug, Serialize)]
-pub struct ArticleListResponse {
-    pub articles: Vec<ArticleResponse>,
-    pub total: i64,
-    pub page: u32,
-    pub page_size: u32,
-    pub total_pages: u32,
-}
-
-/// Response for a single article
-#[derive(Debug, Serialize)]
-pub struct ArticleResponse {
-    pub id: i64,
-    pub slug: String,
-    pub title: String,
-    pub status: String,
-    pub published_at: Option<String>,
-    pub created_at: String,
-}
-
-impl From<crate::models::Article> for ArticleResponse {
-    fn from(article: crate::models::Article) -> Self {
-        Self {
-            id: article.id,
-            slug: article.slug,
-            title: article.title,
-            status: article.status.to_string(),
-            published_at: article.published_at.map(|dt| dt.to_rfc3339()),
-            created_at: article.created_at.to_rfc3339(),
         }
     }
 }
@@ -159,7 +124,7 @@ async fn get_tag_articles(
     State(state): State<AppState>,
     Path(slug): Path<String>,
     Query(query): Query<ListArticlesQuery>,
-) -> Result<Json<ArticleListResponse>, ApiError> {
+) -> Result<Json<PaginatedArticleSummaryResponse>, ApiError> {
     // Get tag by slug
     let tag = state
         .tag_service
@@ -180,9 +145,9 @@ async fn get_tag_articles(
     let page = result.page;
     let per_page = result.per_page;
     let total_pages = result.total_pages();
-    let articles: Vec<ArticleResponse> = result.items.into_iter().map(Into::into).collect();
+    let articles: Vec<ArticleSummary> = result.items.into_iter().map(Into::into).collect();
 
-    Ok(Json(ArticleListResponse {
+    Ok(Json(PaginatedArticleSummaryResponse {
         articles,
         total,
         page,

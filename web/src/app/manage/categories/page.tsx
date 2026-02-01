@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { categoriesApi, Category, CreateCategoryInput } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -36,6 +36,7 @@ import { Plus, Edit, Trash2, FolderTree, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface CategoryWithChildren extends Category {
   children?: CategoryWithChildren[];
@@ -159,18 +160,25 @@ export default function CategoriesPage() {
   };
 
 
-  const renderCategory = (category: CategoryWithChildren, level = 0) => {
+  const renderCategory = (category: CategoryWithChildren, level = 0, index = 0) => {
     const hasChildren = category.children && category.children.length > 0;
     const isExpanded = expandedIds.has(category.id);
     const isDefaultCategory = category.slug === "uncategorized";
 
     return (
-      <div key={category.id}>
-        <div
+      <motion.div
+        key={category.id}
+        initial={{ opacity: 0, x: -10 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ delay: index * 0.03 }}
+      >
+        <motion.div
           className={cn(
             "flex items-center gap-2 p-3 hover:bg-muted/50 rounded-lg transition-colors",
             level > 0 && "ml-6"
           )}
+          whileHover={{ x: 2 }}
+          transition={{ type: "spring", stiffness: 400, damping: 25 }}
         >
           <button
             className={cn(
@@ -219,13 +227,21 @@ export default function CategoriesPage() {
               <Plus className="h-4 w-4" />
             </Button>
           </div>
-        </div>
-        {hasChildren && isExpanded && (
-          <div className="border-l ml-5">
-            {category.children!.map((child) => renderCategory(child, level + 1))}
-          </div>
-        )}
-      </div>
+        </motion.div>
+        <AnimatePresence>
+          {hasChildren && isExpanded && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="border-l ml-5 overflow-hidden"
+            >
+              {category.children!.map((child, i) => renderCategory(child, level + 1, i))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     );
   };
 
@@ -233,40 +249,52 @@ export default function CategoriesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex items-center justify-between"
+      >
         <div>
           <h1 className="text-3xl font-bold">{t("manage.categories")}</h1>
           <p className="text-muted-foreground">{t("category.totalCategories")}</p>
         </div>
-        <Button onClick={() => openCreateDialog()}>
-          <Plus className="h-4 w-4 mr-2" />
-          {t("category.newCategory")}
-        </Button>
-      </div>
+        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+          <Button onClick={() => openCreateDialog()}>
+            <Plus className="h-4 w-4 mr-2" />
+            {t("category.newCategory")}
+          </Button>
+        </motion.div>
+      </motion.div>
 
-      <Card>
-        <CardContent className="p-4">
-          {loading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-12 w-full" />
-              ))}
-            </div>
-          ) : tree.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <FolderTree className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>{t("category.noCategories")}</p>
-              <Button variant="link" onClick={() => openCreateDialog()}>
-                {t("category.createFirst")}
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {tree.map((category) => renderCategory(category))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+      >
+        <Card>
+          <CardContent className="p-4">
+            {loading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="h-12 w-full skeleton-shimmer rounded" />
+                ))}
+              </div>
+            ) : tree.length === 0 ? (
+              <EmptyState
+                icon={FolderTree}
+                title={t("category.noCategories")}
+                actionText={t("category.createFirst")}
+                onAction={() => openCreateDialog()}
+              />
+            ) : (
+              <div className="space-y-1">
+                {tree.map((category, i) => renderCategory(category, 0, i))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>

@@ -1,15 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { motion } from "motion/react";
 import { adminApi, emailApi, UpdateCheckResponse } from "@/lib/api";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
@@ -214,12 +215,21 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
         <h1 className="text-3xl font-bold">{t("settings.title")}</h1>
         <p className="text-muted-foreground">{t("settings.site")}</p>
-      </div>
+      </motion.div>
 
-      <Tabs defaultValue="general" className="space-y-6">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+      >
+        <Tabs defaultValue="general" className="space-y-6">
         <TabsList>
           <TabsTrigger value="general" className="gap-2">
             <Settings className="h-4 w-4" />
@@ -683,6 +693,7 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+      </motion.div>
     </div>
   );
 }

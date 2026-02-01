@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { motion, AnimatePresence } from "motion/react";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
 import { useTranslation } from "@/lib/i18n";
@@ -12,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { TopLoader } from "@/components/ui/top-loader";
 import {
   LayoutDashboard,
   FileText,
@@ -123,6 +125,11 @@ export default function AdminLayout({
 
   return (
     <div className="flex h-screen bg-muted/30">
+      {/* Top Loading Bar */}
+      <Suspense fallback={null}>
+        <TopLoader />
+      </Suspense>
+
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div
@@ -161,26 +168,31 @@ export default function AdminLayout({
             </button>
           </div>
 
-          {/* Navigation */}
+          {/* Navigation with hover animations */}
           <nav className="flex-1 space-y-1 p-4">
             {navItems.map((item) => {
               const isActive = pathname === item.href || 
                 (item.href !== "/manage" && pathname.startsWith(item.href));
               return (
-                <Link
+                <motion.div
                   key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                  onClick={() => setSidebarOpen(false)}
+                  whileHover={{ x: isActive ? 0 : 4 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
                 >
-                  <item.icon className="h-4 w-4" />
-                  {item.label}
-                </Link>
+                  <Link
+                    href={item.href}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
+                </motion.div>
               );
             })}
           </nav>
@@ -234,8 +246,21 @@ export default function AdminLayout({
           </div>
         </header>
 
-        {/* Page content */}
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        {/* Page content with route transition */}
+        <main className="flex-1 overflow-auto p-6">
+          <motion.div
+            key={pathname}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{
+              type: "spring",
+              stiffness: 400,
+              damping: 30,
+            }}
+          >
+            {children}
+          </motion.div>
+        </main>
       </div>
     </div>
   );

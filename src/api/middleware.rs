@@ -91,6 +91,7 @@ pub struct AppState {
     pub category_service: Arc<crate::services::category::CategoryService>,
     pub tag_service: Arc<crate::services::tag::TagService>,
     pub settings_service: Arc<crate::services::settings::SettingsService>,
+    pub comment_service: Arc<crate::services::comment::CommentService>,
     pub theme_engine: Arc<RwLock<crate::theme::ThemeEngine>>,
     pub upload_config: Arc<crate::config::UploadConfig>,
     pub page_service: Arc<crate::services::page::PageService>,
@@ -591,6 +592,8 @@ mod property_tests {
             let user = User {
                 id: 1, username: "testuser".to_string(), email: "test@example.com".to_string(),
                 password_hash: "hash".to_string(), role,
+                status: crate::models::UserStatus::Active,
+                display_name: None, avatar: None,
                 created_at: chrono::Utc::now(), updated_at: chrono::Utc::now(),
             };
             prop_assert!(!user.is_admin());
@@ -601,6 +604,8 @@ mod property_tests {
             let user = User {
                 id: 1, username: "admin".to_string(), email: "admin@example.com".to_string(),
                 password_hash: "hash".to_string(), role: UserRole::Admin,
+                status: crate::models::UserStatus::Active,
+                display_name: None, avatar: None,
                 created_at: chrono::Utc::now(), updated_at: chrono::Utc::now(),
             };
             prop_assert!(user.is_admin());
@@ -611,6 +616,8 @@ mod property_tests {
             let user = User {
                 id: 1, username: "testuser".to_string(), email: "test@example.com".to_string(),
                 password_hash: "hash".to_string(), role,
+                status: crate::models::UserStatus::Active,
+                display_name: None, avatar: None,
                 created_at: chrono::Utc::now(), updated_at: chrono::Utc::now(),
             };
             let expected = matches!(role, UserRole::Admin | UserRole::Editor);
@@ -622,6 +629,8 @@ mod property_tests {
             let user = User {
                 id: user_id, username: "author".to_string(), email: "author@example.com".to_string(),
                 password_hash: "hash".to_string(), role: UserRole::Author,
+                status: crate::models::UserStatus::Active,
+                display_name: None, avatar: None,
                 created_at: chrono::Utc::now(), updated_at: chrono::Utc::now(),
             };
             prop_assert_eq!(user.can_edit(content_author_id), user_id == content_author_id);
@@ -633,6 +642,8 @@ mod property_tests {
             let user = User {
                 id: user_id, username: "editor".to_string(), email: "editor@example.com".to_string(),
                 password_hash: "hash".to_string(), role,
+                status: crate::models::UserStatus::Active,
+                display_name: None, avatar: None,
                 created_at: chrono::Utc::now(), updated_at: chrono::Utc::now(),
             };
             prop_assert!(user.can_edit(content_author_id));

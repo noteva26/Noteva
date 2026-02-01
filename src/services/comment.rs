@@ -36,6 +36,16 @@ impl CommentService {
         self
     }
 
+    /// Check if login is required to comment
+    pub async fn check_require_login(&self) -> Result<bool> {
+        if let Some(ref settings_repo) = self.settings_repo {
+            if let Ok(Some(setting)) = settings_repo.get("require_login_to_comment").await {
+                return Ok(setting.value == "true");
+            }
+        }
+        Ok(false)
+    }
+
     /// Trigger a hook if hook manager is available
     fn trigger_hook(&self, name: &str, data: serde_json::Value) -> serde_json::Value {
         if let Some(ref manager) = self.hook_manager {

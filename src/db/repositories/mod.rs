@@ -15,7 +15,7 @@ pub mod user;
 
 pub use article::{ArticleRepository, SqlxArticleRepository};
 pub use category::{CategoryRepository, SqlxCategoryRepository};
-pub use comment::{CommentRepository, CommentRepositoryImpl};
+pub use comment::{CommentRepository, SqlxCommentRepository};
 pub use nav_item::{NavItemRepository, SqlxNavItemRepository};
 pub use page::{PageRepository, SqlxPageRepository};
 pub use session::{SessionRepository, SqlxSessionRepository};

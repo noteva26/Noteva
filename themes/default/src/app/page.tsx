@@ -4,12 +4,13 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import { motion } from "motion/react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar, Folder, Eye, Heart, MessageSquare, Tag, Pin } from "lucide-react";
+import { Calendar, Folder, Eye, Heart, MessageSquare, Tag, Pin, FileText } from "lucide-react";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
 import { getNoteva } from "@/hooks/useNoteva";
 
@@ -75,13 +76,24 @@ function getExcerpt(content: string, maxLength: number = 200): string {
 function HomeContent() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
-  const [siteInfo, setSiteInfo] = useState({ name: "Noteva", subtitle: "", description: "" });
+  const [siteInfo, setSiteInfo] = useState<{ name: string; subtitle: string; description: string } | null>(null);
   const { t } = useTranslation();
   const locale = useI18nStore((s) => s.locale);
   const searchParams = useSearchParams();
   const searchQuery = searchParams.get("q") || "";
 
   useEffect(() => {
+    // 先从注入的配置读取，避免闪烁
+    const config = (window as any).__SITE_CONFIG__;
+    if (config) {
+      setSiteInfo({
+        name: config.site_name || "Noteva",
+        subtitle: config.site_subtitle || "",
+        description: config.site_description || "",
+      });
+      document.title = config.site_name || "Noteva";
+    }
+
     // 使用 SDK 加载数据
     const loadData = async () => {
       const Noteva = getNoteva();
@@ -92,7 +104,7 @@ function HomeContent() {
       }
 
       try {
-        // 加载站点信息
+        // 加载站点信息（补充或覆盖注入的配置）
         const info = await Noteva.site.getInfo();
         setSiteInfo({
           name: info.name || "Noteva",
@@ -149,19 +161,38 @@ function HomeContent() {
       <SiteHeader />
       <main className="flex-1">
         <div className="container py-8 max-w-4xl mx-auto">
-          <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold mb-2">{t("home.welcome")} {siteInfo.name}</h1>
-            <p className="text-muted-foreground text-lg">
-              {siteInfo.subtitle || siteInfo.description || t("home.subtitle")}
-            </p>
-          </div>
+          {/* Hero 区域 - 带入场动画 */}
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="mb-8 text-center"
+          >
+            {siteInfo ? (
+              <>
+                <h1 className="text-4xl font-bold mb-2">{t("home.welcome")} {siteInfo.name}</h1>
+                <p className="text-muted-foreground text-lg">
+                  {siteInfo.subtitle || siteInfo.description || t("home.subtitle")}
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="h-10 w-64 mx-auto mb-4 skeleton-shimmer rounded" />
+                <div className="h-6 w-96 mx-auto skeleton-shimmer rounded" />
+              </>
+            )}
+          </motion.div>
 
           {searchQuery && (
-            <div className="mb-6 text-center">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mb-6 text-center"
+            >
               <p className="text-muted-foreground">
                 {t("common.search")}: <span className="font-medium text-foreground">{searchQuery}</span>
               </p>
-            </div>
+            </motion.div>
           )}
 
           <div className="grid gap-6">
@@ -169,25 +200,48 @@ function HomeContent() {
               Array.from({ length: 3 }).map((_, i) => (
                 <Card key={i}>
                   <CardHeader>
-                    <Skeleton className="h-6 w-3/4" />
+                    <div className="h-6 w-3/4 skeleton-shimmer rounded" />
                   </CardHeader>
                   <CardContent>
-                    <Skeleton className="h-4 w-full mb-2" />
-                    <Skeleton className="h-4 w-2/3" />
+                    <div className="h-4 w-full mb-2 skeleton-shimmer rounded" />
+                    <div className="h-4 w-2/3 skeleton-shimmer rounded" />
                   </CardContent>
                 </Card>
               ))
             ) : filteredArticles.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center text-muted-foreground">
-                  {searchQuery ? t("common.noData") : t("home.noPostsYet")}
-                </CardContent>
-              </Card>
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+              >
+                <Card>
+                  <CardContent className="py-12 flex flex-col items-center justify-center text-center">
+                    <div className="rounded-full bg-muted flex items-center justify-center mb-4 size-12">
+                      <FileText className="size-5 text-muted-foreground" />
+                    </div>
+                    <p className="text-muted-foreground">
+                      {searchQuery ? t("common.noData") : t("home.noPostsYet")}
+                    </p>
+                  </CardContent>
+                </Card>
+              </motion.div>
             ) : (
-              filteredArticles.map((article) => {
+              filteredArticles.map((article, index) => {
                 const thumbnail = getThumbnail(article);
                 return (
-                  <Card key={article.id} className="hover:shadow-md transition-shadow overflow-hidden">
+                  <motion.div
+                    key={article.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 400,
+                      damping: 30,
+                      delay: index * 0.05,
+                    }}
+                    whileHover={{ y: -2 }}
+                  >
+                    <Card className="hover:shadow-md transition-shadow overflow-hidden">
                     <div className="flex">
                       <div className="flex-1">
                         <CardHeader>
@@ -272,6 +326,7 @@ function HomeContent() {
                       )}
                     </div>
                   </Card>
+                  </motion.div>
                 );
               })
             )}
@@ -290,17 +345,17 @@ export default function HomePage() {
         <SiteHeader />
         <main className="flex-1">
           <div className="container py-8 max-w-4xl mx-auto">
-            <Skeleton className="h-10 w-64 mx-auto mb-4" />
-            <Skeleton className="h-6 w-96 mx-auto mb-8" />
+            <div className="h-10 w-64 mx-auto mb-4 skeleton-shimmer rounded" />
+            <div className="h-6 w-96 mx-auto mb-8 skeleton-shimmer rounded" />
             <div className="grid gap-6">
               {Array.from({ length: 3 }).map((_, i) => (
                 <Card key={i}>
                   <CardHeader>
-                    <Skeleton className="h-6 w-3/4" />
+                    <div className="h-6 w-3/4 skeleton-shimmer rounded" />
                   </CardHeader>
                   <CardContent>
-                    <Skeleton className="h-4 w-full mb-2" />
-                    <Skeleton className="h-4 w-2/3" />
+                    <div className="h-4 w-full mb-2 skeleton-shimmer rounded" />
+                    <div className="h-4 w-2/3 skeleton-shimmer rounded" />
                   </CardContent>
                 </Card>
               ))}

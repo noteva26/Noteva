@@ -12,15 +12,16 @@ use noteva::{
     db::{
         self,
         repositories::{
-            SqlxArticleRepository, SqlxCategoryRepository, SqlxNavItemRepository,
-            SqlxPageRepository, SqlxSessionRepository, SqlxSettingsRepository,
-            SqlxTagRepository, SqlxUserRepository,
+            SqlxCommentRepository, SqlxArticleRepository, SqlxCategoryRepository,
+            SqlxNavItemRepository, SqlxPageRepository, SqlxSessionRepository,
+            SqlxSettingsRepository, SqlxTagRepository, SqlxUserRepository,
         },
     },
     plugin::{PluginManager, HookManager, ShortcodeManager, shortcode::builtins},
     services::{
         article::ArticleService,
         category::CategoryService,
+        comment::CommentService,
         markdown::MarkdownRenderer,
         nav_item::NavItemService,
         page::PageService,
@@ -108,6 +109,14 @@ async fn main() -> Result<()> {
     let page_service = Arc::new(PageService::new(page_repo));
     let nav_service = Arc::new(NavItemService::new(nav_repo));
 
+    // Create comment service with hooks and settings support
+    let comment_repo = Arc::new(SqlxCommentRepository::new(pool.clone()));
+    let settings_repo_for_comment = Arc::new(SqlxSettingsRepository::new(pool.clone()));
+    let comment_service = Arc::new(
+        CommentService::with_hooks(comment_repo, hook_manager.clone())
+            .with_settings(settings_repo_for_comment),
+    );
+
     // Initialize default navigation items
     nav_service.init_defaults().await?;
     tracing::info!("Navigation initialized");
@@ -127,6 +136,7 @@ async fn main() -> Result<()> {
         category_service,
         tag_service,
         settings_service,
+        comment_service,
         theme_engine: Arc::new(std::sync::RwLock::new(theme_engine)),
         upload_config: Arc::new(config.upload.clone()),
         page_service,

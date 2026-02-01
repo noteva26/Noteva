@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use sysinfo::{Pid, System};
 use std::process;
 
+use crate::api::common::{default_page_i64, default_per_page};
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 
 /// Response for dashboard stats
@@ -914,14 +915,11 @@ pub struct UpdateUserRequest {
 /// Query params for user list
 #[derive(Debug, Deserialize)]
 pub struct UserListQuery {
-    #[serde(default = "default_page")]
+    #[serde(default = "default_page_i64")]
     pub page: i64,
     #[serde(default = "default_per_page")]
     pub per_page: i64,
 }
-
-fn default_page() -> i64 { 1 }
-fn default_per_page() -> i64 { 20 }
 
 /// GET /api/v1/admin/users - List all users
 pub async fn list_users(
@@ -1087,7 +1085,7 @@ pub async fn delete_user(
 /// Query params for pending comments list
 #[derive(Debug, Deserialize)]
 pub struct PendingCommentsQuery {
-    #[serde(default = "default_page")]
+    #[serde(default = "default_page_i64")]
     pub page: i64,
     #[serde(default = "default_per_page")]
     pub per_page: i64,
@@ -1121,14 +1119,8 @@ pub async fn list_pending_comments(
     _user: AuthenticatedUser,
     Query(query): Query<PendingCommentsQuery>,
 ) -> Result<Json<PendingCommentsResponse>, ApiError> {
-    use crate::db::repositories::CommentRepositoryImpl;
-    use crate::services::CommentService;
-    use std::sync::Arc;
-
-    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
-    let service = CommentService::new(repo);
-
-    let (comments, total) = service
+    let (comments, total) = state
+        .comment_service
         .list_pending(query.page, query.per_page)
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
@@ -1163,14 +1155,8 @@ pub async fn approve_comment(
     _user: AuthenticatedUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    use crate::db::repositories::CommentRepositoryImpl;
-    use crate::services::CommentService;
-    use std::sync::Arc;
-
-    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
-    let service = CommentService::new(repo);
-
-    let success = service
+    let success = state
+        .comment_service
         .approve(id)
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
@@ -1188,14 +1174,8 @@ pub async fn reject_comment(
     _user: AuthenticatedUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    use crate::db::repositories::CommentRepositoryImpl;
-    use crate::services::CommentService;
-    use std::sync::Arc;
-
-    let repo = Arc::new(CommentRepositoryImpl::new(state.pool.clone()));
-    let service = CommentService::new(repo);
-
-    let success = service
+    let success = state
+        .comment_service
         .reject(id)
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;

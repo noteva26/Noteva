@@ -47,18 +47,18 @@ pub trait CommentRepository: Send + Sync {
 }
 
 /// Comment repository implementation
-pub struct CommentRepositoryImpl {
+pub struct SqlxCommentRepository {
     pool: DynDatabasePool,
 }
 
-impl CommentRepositoryImpl {
+impl SqlxCommentRepository {
     pub fn new(pool: DynDatabasePool) -> Self {
         Self { pool }
     }
 }
 
 #[async_trait]
-impl CommentRepository for CommentRepositoryImpl {
+impl CommentRepository for SqlxCommentRepository {
     async fn create(&self, input: CreateCommentInput, user_id: Option<i64>, ip: Option<String>, ua: Option<String>) -> Result<Comment> {
         self.create_with_status(input, user_id, ip, ua, CommentStatus::Approved).await
     }

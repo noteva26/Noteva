@@ -19,9 +19,11 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
+use crate::api::common::{default_page, default_page_size};
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
+use crate::api::responses::{ArticleResponse, PaginatedArticlesResponse};
 use crate::models::{ArticleStatus, ListParams};
 
 /// Query parameters for listing articles
@@ -42,106 +44,6 @@ pub struct ListArticlesQuery {
     pub category: Option<i64>,
     /// Filter by tag ID
     pub tag: Option<i64>,
-}
-
-fn default_page() -> u32 { 1 }
-fn default_page_size() -> u32 { 10 }
-
-/// Response for article list
-#[derive(Debug, Serialize)]
-pub struct ArticleListResponse {
-    pub articles: Vec<ArticleResponse>,
-    pub total: i64,
-    pub page: u32,
-    pub page_size: u32,
-    pub total_pages: u32,
-}
-
-/// Response for a single article
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ArticleResponse {
-    pub id: i64,
-    pub slug: String,
-    pub title: String,
-    pub content: String,
-    pub content_html: String,
-    pub author_id: i64,
-    pub category_id: i64,
-    pub status: String,
-    pub published_at: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub view_count: i64,
-    pub like_count: i64,
-    pub comment_count: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thumbnail: Option<String>,
-    pub is_pinned: bool,
-    pub pin_order: i32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub category: Option<CategoryInfo>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tags: Option<Vec<TagInfo>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct CategoryInfo {
-    pub id: i64,
-    pub slug: String,
-    pub name: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TagInfo {
-    pub id: i64,
-    pub slug: String,
-    pub name: String,
-}
-
-impl From<crate::models::Article> for ArticleResponse {
-    fn from(article: crate::models::Article) -> Self {
-        Self {
-            id: article.id,
-            slug: article.slug,
-            title: article.title,
-            content: article.content,
-            content_html: article.content_html,
-            author_id: article.author_id,
-            category_id: article.category_id,
-            status: article.status.to_string(),
-            published_at: article.published_at.map(|dt| dt.to_rfc3339()),
-            created_at: article.created_at.to_rfc3339(),
-            updated_at: article.updated_at.to_rfc3339(),
-            view_count: article.view_count,
-            like_count: article.like_count,
-            comment_count: article.comment_count,
-            thumbnail: article.thumbnail,
-            is_pinned: article.is_pinned,
-            pin_order: article.pin_order,
-            category: None,
-            tags: None,
-        }
-    }
-}
-
-impl ArticleResponse {
-    pub fn with_category(mut self, category: Option<crate::models::Category>) -> Self {
-        self.category = category.map(|c| CategoryInfo {
-            id: c.id,
-            slug: c.slug,
-            name: c.name,
-        });
-        self
-    }
-    
-    pub fn with_tags(mut self, tags: Vec<crate::models::Tag>) -> Self {
-        self.tags = Some(tags.into_iter().map(|t| TagInfo {
-            id: t.id,
-            slug: t.slug,
-            name: t.name,
-        }).collect());
-        self
-    }
 }
 
 /// Request body for creating an article
@@ -210,7 +112,7 @@ pub fn router() -> Router<AppState> {
 pub async fn list_articles(
     State(state): State<AppState>,
     Query(query): Query<ListArticlesQuery>,
-) -> Result<Json<ArticleListResponse>, ApiError> {
+) -> Result<Json<PaginatedArticlesResponse>, ApiError> {
     let params = ListParams::new(query.page, query.page_size);
 
     // Check if we should filter by published status
@@ -273,7 +175,7 @@ pub async fn list_articles(
         articles.push(response.with_category(category).with_tags(tags));
     }
 
-    Ok(Json(ArticleListResponse {
+    Ok(Json(PaginatedArticlesResponse {
         articles,
         total,
         page,

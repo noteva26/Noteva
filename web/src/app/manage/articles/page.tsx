@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { motion } from "motion/react";
 import { articlesApi, Article, PagedResult } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +34,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus,
   Search,
@@ -41,9 +41,11 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export default function ArticlesPage() {
   const router = useRouter();
@@ -114,16 +116,23 @@ export default function ArticlesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex items-center justify-between"
+      >
         <div>
           <h1 className="text-3xl font-bold">{t("manage.articles")}</h1>
           <p className="text-muted-foreground">{t("article.totalArticles")}</p>
         </div>
-        <Button onClick={() => router.push("/manage/articles/new")}>
-          <Plus className="h-4 w-4 mr-2" />
-          {t("article.newArticle")}
-        </Button>
-      </div>
+        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+          <Button onClick={() => router.push("/manage/articles/new")}>
+            <Plus className="h-4 w-4 mr-2" />
+            {t("article.newArticle")}
+          </Button>
+        </motion.div>
+      </motion.div>
 
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-sm">
@@ -148,7 +157,12 @@ export default function ArticlesPage() {
         </Select>
       </div>
 
-      <div className="rounded-md border">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="rounded-md border"
+      >
         <Table>
           <TableHeader>
             <TableRow>
@@ -163,22 +177,34 @@ export default function ArticlesPage() {
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell><Skeleton className="h-4 w-[200px]" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-[80px] ml-auto" /></TableCell>
+                  <TableCell><div className="h-4 w-[200px] skeleton-shimmer rounded" /></TableCell>
+                  <TableCell><div className="h-4 w-[80px] skeleton-shimmer rounded" /></TableCell>
+                  <TableCell><div className="h-4 w-[60px] skeleton-shimmer rounded" /></TableCell>
+                  <TableCell><div className="h-4 w-[100px] skeleton-shimmer rounded" /></TableCell>
+                  <TableCell><div className="h-4 w-[80px] ml-auto skeleton-shimmer rounded" /></TableCell>
                 </TableRow>
               ))
             ) : filteredArticles.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
-                  {t("article.noArticles")}
+                <TableCell colSpan={5} className="h-24">
+                  <EmptyState
+                    size="sm"
+                    icon={FileText}
+                    description={t("article.noArticles")}
+                    actionText={t("article.newArticle")}
+                    onAction={() => router.push("/manage/articles/new")}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
-              filteredArticles.map((article) => (
-                <TableRow key={article.id}>
+              filteredArticles.map((article, index) => (
+                <motion.tr
+                  key={article.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.03 }}
+                  className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
+                >
                   <TableCell className="font-medium">
                     <Link
                       href={`/manage/articles/${article.id}`}
@@ -224,12 +250,12 @@ export default function ArticlesPage() {
                       </AlertDialog>
                     </div>
                   </TableCell>
-                </TableRow>
+                </motion.tr>
               ))
             )}
           </TableBody>
         </Table>
-      </div>
+      </motion.div>
 
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
