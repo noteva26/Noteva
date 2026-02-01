@@ -19,9 +19,11 @@ api.interceptors.response.use(
       // and it's not an auth-related request
       const isManagePage = window.location.pathname.startsWith("/manage");
       const isAuthRequest = error.config?.url?.includes("/auth/");
+      const isAuthPage = window.location.pathname === "/manage/login" || 
+                         window.location.pathname === "/manage/setup";
       
-      if (isManagePage && !isAuthRequest) {
-        window.location.href = "/login";
+      if (isManagePage && !isAuthRequest && !isAuthPage) {
+        window.location.href = "/manage/login";
       }
     }
     return Promise.reject(error);
@@ -71,6 +73,11 @@ export const authApi = {
   logout: () => api.post("/auth/logout"),
   
   me: () => api.get<User>("/auth/me"),
+  
+  hasAdmin: () => api.get<{ has_admin: boolean }>("/auth/has-admin"),
+  
+  updateProfile: (data: { display_name?: string | null; avatar?: string | null }) =>
+    api.put<User>("/auth/profile", data),
 };
 
 // Articles API
@@ -222,6 +229,8 @@ export interface User {
   username: string;
   email: string;
   role: "admin" | "editor" | "author";
+  display_name?: string | null;
+  avatar?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -363,7 +372,6 @@ export interface SiteSettings {
   site_subtitle: string;
   site_logo: string;
   site_footer: string;
-  require_login_to_comment?: string;
   comment_moderation?: string;
   [key: string]: string | undefined;
 }
@@ -460,47 +468,6 @@ export interface PluginInstallResponse {
   message: string;
 }
 
-// User management types
-export interface UserAdmin {
-  id: number;
-  username: string;
-  email: string;
-  role: string;
-  status: string;
-  display_name?: string | null;
-  avatar?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface UserListResponse {
-  users: UserAdmin[];
-  total: number;
-  page: number;
-  per_page: number;
-  total_pages: number;
-}
-
-export interface UpdateUserInput {
-  username?: string;
-  email?: string;
-  role?: string;
-  status?: string;
-}
-
-// Users API (admin)
-export const usersApi = {
-  list: (params?: { page?: number; per_page?: number }) =>
-    api.get<UserListResponse>("/admin/users", { params }),
-  
-  get: (id: number) => api.get<UserAdmin>(`/admin/users/${id}`),
-  
-  update: (id: number, data: UpdateUserInput) =>
-    api.put<UserAdmin>(`/admin/users/${id}`, data),
-  
-  delete: (id: number) => api.delete(`/admin/users/${id}`),
-};
-
 // Comment moderation types
 export interface PendingComment {
   id: number;
@@ -528,13 +495,4 @@ export const commentsApi = {
   approve: (id: number) => api.post(`/admin/comments/${id}/approve`),
   
   reject: (id: number) => api.post(`/admin/comments/${id}/reject`),
-};
-
-// Email API
-export const emailApi = {
-  sendCode: (email: string) =>
-    api.post<{ message: string }>("/auth/send-code", { email }),
-  
-  testEmail: (to: string) =>
-    api.post<{ success: boolean; message: string }>("/admin/email/test", { email: to }),
 };

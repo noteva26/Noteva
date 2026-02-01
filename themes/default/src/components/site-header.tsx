@@ -17,7 +17,7 @@ import {
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { TopLoader } from "@/components/ui/top-loader";
-import { Settings, LogOut, Menu, X, Search, ChevronDown, User } from "lucide-react";
+import { Settings, LogOut, Menu, X, Search, ChevronDown } from "lucide-react";
 import { useEffect, useState, useMemo, Suspense } from "react";
 import { getNoteva } from "@/hooks/useNoteva";
 
@@ -341,33 +341,35 @@ export function SiteHeader() {
           <LanguageSwitcher />
           <ThemeSwitcher />
           
-          {authChecked && isAuthenticated ? (
+          {authChecked && isAuthenticated && user?.role === "admin" ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-2">
-                  <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center">
-                    <span className="text-xs font-medium">
-                      {user?.username?.[0]?.toUpperCase()}
-                    </span>
-                  </div>
-                  <span className="hidden sm:inline">{user?.username}</span>
+                  {user?.avatar ? (
+                    <Image
+                      src={user.avatar}
+                      alt={user.display_name || user.username}
+                      width={24}
+                      height={24}
+                      className="rounded-full"
+                    />
+                  ) : (
+                    <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center">
+                      <span className="text-xs font-medium">
+                        {(user?.display_name || user?.username)?.[0]?.toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  <span className="hidden sm:inline">{user?.display_name || user?.username}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem asChild>
-                  <Link href="/profile" className="cursor-pointer">
-                    <User className="mr-2 h-4 w-4" />
-                    {t("nav.profile")}
+                  <Link href="/manage" className="cursor-pointer">
+                    <Settings className="mr-2 h-4 w-4" />
+                    {t("nav.manage")}
                   </Link>
                 </DropdownMenuItem>
-                {user?.role === "admin" && (
-                  <DropdownMenuItem asChild>
-                    <Link href="/manage" className="cursor-pointer">
-                      <Settings className="mr-2 h-4 w-4" />
-                      {t("nav.manage")}
-                    </Link>
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
                   <LogOut className="mr-2 h-4 w-4" />
@@ -375,15 +377,6 @@ export function SiteHeader() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : authChecked ? (
-            <div className="hidden md:flex items-center gap-2">
-              <Button variant="ghost" size="sm" asChild>
-                <Link href="/login">{t("nav.login")}</Link>
-              </Button>
-              <Button size="sm" asChild>
-                <Link href="/register">{t("nav.register")}</Link>
-              </Button>
-            </div>
           ) : null}
           
           {/* Mobile Menu Button */}
@@ -500,16 +493,6 @@ export function SiteHeader() {
                     {item.label}
                   </Link>
                 ))}
-              {!isAuthenticated && (
-                <div className="flex gap-2 pt-2 border-t">
-                  <Button variant="outline" size="sm" asChild className="flex-1">
-                    <Link href="/login">{t("nav.login")}</Link>
-                  </Button>
-                  <Button size="sm" asChild className="flex-1">
-                    <Link href="/register">{t("nav.register")}</Link>
-                  </Button>
-                </div>
-              )}
             </nav>
           </motion.div>
         )}

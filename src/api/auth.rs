@@ -90,6 +90,7 @@ pub fn router() -> Router<AppState> {
         .route("/profile", put(update_profile))
         .route("/password", put(change_password))
         .route("/send-code", post(send_verification_code))
+        .route("/has-admin", get(has_admin))
 }
 
 /// Build protected auth routes (requires auth middleware)
@@ -107,6 +108,31 @@ pub fn public_router() -> Router<AppState> {
         .route("/register", post(register))
         .route("/login", post(login))
         .route("/send-code", post(send_verification_code))
+        .route("/has-admin", get(has_admin))
+}
+
+/// GET /api/v1/auth/has-admin - Check if admin exists
+///
+/// Returns whether the system has at least one admin user.
+/// Used for first-time setup flow.
+async fn has_admin(
+    State(state): State<AppState>,
+) -> Result<Json<HasAdminResponse>, ApiError> {
+    let is_first = state
+        .user_service
+        .is_first_user()
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    
+    Ok(Json(HasAdminResponse {
+        has_admin: !is_first,
+    }))
+}
+
+/// Response for has-admin check
+#[derive(Debug, Serialize)]
+pub struct HasAdminResponse {
+    pub has_admin: bool,
 }
 
 /// POST /api/v1/auth/register - User registration

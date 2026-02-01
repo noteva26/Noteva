@@ -64,6 +64,24 @@
     "loginToAccount": "Login to your account",
     "createAccount": "Create a new account"
   },
+  "setup": {
+    "title": "Initial Setup",
+    "welcome": "Welcome to Noteva",
+    "description": "First time? Create your admin account",
+    "createAdmin": "Create Admin Account",
+    "username": "Username",
+    "usernamePlaceholder": "Enter username",
+    "password": "Password",
+    "passwordPlaceholder": "Enter password (min 8 characters)",
+    "confirmPassword": "Confirm Password",
+    "confirmPasswordPlaceholder": "Re-enter password",
+    "displayName": "Display Name",
+    "displayNamePlaceholder": "Optional, shown in articles and comments",
+    "submit": "Create Account",
+    "creating": "Creating...",
+    "success": "Admin account created successfully",
+    "error": "Creation failed"
+  },
   "manage": {
     "dashboard": "Dashboard",
     "articles": "Articles",
@@ -188,6 +206,8 @@
     "switchFailed": "Switch failed",
     "accountInfo": "Account Information",
     "viewAccountInfo": "View and edit your account information",
+    "profileSettings": "Profile Settings",
+    "profileSettingsDesc": "Set your display name and avatar",
     "changePassword": "Change Password",
     "currentPassword": "Current Password",
     "newPassword": "New Password",

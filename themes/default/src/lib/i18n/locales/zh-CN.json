@@ -110,7 +110,9 @@
     "submitFailed": "评论发表失败",
     "liked": "已点赞",
     "unliked": "已取消点赞",
-    "likeFailed": "点赞失败"
+    "likeFailed": "点赞失败",
+    "authorTag": "作者",
+    "postingAsAdmin": "以 {name} 身份发表评论"
   },
   "theme": {
     "light": "浅色",

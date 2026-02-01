@@ -110,7 +110,9 @@
     "submitFailed": "Failed to submit comment",
     "liked": "Liked",
     "unliked": "Unliked",
-    "likeFailed": "Failed to like"
+    "likeFailed": "Failed to like",
+    "authorTag": "Author",
+    "postingAsAdmin": "Posting as {name}"
   },
   "theme": {
     "light": "Light",

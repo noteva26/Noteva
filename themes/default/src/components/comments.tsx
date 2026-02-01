@@ -25,17 +25,19 @@ interface Comment {
   avatar_url: string;
   like_count: number;
   is_liked: boolean;
+  is_author?: boolean;
   replies?: Comment[];
 }
 
 interface CommentsProps {
   articleId: number;
-  requireLogin?: boolean;
+  authorId?: number;
 }
 
-export function Comments({ articleId, requireLogin = false }: CommentsProps) {
+export function Comments({ articleId, authorId }: CommentsProps) {
   const { t } = useTranslation();
   const [user, setUser] = useState<any>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -58,8 +60,10 @@ export function Comments({ articleId, requireLogin = false }: CommentsProps) {
       try {
         const currentUser = await Noteva.user.check();
         setUser(currentUser);
+        setIsAdmin(currentUser?.role === "admin");
       } catch {
         setUser(null);
+        setIsAdmin(false);
       }
     };
     checkUser();
@@ -92,7 +96,8 @@ export function Comments({ articleId, requireLogin = false }: CommentsProps) {
       return;
     }
     
-    if (!user && !form.nickname.trim()) {
+    // 游客需要填写昵称，管理员不需要
+    if (!isAdmin && !form.nickname.trim()) {
       toast.error(t("comment.nicknameRequired"));
       return;
     }
@@ -108,7 +113,9 @@ export function Comments({ articleId, requireLogin = false }: CommentsProps) {
         parent_id: parentId,
       };
       
-      if (!user) {
+      // 游客模式：使用表单中的昵称和邮箱
+      // 管理员模式：后端会自动使用登录用户信息
+      if (!isAdmin) {
         input.nickname = form.nickname;
         input.email = form.email;
       }
@@ -147,6 +154,15 @@ export function Comments({ articleId, requireLogin = false }: CommentsProps) {
     }
   };
 
+  // 判断是否为作者评论
+  const isAuthorComment = (comment: Comment) => {
+    // 后端返回的 is_author 标识
+    if (comment.is_author) return true;
+    // 或者 user_id 匹配文章作者
+    if (comment.user_id && authorId && comment.user_id === authorId) return true;
+    return false;
+  };
+
   const renderComment = (comment: Comment, isReply = false) => (
     <div key={comment.id} className={`${isReply ? "ml-8 mt-4" : "mt-4"}`}>
       <div className="flex gap-3">
@@ -158,6 +174,11 @@ export function Comments({ articleId, requireLogin = false }: CommentsProps) {
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <span className="font-medium">{comment.nickname || "Anonymous"}</span>
+            {isAuthorComment(comment) && (
+              <span className="px-1.5 py-0.5 text-xs font-medium bg-primary text-primary-foreground rounded">
+                {t("comment.authorTag")}
+              </span>
+            )}
             <span className="text-sm text-muted-foreground">
               {new Date(comment.created_at).toLocaleDateString()}
             </span>
@@ -188,7 +209,7 @@ export function Comments({ articleId, requireLogin = false }: CommentsProps) {
                 onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
                 rows={2}
               />
-              {!user && (
+              {!isAdmin && (
                 <div className="flex gap-2">
                   <Input
                     placeholder={t("comment.nickname")}
@@ -220,22 +241,6 @@ export function Comments({ articleId, requireLogin = false }: CommentsProps) {
     </div>
   );
 
-  if (requireLogin && !user) {
-    return (
-      <Card className="mt-8">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <MessageSquare className="h-5 w-5" />
-            {t("comment.title")}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">{t("comment.loginRequired")}</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <Card className="mt-8">
       <CardHeader>
@@ -261,7 +266,7 @@ export function Comments({ articleId, requireLogin = false }: CommentsProps) {
               <EmojiPicker onSelect={(emoji) => setForm((f) => ({ ...f, content: f.content + emoji }))} />
             </div>
           </div>
-          {!user && (
+          {!isAdmin && (
             <div className="flex gap-2">
               <Input
                 placeholder={t("comment.nickname")}
@@ -274,6 +279,11 @@ export function Comments({ articleId, requireLogin = false }: CommentsProps) {
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               />
             </div>
+          )}
+          {isAdmin && (
+            <p className="text-sm text-muted-foreground">
+              {t("comment.postingAsAdmin", { name: user?.display_name || user?.username })}
+            </p>
           )}
           <Button onClick={() => handleSubmit()} disabled={submitting}>
             {submitting ? (

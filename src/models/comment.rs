@@ -73,6 +73,8 @@ pub struct CommentWithMeta {
     pub avatar_url: String,
     pub like_count: i64,
     pub is_liked: bool,
+    #[serde(default)]
+    pub is_author: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub replies: Vec<CommentWithMeta>,
 }

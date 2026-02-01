@@ -54,7 +54,6 @@ export default function PostClient() {
   const [notFound, setNotFound] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
-  const [requireLogin, setRequireLogin] = useState(false);
   const { t } = useTranslation();
   const locale = useI18nStore((s) => s.locale);
 
@@ -286,7 +285,7 @@ export default function PostClient() {
             </Button>
           </div>
 
-          <Comments articleId={article.id} requireLogin={requireLogin} />
+          <Comments articleId={article.id} />
         </article>
       </main>
       <SiteFooter />

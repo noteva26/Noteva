@@ -64,6 +64,24 @@
     "loginToAccount": "登入到您的帳戶",
     "createAccount": "建立新帳戶"
   },
+  "setup": {
+    "title": "初始設定",
+    "welcome": "歡迎使用 Noteva",
+    "description": "首次使用，請建立管理員帳戶",
+    "createAdmin": "建立管理員帳戶",
+    "username": "使用者名稱",
+    "usernamePlaceholder": "請輸入使用者名稱",
+    "password": "密碼",
+    "passwordPlaceholder": "請輸入密碼（至少8位）",
+    "confirmPassword": "確認密碼",
+    "confirmPasswordPlaceholder": "請再次輸入密碼",
+    "displayName": "顯示名稱",
+    "displayNamePlaceholder": "可選，用於文章和評論顯示",
+    "submit": "建立帳戶",
+    "creating": "建立中...",
+    "success": "管理員帳戶建立成功",
+    "error": "建立失敗"
+  },
   "manage": {
     "dashboard": "儀表板",
     "articles": "文章",
@@ -188,6 +206,8 @@
     "switchFailed": "切換失敗",
     "accountInfo": "帳戶資訊",
     "viewAccountInfo": "檢視和修改您的帳戶資訊",
+    "profileSettings": "個人資料",
+    "profileSettingsDesc": "設定您的顯示名稱和頭像",
     "changePassword": "修改密碼",
     "currentPassword": "目前密碼",
     "newPassword": "新密碼",

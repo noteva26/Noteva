@@ -130,8 +130,42 @@ async fn serve_sdk_file(path: &str) -> Response {
 }
 
 /// Serve admin files
-async fn serve_admin(path: &str, _state: &AppState) -> Response {
+async fn serve_admin(path: &str, state: &AppState) -> Response {
     let asset_path = path.trim_start_matches('/');
+    let normalized_path = asset_path.trim_end_matches('/');
+    
+    // Special handling for /manage/setup - redirect to /manage/login if admin exists
+    if normalized_path == "manage/setup" {
+        // Check if any user exists (first user is always admin)
+        use crate::db::repositories::{UserRepository, SqlxUserRepository};
+        let user_repo = SqlxUserRepository::new(state.pool.clone());
+        if let Ok(count) = user_repo.count().await {
+            if count > 0 {
+                // Admin exists, redirect to login
+                return Response::builder()
+                    .status(StatusCode::FOUND)
+                    .header(header::LOCATION, "/manage/login")
+                    .body(Body::empty())
+                    .unwrap();
+            }
+        }
+    }
+    
+    // Special handling for /manage/login - redirect to /manage/setup if no admin
+    if normalized_path == "manage/login" {
+        use crate::db::repositories::{UserRepository, SqlxUserRepository};
+        let user_repo = SqlxUserRepository::new(state.pool.clone());
+        if let Ok(count) = user_repo.count().await {
+            if count == 0 {
+                // No admin, redirect to setup
+                return Response::builder()
+                    .status(StatusCode::FOUND)
+                    .header(header::LOCATION, "/manage/setup")
+                    .body(Body::empty())
+                    .unwrap();
+            }
+        }
+    }
     
     // Try exact file (e.g., manage/index.html, manage/articles/index.html)
     if let Some(content) = AdminAssets::get(asset_path) {

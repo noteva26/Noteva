@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
 import { useTranslation } from "@/lib/i18n";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { TopLoader } from "@/components/ui/top-loader";
+import { authApi } from "@/lib/api";
 import {
   LayoutDashboard,
   FileText,
@@ -28,7 +29,6 @@ import {
   FileCode,
   Navigation,
   Puzzle,
-  Users,
   MessageSquare,
 } from "lucide-react";
 
@@ -44,6 +44,12 @@ export default function AdminLayout({
   const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Set mounted on client side
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const navItems = [
     { href: "/manage", label: t("manage.dashboard"), icon: LayoutDashboard },
@@ -53,14 +59,18 @@ export default function AdminLayout({
     { href: "/manage/pages", label: t("manage.pages"), icon: FileCode },
     { href: "/manage/nav", label: t("manage.nav"), icon: Navigation },
     { href: "/manage/comments", label: t("manage.comments"), icon: MessageSquare },
-    { href: "/manage/users", label: t("manage.users"), icon: Users },
     { href: "/manage/plugins", label: t("manage.plugins"), icon: Puzzle },
     { href: "/manage/themes", label: t("manage.themes"), icon: Palette },
     { href: "/manage/settings", label: t("manage.settings"), icon: Settings },
   ];
 
-  // Check if current page is login or register (handle trailing slash)
-  const isAuthPage = false; // Login/register moved to frontend
+  // Check if current page is login or setup (these don't need sidebar)
+  // Handle both with and without trailing slash
+  const normalizedPath = pathname?.replace(/\/$/, '') || '';
+  const isAuthPage = normalizedPath === "/manage/login" || 
+                     normalizedPath === "/manage/setup" ||
+                     normalizedPath.endsWith("/login") ||
+                     normalizedPath.endsWith("/setup");
 
   // 获取站点设置
   useEffect(() => {
@@ -73,19 +83,38 @@ export default function AdminLayout({
   }, [settings.site_name]);
 
   useEffect(() => {
-    // Skip auth check for login/register pages
+    // Skip auth check for login/setup pages
     if (isAuthPage) {
       setAuthChecked(true);
       return;
     }
-    checkAuth().finally(() => setAuthChecked(true));
-  }, [checkAuth, isAuthPage]);
+    
+    const init = async () => {
+      try {
+        // First check if admin exists
+        const { data } = await authApi.hasAdmin();
+        if (!data.has_admin) {
+          // No admin, redirect to setup
+          router.replace("/manage/setup");
+          return;
+        }
+        
+        // Check auth
+        await checkAuth();
+        setAuthChecked(true);
+      } catch (error) {
+        console.error("Auth check failed:", error);
+        setAuthChecked(true);
+      }
+    };
+    
+    init();
+  }, [checkAuth, isAuthPage, router]);
 
   useEffect(() => {
     if (!authChecked || isAuthPage) return;
     if (!isAuthenticated) {
-      // Redirect to frontend login page (different origin in production)
-      window.location.href = "/login";
+      router.replace("/manage/login");
       return;
     }
     // Check if user is admin
@@ -93,19 +122,26 @@ export default function AdminLayout({
       alert("权限不足：只有管理员可以访问管理后台");
       window.location.href = "/";
     }
-  }, [isAuthenticated, isAuthPage, authChecked, user]);
+  }, [isAuthenticated, isAuthPage, authChecked, user, router]);
 
   const handleLogout = async () => {
     await logout();
-    window.location.href = "/";
+    router.push("/manage/login");
   };
 
-  // For login/register pages, render without sidebar immediately
+  // For login/setup pages, render without sidebar immediately
+  // This check must come FIRST before any loading states
   if (isAuthPage) {
     return <>{children}</>;
   }
 
-  // Show loading while checking auth (only on initial load)
+  // Before mount, show children to avoid hydration mismatch
+  // This prevents flash of loading state on initial render
+  if (!mounted) {
+    return <>{children}</>;
+  }
+
+  // Show loading while checking auth (only after mount)
   if (!authChecked) {
     return (
       <div className="flex h-screen items-center justify-center">

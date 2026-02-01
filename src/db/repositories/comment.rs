@@ -206,8 +206,16 @@ async fn get_by_id_sqlite(pool: &SqlitePool, id: i64) -> Result<Option<Comment>>
 }
 
 async fn get_by_article_sqlite(pool: &SqlitePool, article_id: i64, fingerprint: Option<&str>) -> Result<Vec<CommentWithMeta>> {
+    // First get the article author_id
+    let author_id: Option<i64> = sqlx::query_scalar(
+        "SELECT author_id FROM articles WHERE id = ?"
+    )
+    .bind(article_id)
+    .fetch_optional(pool)
+    .await?;
+    
     let rows = sqlx::query(
-        r#"SELECT c.*, u.username,
+        r#"SELECT c.*, u.username, u.role as user_role, u.avatar as user_avatar, u.display_name as user_display_name,
            (SELECT COUNT(*) FROM likes WHERE target_type = 'comment' AND target_id = c.id) as like_count
            FROM comments c 
            LEFT JOIN users u ON c.user_id = u.id
@@ -228,10 +236,22 @@ async fn get_by_article_sqlite(pool: &SqlitePool, article_id: i64, fingerprint: 
         let like_count: i64 = row.get("like_count");
         let nickname: Option<String> = row.get("nickname");
         let username: Option<String> = row.try_get("username").ok();
+        let user_id: Option<i64> = row.get("user_id");
+        let user_role: Option<String> = row.try_get("user_role").ok();
+        let user_avatar: Option<String> = row.try_get("user_avatar").ok().flatten();
+        let user_display_name: Option<String> = row.try_get("user_display_name").ok().flatten();
         
-        // Use username if logged in user, otherwise use nickname
-        let display_name = username.or(nickname);
+        // Use user's display_name first, then username, then nickname
+        let display_name = user_display_name.or(username).or(nickname);
         
+        // Check if this comment is from the article author or an admin
+        let is_author = user_id.is_some() && (
+            user_id == author_id || 
+            user_role.as_deref() == Some("admin")
+        );
+        
+        // Use user's avatar if set, otherwise use Gravatar
+        let avatar_url = user_avatar.unwrap_or_else(|| CommentWithMeta::gravatar_url(&email));
         let is_liked = if let Some(fp) = fingerprint {
             is_liked_sqlite(pool, LikeTargetType::Comment, id, None, Some(fp)).await.unwrap_or(false)
         } else {
@@ -241,16 +261,17 @@ async fn get_by_article_sqlite(pool: &SqlitePool, article_id: i64, fingerprint: 
         let comment = CommentWithMeta {
             id,
             article_id: row.get("article_id"),
-            user_id: row.get("user_id"),
+            user_id,
             parent_id,
             nickname: display_name,
             email: email.clone(),
             content: row.get("content"),
             status: row.get::<String, _>("status").parse().unwrap_or_default(),
             created_at: row.get("created_at"),
-            avatar_url: CommentWithMeta::gravatar_url(&email),
+            avatar_url,
             like_count,
             is_liked,
+            is_author,
             replies: Vec::new(),
         };
         
@@ -314,6 +335,7 @@ async fn list_pending_sqlite(pool: &SqlitePool, page: i64, per_page: i64) -> Res
             avatar_url: CommentWithMeta::gravatar_url(&email),
             like_count: 0,
             is_liked: false,
+            is_author: false,
             replies: Vec::new(),
         }
     }).collect();
@@ -562,8 +584,16 @@ async fn get_by_id_mysql(pool: &MySqlPool, id: i64) -> Result<Option<Comment>> {
 }
 
 async fn get_by_article_mysql(pool: &MySqlPool, article_id: i64, fingerprint: Option<&str>) -> Result<Vec<CommentWithMeta>> {
+    // First get the article author_id
+    let author_id: Option<i64> = sqlx::query_scalar(
+        "SELECT author_id FROM articles WHERE id = ?"
+    )
+    .bind(article_id)
+    .fetch_optional(pool)
+    .await?;
+    
     let rows = sqlx::query(
-        r#"SELECT c.*, u.username,
+        r#"SELECT c.*, u.username, u.role as user_role,
            (SELECT COUNT(*) FROM likes WHERE target_type = 'comment' AND target_id = c.id) as like_count
            FROM comments c 
            LEFT JOIN users u ON c.user_id = u.id
@@ -584,9 +614,17 @@ async fn get_by_article_mysql(pool: &MySqlPool, article_id: i64, fingerprint: Op
         let like_count: i64 = row.get("like_count");
         let nickname: Option<String> = row.get("nickname");
         let username: Option<String> = row.try_get("username").ok();
+        let user_id: Option<i64> = row.get("user_id");
+        let user_role: Option<String> = row.try_get("user_role").ok();
         
         // Use username if logged in user, otherwise use nickname
         let display_name = username.or(nickname);
+        
+        // Check if this comment is from the article author or an admin
+        let is_author = user_id.is_some() && (
+            user_id == author_id || 
+            user_role.as_deref() == Some("admin")
+        );
         
         let is_liked = if let Some(fp) = fingerprint {
             is_liked_mysql(pool, LikeTargetType::Comment, id, None, Some(fp)).await.unwrap_or(false)
@@ -597,7 +635,7 @@ async fn get_by_article_mysql(pool: &MySqlPool, article_id: i64, fingerprint: Op
         let comment = CommentWithMeta {
             id,
             article_id: row.get("article_id"),
-            user_id: row.get("user_id"),
+            user_id,
             parent_id,
             nickname: display_name,
             email: email.clone(),
@@ -607,6 +645,7 @@ async fn get_by_article_mysql(pool: &MySqlPool, article_id: i64, fingerprint: Op
             avatar_url: CommentWithMeta::gravatar_url(&email),
             like_count,
             is_liked,
+            is_author,
             replies: Vec::new(),
         };
         
@@ -669,6 +708,7 @@ async fn list_pending_mysql(pool: &MySqlPool, page: i64, per_page: i64) -> Resul
             avatar_url: CommentWithMeta::gravatar_url(&email),
             like_count: 0,
             is_liked: false,
+            is_author: false,
             replies: Vec::new(),
         }
     }).collect();
