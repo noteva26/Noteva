@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { adminApi, ThemeResponse, GitHubReleaseInfo, GitHubAssetInfo, StoreThemeInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -33,10 +34,17 @@ export default function ThemesPage() {
   const [storeThemes, setStoreThemes] = useState<StoreThemeInfo[]>([]);
   const [loadingStore, setLoadingStore] = useState(false);
   const [installingFromStore, setInstallingFromStore] = useState<string | null>(null);
+  
+  // Updates
+  const [updates, setUpdates] = useState<Record<string, { current: string; latest: string }>>({});
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
 
   const fetchThemes = async () => {
     setLoading(true);
     try {
+      // First reload themes from disk
+      await adminApi.reloadThemes();
+      // Then fetch the updated list
       const { data } = await adminApi.themes();
       setThemes(data?.themes || []);
       setCurrentTheme(data?.current || "default");
@@ -87,6 +95,55 @@ export default function ThemesPage() {
       setStoreThemes([]);
     } finally {
       setLoadingStore(false);
+    }
+  };
+
+  const checkUpdates = async () => {
+    setCheckingUpdates(true);
+    try {
+      const { data } = await adminApi.checkThemeUpdates();
+      const updatesMap: Record<string, { current: string; latest: string }> = {};
+      data.updates.forEach(u => {
+        updatesMap[u.name] = { current: u.current_version, latest: u.latest_version };
+      });
+      setUpdates(updatesMap);
+      if (data.updates.length > 0) {
+        toast.success(`发现 ${data.updates.length} 个主题更新`);
+      } else {
+        toast.info("所有主题都是最新版本");
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || "检查更新失败");
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  const handleUpdateTheme = async (themeName: string) => {
+    if (themeName === currentTheme) {
+      if (!confirm("当前主题正在使用中，更新后需要刷新页面。是否继续？")) {
+        return;
+      }
+    }
+    
+    setSwitching(true);
+    try {
+      const { data } = await adminApi.updateTheme(themeName);
+      toast.success(data.message);
+      // Remove from updates list
+      setUpdates(prev => {
+        const newUpdates = { ...prev };
+        delete newUpdates[themeName];
+        return newUpdates;
+      });
+      fetchThemes();
+      if (themeName === currentTheme) {
+        toast.info("主题已更新，请刷新页面查看效果");
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || "更新失败");
+    } finally {
+      setSwitching(false);
     }
   };
 
@@ -239,6 +296,14 @@ export default function ThemesPage() {
             )}
             {t("theme.upload") || "Upload"}
           </Button>
+          <Button variant="outline" onClick={checkUpdates} disabled={checkingUpdates}>
+            {checkingUpdates ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            检查更新
+          </Button>
           <Button variant="outline" onClick={fetchThemes} disabled={loading}>
             <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
             {t("common.refresh") || "Refresh"}
@@ -297,6 +362,8 @@ export default function ThemesPage() {
                       deleting={deleting === theme.name}
                       onSwitch={() => handleSwitchTheme(theme.name)}
                       onDelete={() => handleDelete(theme.name)}
+                      onUpdate={updates[theme.name] ? () => handleUpdateTheme(theme.name) : undefined}
+                      updateInfo={updates[theme.name]}
                       t={t}
                     />
                   ))}
@@ -543,10 +610,12 @@ interface ThemeCardProps {
   deleting: boolean;
   onSwitch: () => void;
   onDelete: () => void;
+  onUpdate?: () => void;
+  updateInfo?: { current: string; latest: string };
   t: (key: string) => string;
 }
 
-function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, onDelete, t }: ThemeCardProps) {
+function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, onDelete, onUpdate, updateInfo, t }: ThemeCardProps) {
   return (
     <div
       className={cn(
@@ -588,6 +657,11 @@ function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, 
           <div>
             <h3 className="font-semibold text-lg flex items-center gap-2">
               {theme.display_name}
+              {updateInfo && (
+                <Badge variant="default" className="text-xs">
+                  {updateInfo.current} → {updateInfo.latest}
+                </Badge>
+              )}
               {!theme.compatible && (
                 <span title={theme.compatibility_message || "Not compatible"}>
                   <AlertTriangle className="h-4 w-4 text-amber-500" />
@@ -638,6 +712,18 @@ function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, 
         )}
         
         <div className="flex gap-2">
+          {updateInfo && onUpdate && (
+            <Button
+              onClick={onUpdate}
+              disabled={switching}
+              variant="default"
+              size="sm"
+              title={`更新到 ${updateInfo.latest}`}
+            >
+              <Download className="h-4 w-4 mr-1" />
+              更新
+            </Button>
+          )}
           <Button
             onClick={onSwitch}
             disabled={switching || isActive || !theme.compatible}

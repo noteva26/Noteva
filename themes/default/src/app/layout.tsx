@@ -36,6 +36,15 @@ export default function RootLayout({
       <head>
         {/* 插件 CSS */}
         <link rel="stylesheet" href="/api/v1/plugins/assets/plugins.css" />
+        {/* 控制台 Logo */}
+        <script dangerouslySetInnerHTML={{
+          __html: `
+            (function() {
+              console.log('%c Noteva ', 'background: #4a90e2; color: white; font-size: 24px; font-weight: bold; padding: 10px 20px; border-radius: 5px;');
+              console.log('%c🔗 Github: https://github.com/noteva26/Noteva', 'color: #666; font-size: 14px; margin-top: 10px;');
+            })();
+          `
+        }} />
       </head>
       <body className="font-sans antialiased">
         {/* body_start 插槽 - 全局遮罩、加载动画 */}

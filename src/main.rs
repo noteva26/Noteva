@@ -97,7 +97,7 @@ async fn main() -> Result<()> {
         cache.clone(),
         pool.clone(),
     ));
-    let tag_service = Arc::new(TagService::new(tag_repo.clone()));
+    let tag_service = Arc::new(TagService::new(tag_repo.clone(), cache.clone()));
     let settings_service = Arc::new(SettingsService::from_sqlx(settings_repo));
     let article_service = Arc::new(ArticleService::with_hooks(
         article_repo,
@@ -106,14 +106,14 @@ async fn main() -> Result<()> {
         markdown_renderer,
         hook_manager.clone(),
     ));
-    let page_service = Arc::new(PageService::new(page_repo));
-    let nav_service = Arc::new(NavItemService::new(nav_repo));
+    let page_service = Arc::new(PageService::new(page_repo, cache.clone()));
+    let nav_service = Arc::new(NavItemService::new(nav_repo, cache.clone()));
 
     // Create comment service with hooks and settings support
     let comment_repo = Arc::new(SqlxCommentRepository::new(pool.clone()));
     let settings_repo_for_comment = Arc::new(SqlxSettingsRepository::new(pool.clone()));
     let comment_service = Arc::new(
-        CommentService::with_hooks(comment_repo, hook_manager.clone())
+        CommentService::with_hooks(comment_repo, cache.clone(), hook_manager.clone())
             .with_settings(settings_repo_for_comment),
     );
 

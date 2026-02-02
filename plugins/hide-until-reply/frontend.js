@@ -139,7 +139,5 @@
       // 再次检查，以防第一次太早
       setTimeout(initHiddenContent, 1500);
     });
-    
-    console.log('[Plugin] hide-until-reply loaded');
   });
 })();

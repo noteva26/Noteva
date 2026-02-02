@@ -1,33 +1,47 @@
 //! Comment service
 
 use std::sync::Arc;
+use std::time::Duration;
 use anyhow::Result;
 use serde_json::json;
+use crate::cache::{Cache, CacheLayer};
 use crate::db::repositories::{CommentRepository, SettingsRepository};
 use crate::models::{CommentStatus, CommentWithMeta, CreateCommentInput, LikeTargetType};
 use crate::plugin::{HookManager, hook_names};
+
+/// Default cache TTL for comments (5 minutes - comments change frequently)
+const COMMENT_CACHE_TTL_SECS: u64 = 300;
+
+/// Cache key prefixes
+const CACHE_KEY_COMMENT_BY_ARTICLE: &str = "comment:article:";
 
 /// Comment service
 pub struct CommentService {
     repo: Arc<dyn CommentRepository>,
     settings_repo: Option<Arc<dyn SettingsRepository>>,
     hook_manager: Option<Arc<HookManager>>,
+    cache: Arc<Cache>,
+    cache_ttl: Duration,
 }
 
 impl CommentService {
-    pub fn new(repo: Arc<dyn CommentRepository>) -> Self {
+    pub fn new(repo: Arc<dyn CommentRepository>, cache: Arc<Cache>) -> Self {
         Self { 
             repo,
             settings_repo: None,
             hook_manager: None,
+            cache,
+            cache_ttl: Duration::from_secs(COMMENT_CACHE_TTL_SECS),
         }
     }
 
-    pub fn with_hooks(repo: Arc<dyn CommentRepository>, hook_manager: Arc<HookManager>) -> Self {
+    pub fn with_hooks(repo: Arc<dyn CommentRepository>, cache: Arc<Cache>, hook_manager: Arc<HookManager>) -> Self {
         Self {
             repo,
             settings_repo: None,
             hook_manager: Some(hook_manager),
+            cache,
+            cache_ttl: Duration::from_secs(COMMENT_CACHE_TTL_SECS),
         }
     }
 
@@ -88,7 +102,11 @@ impl CommentService {
         // Determine comment status based on moderation settings
         let status = self.determine_comment_status(&input.content).await;
 
-        let comment = self.repo.create_with_status(input, user_id, ip, user_agent, status).await?;
+        let comment = self.repo.create_with_status(input.clone(), user_id, ip, user_agent, status).await?;
+
+        // Invalidate cache - CRITICAL: must clear comment cache for this article
+        let cache_key = format!("{}{}", CACHE_KEY_COMMENT_BY_ARTICLE, input.article_id);
+        let _ = self.cache.delete(&cache_key).await;
 
         // Trigger comment_after_create hook
         self.trigger_hook(
@@ -140,7 +158,19 @@ impl CommentService {
 
     /// Get comments for an article
     pub async fn get_by_article(&self, article_id: i64, fingerprint: Option<&str>) -> Result<Vec<CommentWithMeta>> {
-        self.repo.get_by_article(article_id, fingerprint).await
+        // Try cache first
+        let cache_key = format!("{}{}", CACHE_KEY_COMMENT_BY_ARTICLE, article_id);
+        if let Ok(Some(comments)) = self.cache.get::<Vec<CommentWithMeta>>(&cache_key).await {
+            return Ok(comments);
+        }
+
+        // Get from database
+        let comments = self.repo.get_by_article(article_id, fingerprint).await?;
+
+        // Cache the result
+        let _ = self.cache.set(&cache_key, &comments, self.cache_ttl).await;
+
+        Ok(comments)
     }
 
     /// Get pending comments for moderation
@@ -150,12 +180,22 @@ impl CommentService {
 
     /// Approve a comment
     pub async fn approve(&self, id: i64) -> Result<bool> {
-        self.repo.update_status(id, CommentStatus::Approved).await
+        let result = self.repo.update_status(id, CommentStatus::Approved).await?;
+        
+        // Invalidate all comment caches - CRITICAL: we don't know which article without extra query
+        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_COMMENT_BY_ARTICLE)).await;
+        
+        Ok(result)
     }
 
     /// Reject a comment (delete it)
     pub async fn reject(&self, id: i64) -> Result<bool> {
-        self.repo.delete(id).await
+        let result = self.repo.delete(id).await?;
+        
+        // Invalidate all comment caches - CRITICAL: we don't know which article without extra query
+        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_COMMENT_BY_ARTICLE)).await;
+        
+        Ok(result)
     }
 
     /// Delete a comment
@@ -171,6 +211,9 @@ impl CommentService {
         );
 
         let result = self.repo.delete(id).await?;
+
+        // Invalidate all comment caches - CRITICAL: we don't know which article this comment belongs to
+        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_COMMENT_BY_ARTICLE)).await;
 
         // Trigger comment_after_delete hook
         self.trigger_hook(

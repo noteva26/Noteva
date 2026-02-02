@@ -18,10 +18,12 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            name: noteva-linux-x86_64
+            binary: noteva
+            archive: noteva-linux-x86_64.tar.gz
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            name: noteva-windows-x86_64.exe
+            binary: noteva.exe
+            archive: noteva-windows-x86_64.zip
 
     steps:
       - name: Checkout
@@ -69,38 +71,30 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           mkdir -p release
-          cp target/${{ matrix.target }}/release/noteva release/${{ matrix.name }}
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} release/noteva
           cp -r plugins release/
           cp config.example.yml release/
           cp README.md release/
           cp -r docs release/
-          cd release && tar -czvf ../${{ matrix.name }}.tar.gz *
+          cd release && tar -czvf ../${{ matrix.archive }} *
 
       - name: Prepare artifacts (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release
-          Copy-Item target/${{ matrix.target }}/release/noteva.exe release/${{ matrix.name }}
+          Copy-Item target/${{ matrix.target }}/release/${{ matrix.binary }} release/noteva.exe
           Copy-Item -Recurse plugins release/
           Copy-Item config.example.yml release/
           Copy-Item README.md release/
           Copy-Item -Recurse docs release/
-          Compress-Archive -Path release/* -DestinationPath ${{ matrix.name }}.zip
+          Compress-Archive -Path release/* -DestinationPath ${{ matrix.archive }}
 
-      - name: Upload artifact (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}
-          path: ${{ matrix.name }}.tar.gz
-
-      - name: Upload artifact (Windows)
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.name }}
-          path: ${{ matrix.name }}.zip
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
 
   release:
     name: Create Release
@@ -127,13 +121,25 @@ jobs:
             
             ### Downloads
             - **Linux**: `noteva-linux-x86_64.tar.gz`
-            - **Windows**: `noteva-windows-x86_64.exe.zip`
+            - **Windows**: `noteva-windows-x86_64.zip`
             
             ### Quick Start
             ```bash
+            # Linux
             tar -xzf noteva-linux-x86_64.tar.gz
             cp config.example.yml config.yml
-            ./noteva-linux-x86_64
+            ./noteva
+            
+            # Windows
+            # 解压 noteva-windows-x86_64.zip
+            # 复制 config.example.yml 为 config.yml
+            # 运行 noteva.exe
             ```
             
-            Visit http://localhost:8080 | Default admin: `admin` / `admin123`
+            ### First Time Setup
+            1. Visit http://localhost:8080
+            2. Go to `/manage` to create your admin account
+            3. Start blogging!
+            
+            ### What's New
+            See [CHANGELOG](https://github.com/noteva26/Noteva/releases) for details.

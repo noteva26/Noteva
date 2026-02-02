@@ -135,6 +135,8 @@ export const adminApi = {
   
   themes: () => api.get<ThemeListResponse>("/admin/themes"),
   
+  reloadThemes: () => api.post<{ success: boolean; message: string; plugin_count: number }>("/admin/themes/reload"),
+  
   switchTheme: (theme: string) =>
     api.post<ThemeResponse>("/admin/themes/switch", { theme }),
   
@@ -159,6 +161,13 @@ export const adminApi = {
   // Theme store
   getThemeStore: () => api.get<ThemeStoreResponse>("/admin/themes/store"),
   
+  // Check for theme updates
+  checkThemeUpdates: () => api.get<ThemeUpdatesResponse>("/admin/themes/updates"),
+  
+  // Update theme
+  updateTheme: (name: string) =>
+    api.post<ThemeInstallResponse>(`/admin/themes/${name}/update`),
+  
   getSettings: () => api.get<SiteSettings>("/admin/settings"),
   
   updateSettings: (data: SiteSettingsInput) =>
@@ -176,6 +185,8 @@ export const siteApi = {
 // Plugins API
 export const pluginsApi = {
   list: () => api.get<PluginListResponse>("/admin/plugins"),
+  
+  reload: () => api.post<{ success: boolean; message: string; plugin_count: number }>("/admin/plugins/reload"),
   
   get: (id: string) => api.get<Plugin>(`/admin/plugins/${id}`),
   
@@ -208,6 +219,17 @@ export const pluginsApi = {
   
   // Plugin store
   getStore: () => api.get<PluginStoreResponse>("/admin/plugins/store"),
+  
+  // Check for plugin updates
+  checkUpdates: () => api.get<PluginUpdatesResponse>("/admin/plugins/updates"),
+  
+  // Install plugin from repo
+  installFromRepo: (data: { repo: string; pluginId: string }) =>
+    api.post<PluginInstallResponse>("/admin/plugins/install-from-repo", { repo: data.repo, plugin_id: data.pluginId }),
+  
+  // Update plugin
+  updatePlugin: (id: string) =>
+    api.post<PluginInstallResponse>(`/admin/plugins/${id}/update`),
 };
 
 // Upload API
@@ -381,6 +403,17 @@ export interface ThemeStoreResponse {
   themes: StoreThemeInfo[];
 }
 
+export interface ThemeUpdateInfo {
+  name: string;
+  current_version: string;
+  latest_version: string;
+  has_update: boolean;
+}
+
+export interface ThemeUpdatesResponse {
+  updates: ThemeUpdateInfo[];
+}
+
 export interface UploadResponse {
   url: string;
   filename: string;
@@ -445,6 +478,17 @@ export interface StorePluginInfo {
 
 export interface PluginStoreResponse {
   plugins: StorePluginInfo[];
+}
+
+export interface PluginUpdateInfo {
+  id: string;
+  current_version: string;
+  latest_version: string;
+  has_update: boolean;
+}
+
+export interface PluginUpdatesResponse {
+  updates: PluginUpdateInfo[];
 }
 
 export interface PluginSettingsField {

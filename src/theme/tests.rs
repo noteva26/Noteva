@@ -157,7 +157,7 @@ fn test_list_themes() {
     
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
     
-    let themes = engine.list_themes().unwrap();
+    let themes = engine.list_themes();
     
     // At least 1 theme (default is embedded), test themes may or may not be detected
     assert!(themes.len() >= 1);

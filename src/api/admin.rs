@@ -122,6 +122,21 @@ pub struct ThemeListResponse {
     pub current: String,
 }
 
+/// Theme update info
+#[derive(Debug, Serialize)]
+pub struct ThemeUpdateInfo {
+    pub name: String,
+    pub current_version: String,
+    pub latest_version: String,
+    pub has_update: bool,
+}
+
+/// Theme updates response
+#[derive(Debug, Serialize)]
+pub struct ThemeUpdatesResponse {
+    pub updates: Vec<ThemeUpdateInfo>,
+}
+
 /// Request for updating site settings (supports dynamic fields)
 pub type SiteSettingsRequest = std::collections::HashMap<String, String>;
 
@@ -206,6 +221,10 @@ pub fn router() -> Router<AppState> {
         .route("/themes", get(list_themes))
         .route("/themes/switch", post(switch_theme))
         .route("/themes/store", get(get_theme_store))
+        .route("/themes/updates", get(check_theme_updates))
+        .route("/themes/reload", post(reload_themes))
+        // Plugin management
+        .route("/plugins/reload", post(reload_plugins))
         // Site settings
         .route("/settings", get(get_settings))
         .route("/settings", put(update_settings))
@@ -478,9 +497,7 @@ async fn list_themes(
         .read()
         .map_err(|e| ApiError::internal_error(format!("Failed to acquire theme lock: {}", e)))?;
 
-    let themes = theme_engine
-        .list_themes()
-        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    let themes = theme_engine.list_themes();
 
     let current = theme_engine.get_current_theme().to_string();
 
@@ -644,9 +661,7 @@ async fn get_theme_store(
             .read()
             .map_err(|e| ApiError::internal_error(format!("Failed to acquire theme lock: {}", e)))?;
         
-        let installed_themes = theme_engine
-            .list_themes()
-            .map_err(|e| ApiError::internal_error(e.to_string()))?;
+        let installed_themes = theme_engine.list_themes();
         
         installed_themes
             .iter()
@@ -721,6 +736,161 @@ async fn get_theme_store(
     }
     
     Ok(Json(ThemeStoreResponse { themes }))
+}
+
+/// GET /api/v1/admin/themes/updates - Check for theme updates
+#[axum::debug_handler]
+async fn check_theme_updates(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+) -> Result<Json<ThemeUpdatesResponse>, ApiError> {
+    const STORE_REPO: &str = "noteva26/noteva-themes";
+    const STORE_PATH: &str = "store";
+    
+    let client = reqwest::Client::new();
+    
+    // Get the tree of store directory
+    let tree_url = format!(
+        "https://api.github.com/repos/{}/git/trees/main?recursive=1",
+        STORE_REPO
+    );
+    
+    let tree_response = client
+        .get(&tree_url)
+        .header("User-Agent", "Noteva")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to fetch store: {}", e)))?;
+    
+    if !tree_response.status().is_success() {
+        return Ok(Json(ThemeUpdatesResponse { updates: vec![] }));
+    }
+    
+    #[derive(Deserialize)]
+    struct GitHubTreeItem {
+        path: String,
+        #[serde(rename = "type")]
+        item_type: String,
+    }
+    
+    #[derive(Deserialize)]
+    struct GitHubTreeResponse {
+        tree: Vec<GitHubTreeItem>,
+    }
+    
+    let tree: GitHubTreeResponse = tree_response
+        .json()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to parse tree: {}", e)))?;
+    
+    // Find all theme.json files
+    let theme_paths: Vec<String> = tree.tree
+        .iter()
+        .filter(|item| {
+            if item.item_type != "blob" || !item.path.ends_with("/theme.json") {
+                return false;
+            }
+            
+            let parts: Vec<&str> = item.path.split('/').collect();
+            if parts.len() == 2 {
+                return true;
+            } else if parts.len() == 3 && parts[0] == STORE_PATH {
+                return true;
+            }
+            false
+        })
+        .map(|item| item.path.clone())
+        .collect();
+    
+    // Get installed themes
+    let installed_themes: std::collections::HashMap<String, String> = {
+        let theme_engine = state
+            .theme_engine
+            .read()
+            .map_err(|e| ApiError::internal_error(format!("Failed to acquire theme lock: {}", e)))?;
+        
+        theme_engine
+            .list_themes()
+            .iter()
+            .map(|t| (t.name.clone(), t.version.clone()))
+            .collect()
+    };
+    
+    let mut updates = Vec::new();
+    
+    // Check each installed theme for updates
+    for path in theme_paths {
+        let raw_url = format!(
+            "https://raw.githubusercontent.com/{}/main/{}",
+            STORE_REPO, path
+        );
+        
+        if let Ok(response) = client
+            .get(&raw_url)
+            .header("User-Agent", "Noteva")
+            .send()
+            .await
+        {
+            if let Ok(theme_json) = response.json::<serde_json::Value>().await {
+                let name = theme_json.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                
+                if name.is_empty() {
+                    continue;
+                }
+                
+                // Check if this theme is installed
+                if let Some(current_version) = installed_themes.get(&name) {
+                    let latest_version = theme_json.get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("1.0.0")
+                        .to_string();
+                    
+                    // Compare versions
+                    let has_update = compare_versions(&latest_version, current_version);
+                    
+                    if has_update {
+                        updates.push(ThemeUpdateInfo {
+                            name,
+                            current_version: current_version.clone(),
+                            latest_version,
+                            has_update: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(Json(ThemeUpdatesResponse { updates }))
+}
+
+/// Compare two semantic versions (returns true if v1 > v2)
+fn compare_versions(v1: &str, v2: &str) -> bool {
+    let parse_version = |v: &str| -> Vec<u32> {
+        v.split('.')
+            .filter_map(|s| s.parse::<u32>().ok())
+            .collect()
+    };
+    
+    let ver1 = parse_version(v1);
+    let ver2 = parse_version(v2);
+    
+    for i in 0..ver1.len().max(ver2.len()) {
+        let n1 = ver1.get(i).copied().unwrap_or(0);
+        let n2 = ver2.get(i).copied().unwrap_or(0);
+        
+        if n1 > n2 {
+            return true;
+        } else if n1 < n2 {
+            return false;
+        }
+    }
+    
+    false
 }
 
 
@@ -1395,4 +1565,70 @@ pub async fn test_email(
         .map_err(|e| ApiError::internal_error(format!("Failed to send test email: {}", e)))?;
 
     Ok(Json(serde_json::json!({ "message": "Test email sent successfully" })))
+}
+
+// ============================================================================
+// Plugin Hot Reload
+// ============================================================================
+
+/// Response for plugin reload
+#[derive(Debug, Serialize)]
+pub struct ReloadResponse {
+    pub success: bool,
+    pub message: String,
+    pub plugin_count: usize,
+}
+
+/// POST /api/v1/admin/plugins/reload - Reload plugins from disk
+///
+/// Rescans the plugins directory and loads any new plugins without restarting the server.
+/// Requires admin authentication.
+async fn reload_plugins(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+) -> Result<Json<ReloadResponse>, ApiError> {
+    // Reload plugins
+    let mut plugin_manager = state.plugin_manager.write().await;
+    plugin_manager
+        .reload()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to reload plugins: {}", e)))?;
+    
+    let plugin_count = plugin_manager.get_all().len();
+    drop(plugin_manager);
+    
+    Ok(Json(ReloadResponse {
+        success: true,
+        message: "Plugins reloaded successfully".to_string(),
+        plugin_count,
+    }))
+}
+
+// ============================================================================
+// Theme Hot Reload
+// ============================================================================
+
+/// POST /api/v1/admin/themes/reload - Reload themes from disk
+///
+/// Rescans the themes directory and refreshes the theme list without restarting the server.
+/// Requires admin authentication.
+async fn reload_themes(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+) -> Result<Json<ReloadResponse>, ApiError> {
+    // Reload themes
+    let mut theme_engine = state.theme_engine.write()
+        .map_err(|e| ApiError::internal_error(format!("Failed to lock theme engine: {}", e)))?;
+    theme_engine
+        .refresh_themes()
+        .map_err(|e| ApiError::internal_error(format!("Failed to reload themes: {}", e)))?;
+    
+    let theme_count = theme_engine.list_themes().len();
+    drop(theme_engine);
+    
+    Ok(Json(ReloadResponse {
+        success: true,
+        message: "Themes reloaded successfully".to_string(),
+        plugin_count: theme_count,
+    }))
 }

@@ -140,6 +140,11 @@ export default function PluginsPage() {
   const [loadingStore, setLoadingStore] = useState(false);
   const [installingFromStore, setInstallingFromStore] = useState<string | null>(null);
   
+  // Updates
+  const [updates, setUpdates] = useState<Record<string, { current: string; latest: string }>>({});
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updatingPlugin, setUpdatingPlugin] = useState<string | null>(null);
+  
   // Settings dialog state
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedPlugin, setSelectedPlugin] = useState<Plugin | null>(null);
@@ -150,6 +155,9 @@ export default function PluginsPage() {
   const fetchPlugins = async () => {
     setLoading(true);
     try {
+      // First reload plugins from disk
+      await pluginsApi.reload();
+      // Then fetch the updated list
       const { data } = await pluginsApi.list();
       setPlugins(data?.plugins || []);
     } catch (error) {
@@ -198,6 +206,46 @@ export default function PluginsPage() {
       setStorePlugins([]);
     } finally {
       setLoadingStore(false);
+    }
+  };
+
+  const checkUpdates = async () => {
+    setCheckingUpdates(true);
+    try {
+      const { data } = await pluginsApi.checkUpdates();
+      const updatesMap: Record<string, { current: string; latest: string }> = {};
+      data.updates.forEach(u => {
+        updatesMap[u.id] = { current: u.current_version, latest: u.latest_version };
+      });
+      setUpdates(updatesMap);
+      if (data.updates.length > 0) {
+        toast.success(`发现 ${data.updates.length} 个插件更新`);
+      } else {
+        toast.info("所有插件都是最新版本");
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || "检查更新失败");
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  const handleUpdatePlugin = async (pluginId: string) => {
+    setUpdatingPlugin(pluginId);
+    try {
+      const { data } = await pluginsApi.updatePlugin(pluginId);
+      toast.success(data.message);
+      // Remove from updates list
+      setUpdates(prev => {
+        const newUpdates = { ...prev };
+        delete newUpdates[pluginId];
+        return newUpdates;
+      });
+      fetchPlugins();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || "更新失败");
+    } finally {
+      setUpdatingPlugin(null);
     }
   };
 
@@ -264,29 +312,11 @@ export default function PluginsPage() {
     
     setInstallingFromStore(plugin.id);
     try {
-      // Parse repo from homepage
-      const match = plugin.homepage.match(/github\.com\/([^\/]+\/[^\/]+)/);
-      if (!match) {
-        toast.error("Invalid repository URL");
-        return;
-      }
-      const repo = match[1].replace(/\.git$/, "");
-      
-      // Get latest release
-      const { data: releases } = await pluginsApi.listGitHubReleases(repo);
-      if (!releases || releases.length === 0) {
-        toast.error(t("plugin.noReleases") || "No releases found");
-        return;
-      }
-      
-      const latestRelease = releases[0];
-      if (!latestRelease.assets || latestRelease.assets.length === 0) {
-        toast.error(t("plugin.noAssets") || "No assets found");
-        return;
-      }
-      
-      // Install first asset
-      const { data } = await pluginsApi.installGitHubPlugin(latestRelease.assets[0].download_url);
+      // Install from repo directly (no need for Release)
+      const { data } = await pluginsApi.installFromRepo({
+        repo: plugin.homepage,
+        pluginId: plugin.id
+      });
       toast.success(data.message);
       fetchPlugins();
       fetchStore(); // Refresh store to update installed status
@@ -465,6 +495,14 @@ export default function PluginsPage() {
             )}
             {t("plugin.upload") || "Upload"}
           </Button>
+          <Button variant="outline" onClick={checkUpdates} disabled={checkingUpdates}>
+            {checkingUpdates ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            检查更新
+          </Button>
           <Button variant="outline" onClick={fetchPlugins} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             {t("common.refresh") || "Refresh"}
@@ -520,6 +558,11 @@ export default function PluginsPage() {
                         <CardTitle className="text-lg flex items-center gap-2">
                           <Puzzle className="h-4 w-4" />
                           {plugin.name}
+                          {updates[plugin.id] && (
+                            <Badge variant="default" className="text-xs">
+                              {updates[plugin.id].current} → {updates[plugin.id].latest}
+                            </Badge>
+                          )}
                           {!plugin.compatible && (
                             <span title={plugin.compatibility_message || "Not compatible"}>
                               <AlertTriangle className="h-4 w-4 text-amber-500" />
@@ -563,6 +606,21 @@ export default function PluginsPage() {
                         {plugin.enabled ? t("plugin.enabled") : t("plugin.disabled")}
                       </Badge>
                       <div className="flex gap-1">
+                        {updates[plugin.id] && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => handleUpdatePlugin(plugin.id)}
+                            disabled={updatingPlugin === plugin.id}
+                            title={`更新到 ${updates[plugin.id].latest}`}
+                          >
+                            {updatingPlugin === plugin.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Download className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
                         {plugin.has_settings && (
                           <Button
                             variant="ghost"

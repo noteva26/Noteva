@@ -11,10 +11,21 @@
 //! - 3.3: WHEN 用户移除文章标签 THEN Tag_Service SHALL 解除关联，若标签无引用则可选删�?
 //! - 3.4: THE Tag_Service SHALL 提供标签云功能，按使用频率排�?
 
+use crate::cache::{Cache, CacheLayer};
 use crate::db::repositories::TagRepository;
 use crate::models::{Tag, TagWithCount};
 use anyhow::{Context, Result};
 use std::sync::Arc;
+use std::time::Duration;
+
+/// Default cache TTL for tags (1 day - tags rarely change)
+const TAG_CACHE_TTL_SECS: u64 = 86400;
+
+/// Cache key prefixes
+const CACHE_KEY_TAG_BY_ID: &str = "tag:id:";
+const CACHE_KEY_TAG_BY_SLUG: &str = "tag:slug:";
+const CACHE_KEY_TAG_LIST: &str = "tag:list";
+const CACHE_KEY_TAG_CLOUD: &str = "tag:cloud";
 
 /// Error types for tag service operations
 #[derive(Debug, thiserror::Error)]
@@ -40,6 +51,8 @@ pub enum TagServiceError {
 /// - Tag-article associations
 pub struct TagService {
     repo: Arc<dyn TagRepository>,
+    cache: Arc<Cache>,
+    cache_ttl: Duration,
 }
 
 impl TagService {
@@ -47,8 +60,13 @@ impl TagService {
     ///
     /// # Arguments
     /// * `repo` - Tag repository for database operations
-    pub fn new(repo: Arc<dyn TagRepository>) -> Self {
-        Self { repo }
+    /// * `cache` - Cache layer for caching
+    pub fn new(repo: Arc<dyn TagRepository>, cache: Arc<Cache>) -> Self {
+        Self {
+            repo,
+            cache,
+            cache_ttl: Duration::from_secs(TAG_CACHE_TTL_SECS),
+        }
     }
 
     /// Create a new tag or get existing one by name
@@ -96,6 +114,9 @@ impl TagService {
             .await
             .context("Failed to create tag")?;
 
+        // Invalidate cache - CRITICAL: must clear all tag caches when creating
+        self.invalidate_cache().await?;
+
         Ok(created)
     }
 
@@ -107,11 +128,24 @@ impl TagService {
     /// # Returns
     /// The tag if found, None otherwise
     pub async fn get_by_slug(&self, slug: &str) -> Result<Option<Tag>, TagServiceError> {
-        self.repo
+        // Try cache first
+        let cache_key = format!("{}{}", CACHE_KEY_TAG_BY_SLUG, slug);
+        if let Ok(Some(tag)) = self.cache.get::<Tag>(&cache_key).await {
+            return Ok(Some(tag));
+        }
+
+        // Get from database
+        let tag = self.repo
             .get_by_slug(slug)
             .await
-            .context("Failed to get tag by slug")
-            .map_err(Into::into)
+            .context("Failed to get tag by slug")?;
+
+        // Cache the result
+        if let Some(ref t) = tag {
+            let _ = self.cache.set(&cache_key, t, self.cache_ttl).await;
+        }
+
+        Ok(tag)
     }
 
     /// Get tag by ID
@@ -122,11 +156,24 @@ impl TagService {
     /// # Returns
     /// The tag if found, None otherwise
     pub async fn get_by_id(&self, id: i64) -> Result<Option<Tag>, TagServiceError> {
-        self.repo
+        // Try cache first
+        let cache_key = format!("{}{}", CACHE_KEY_TAG_BY_ID, id);
+        if let Ok(Some(tag)) = self.cache.get::<Tag>(&cache_key).await {
+            return Ok(Some(tag));
+        }
+
+        // Get from database
+        let tag = self.repo
             .get_by_id(id)
             .await
-            .context("Failed to get tag by ID")
-            .map_err(Into::into)
+            .context("Failed to get tag by ID")?;
+
+        // Cache the result
+        if let Some(ref t) = tag {
+            let _ = self.cache.set(&cache_key, t, self.cache_ttl).await;
+        }
+
+        Ok(tag)
     }
 
     /// List all tags
@@ -136,11 +183,21 @@ impl TagService {
     /// # Returns
     /// Vector of all tags
     pub async fn list(&self) -> Result<Vec<Tag>, TagServiceError> {
-        self.repo
+        // Try cache first
+        if let Ok(Some(tags)) = self.cache.get::<Vec<Tag>>(CACHE_KEY_TAG_LIST).await {
+            return Ok(tags);
+        }
+
+        // Get from database
+        let tags = self.repo
             .list()
             .await
-            .context("Failed to list tags")
-            .map_err(Into::into)
+            .context("Failed to list tags")?;
+
+        // Cache the result
+        let _ = self.cache.set(CACHE_KEY_TAG_LIST, &tags, self.cache_ttl).await;
+
+        Ok(tags)
     }
 
     /// Get tag cloud (tags with usage count, sorted by frequency)
@@ -157,11 +214,22 @@ impl TagService {
     ///
     /// Satisfies requirement 3.4: THE Tag_Service SHALL 提供标签云功能，按使用频率排�?
     pub async fn get_tag_cloud(&self, limit: usize) -> Result<Vec<TagWithCount>, TagServiceError> {
-        self.repo
+        // Try cache first
+        let cache_key = format!("{}:{}", CACHE_KEY_TAG_CLOUD, limit);
+        if let Ok(Some(cloud)) = self.cache.get::<Vec<TagWithCount>>(&cache_key).await {
+            return Ok(cloud);
+        }
+
+        // Get from database
+        let cloud = self.repo
             .get_with_counts(limit)
             .await
-            .context("Failed to get tag cloud")
-            .map_err(Into::into)
+            .context("Failed to get tag cloud")?;
+
+        // Cache the result
+        let _ = self.cache.set(&cache_key, &cloud, self.cache_ttl).await;
+
+        Ok(cloud)
     }
 
     /// Delete a tag
@@ -191,6 +259,9 @@ impl TagService {
             .await
             .context("Failed to delete tag")?;
 
+        // Invalidate cache - CRITICAL: must clear all tag caches
+        self.invalidate_cache().await?;
+
         Ok(())
     }
 
@@ -208,8 +279,12 @@ impl TagService {
         self.repo
             .add_to_article(tag_id, article_id)
             .await
-            .context("Failed to add tag to article")
-            .map_err(Into::into)
+            .context("Failed to add tag to article")?;
+
+        // Invalidate tag cloud cache - CRITICAL: tag counts changed
+        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_TAG_CLOUD)).await;
+
+        Ok(())
     }
 
     /// Remove a tag from an article
@@ -229,8 +304,12 @@ impl TagService {
         self.repo
             .remove_from_article(tag_id, article_id)
             .await
-            .context("Failed to remove tag from article")
-            .map_err(Into::into)
+            .context("Failed to remove tag from article")?;
+
+        // Invalidate tag cloud cache - CRITICAL: tag counts changed
+        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_TAG_CLOUD)).await;
+
+        Ok(())
     }
 
     /// Check if a tag name already exists
@@ -262,6 +341,18 @@ impl TagService {
             .await
             .context("Failed to get tags by article")
             .map_err(Into::into)
+    }
+
+    /// Invalidate all tag caches
+    ///
+    /// CRITICAL: This must be called whenever tags are created, updated, or deleted
+    async fn invalidate_cache(&self) -> Result<(), TagServiceError> {
+        // Delete all tag caches
+        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_TAG_BY_ID)).await;
+        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_TAG_BY_SLUG)).await;
+        let _ = self.cache.delete(CACHE_KEY_TAG_LIST).await;
+        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_TAG_CLOUD)).await;
+        Ok(())
     }
 }
 

@@ -42,10 +42,11 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
 # Copy frontend build outputs from previous stage
-# admin-dist is at /app/admin-dist (parent of web/)
-COPY --from=frontend-builder /app/admin-dist ./admin-dist
+# web/dist contains the admin panel
+COPY --from=frontend-builder /app/web/dist ./web/dist
 COPY --from=frontend-builder /app/themes/default/dist ./themes/default/dist
 COPY --from=frontend-builder /app/themes/default/public ./themes/default/public
+COPY --from=frontend-builder /app/themes/default/theme.json ./themes/default/theme.json
 
 # Build release binary
 RUN cargo build --release

@@ -264,6 +264,29 @@ pnpm dev
 - [ ] 多语言支持
 - [ ] 更多主题
 
+## 赞助支持
+
+如果 Noteva 对你有帮助，欢迎赞助支持项目持续发展！
+
+### 💝 赞助档位
+
+| 档位 | 金额 | 权益 |
+|------|------|------|
+| 🥉 Bronze | $1 | Supporter badge + 我们的感谢 |
+| 🥈 Silver | $5 | Silver badge + 优先支持 + 早期功能预告 |
+| 🥇 Gold | $10 | Gold badge + 优先支持 + Beta 测试 + README 署名 |
+
+**赞助链接：**
+- [🥉 Bronze Supporter ($1)](https://www.creem.io/payment/prod_NLloGph4FdG0QH5BN2DXr)
+- [🥈 Silver Supporter ($5)](https://www.creem.io/payment/prod_1FqirOkv4JY21wExvWN3PW)
+- [🥇 Gold Supporter ($10)](https://www.creem.io/payment/prod_2wV2YqQHJHsqrpWAipx40s)
+
+你的支持将用于：
+- 🚀 新功能开发
+- 🐛 Bug 修复和维护
+- 📚 文档完善
+- 🎨 更多主题和插件
+
 ## 许可证
 
 MIT License

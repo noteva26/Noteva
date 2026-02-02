@@ -660,10 +660,18 @@ impl ThemeEngine {
     ///
     /// # Returns
     /// Vector of ThemeInfo for all available themes
-    pub fn list_themes(&self) -> Result<Vec<ThemeInfo>> {
+    pub fn list_themes(&self) -> Vec<ThemeInfo> {
         let mut themes: Vec<ThemeInfo> = self.theme_cache.values().cloned().collect();
         themes.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(themes)
+        themes
+    }
+
+    /// Refresh themes (rescan themes directory)
+    ///
+    /// This method rescans the themes directory and updates the theme cache.
+    /// Useful when new themes are installed without restarting the server.
+    pub fn refresh_themes(&mut self) -> Result<()> {
+        self.refresh_theme_cache()
     }
 
     /// Reload templates (for hot-reload)

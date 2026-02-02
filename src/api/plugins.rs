@@ -47,6 +47,21 @@ pub struct PluginToggleRequest {
     pub enabled: bool,
 }
 
+/// Plugin update info
+#[derive(Debug, Serialize)]
+pub struct PluginUpdateInfo {
+    pub id: String,
+    pub current_version: String,
+    pub latest_version: String,
+    pub has_update: bool,
+}
+
+/// Plugin updates response
+#[derive(Debug, Serialize)]
+pub struct PluginUpdatesResponse {
+    pub updates: Vec<PluginUpdateInfo>,
+}
+
 /// Build the plugins router
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -57,6 +72,7 @@ pub fn router() -> Router<AppState> {
         // Admin routes
         .route("/", get(list_plugins))
         .route("/store", get(get_plugin_store))
+        .route("/updates", get(check_plugin_updates))
         .route("/:id", get(get_plugin))
         .route("/:id/toggle", post(toggle_plugin))
         .route("/:id/settings", get(get_plugin_settings))
@@ -471,4 +487,141 @@ async fn get_plugin_store(
     }
     
     Ok(Json(PluginStoreResponse { plugins }))
+}
+
+
+/// GET /api/v1/plugins/updates - Check for plugin updates
+async fn check_plugin_updates(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+) -> Result<Json<PluginUpdatesResponse>, ApiError> {
+    const STORE_REPO: &str = "noteva26/noteva-plugins";
+    const STORE_PATH: &str = "store";
+    
+    let client = reqwest::Client::new();
+    
+    // Get the tree of store directory
+    let tree_url = format!(
+        "https://api.github.com/repos/{}/git/trees/main?recursive=1",
+        STORE_REPO
+    );
+    
+    let tree_response = client
+        .get(&tree_url)
+        .header("User-Agent", "Noteva")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to fetch store: {}", e)))?;
+    
+    if !tree_response.status().is_success() {
+        return Ok(Json(PluginUpdatesResponse { updates: vec![] }));
+    }
+    
+    let tree: GitHubTreeResponse = tree_response
+        .json()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to parse tree: {}", e)))?;
+    
+    // Find all plugin.json files
+    let plugin_paths: Vec<String> = tree.tree
+        .iter()
+        .filter(|item| {
+            if item.item_type != "blob" || !item.path.ends_with("/plugin.json") {
+                return false;
+            }
+            
+            let parts: Vec<&str> = item.path.split('/').collect();
+            if parts.len() == 2 {
+                return true;
+            } else if parts.len() == 3 && parts[0] == STORE_PATH {
+                return true;
+            }
+            false
+        })
+        .map(|item| item.path.clone())
+        .collect();
+    
+    // Get installed plugins
+    let manager = state.plugin_manager.read().await;
+    let installed_plugins: std::collections::HashMap<String, String> = manager
+        .get_all()
+        .iter()
+        .map(|p| (p.metadata.id.clone(), p.metadata.version.clone()))
+        .collect();
+    
+    let mut updates = Vec::new();
+    
+    // Check each installed plugin for updates
+    for path in plugin_paths {
+        let raw_url = format!(
+            "https://raw.githubusercontent.com/{}/main/{}",
+            STORE_REPO, path
+        );
+        
+        if let Ok(response) = client
+            .get(&raw_url)
+            .header("User-Agent", "Noteva")
+            .send()
+            .await
+        {
+            if let Ok(plugin_json) = response.json::<serde_json::Value>().await {
+                let id = plugin_json.get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                
+                if id.is_empty() {
+                    continue;
+                }
+                
+                // Check if this plugin is installed
+                if let Some(current_version) = installed_plugins.get(&id) {
+                    let latest_version = plugin_json.get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("1.0.0")
+                        .to_string();
+                    
+                    // Compare versions
+                    let has_update = compare_versions(&latest_version, current_version);
+                    
+                    if has_update {
+                        updates.push(PluginUpdateInfo {
+                            id,
+                            current_version: current_version.clone(),
+                            latest_version,
+                            has_update: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(Json(PluginUpdatesResponse { updates }))
+}
+
+/// Compare two semantic versions (returns true if v1 > v2)
+fn compare_versions(v1: &str, v2: &str) -> bool {
+    let parse_version = |v: &str| -> Vec<u32> {
+        v.split('.')
+            .filter_map(|s| s.parse::<u32>().ok())
+            .collect()
+    };
+    
+    let ver1 = parse_version(v1);
+    let ver2 = parse_version(v2);
+    
+    for i in 0..ver1.len().max(ver2.len()) {
+        let n1 = ver1.get(i).copied().unwrap_or(0);
+        let n2 = ver2.get(i).copied().unwrap_or(0);
+        
+        if n1 > n2 {
+            return true;
+        } else if n1 < n2 {
+            return false;
+        }
+    }
+    
+    false
 }

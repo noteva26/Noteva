@@ -1,0 +1,62 @@
+name: Build Demo (Internal)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-demo:
+    name: Build Demo for Linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-gnu
+          override: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Build frontend (web)
+        run: |
+          cd web
+          pnpm install
+          pnpm run build
+
+      - name: Build frontend (theme)
+        run: |
+          cd themes/default
+          pnpm install
+          pnpm run build
+
+      - name: Build Rust binary with Demo feature
+        run: cargo build --release --features demo --target x86_64-unknown-linux-gnu
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p release
+          cp target/x86_64-unknown-linux-gnu/release/noteva release/noteva-demo-linux-x86_64
+          chmod +x release/noteva-demo-linux-x86_64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: noteva-demo-linux-x86_64
+          path: release/noteva-demo-linux-x86_64
+          retention-days: 30
+

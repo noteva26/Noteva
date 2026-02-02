@@ -349,6 +349,12 @@ impl ArticleService {
         let offset = params.offset();
         let limit = params.limit();
 
+        // Try cache first
+        let cache_key = format!("{}:published:{}:{}", CACHE_KEY_ARTICLE_LIST, offset, limit);
+        if let Ok(Some(cached)) = self.cache.get::<PagedResult<Article>>(&cache_key).await {
+            return Ok(cached);
+        }
+
         let articles = self
             .repo
             .list_published(offset, limit)
@@ -361,7 +367,12 @@ impl ArticleService {
             .await
             .context("Failed to count published articles")?;
 
-        Ok(PagedResult::new(articles, total, params))
+        let result = PagedResult::new(articles, total, params);
+
+        // Cache the result
+        let _ = self.cache.set(&cache_key, &result, self.cache_ttl).await;
+
+        Ok(result)
     }
 
     /// List articles by category with pagination

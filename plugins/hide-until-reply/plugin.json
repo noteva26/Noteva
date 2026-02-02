@@ -7,7 +7,7 @@
   "homepage": "https://github.com/noteva26/noteva-plugins",
   "license": "MIT",
   "requires": {
-    "noteva": ">=0.0.8"
+    "noteva": ">=0.0.9"
   },
   "hooks": {
     "frontend": ["content_render", "comment_after_create"],

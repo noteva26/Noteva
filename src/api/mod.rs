@@ -60,11 +60,14 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .route("/admin/themes/upload", axum::routing::post(theme_install::upload_theme))
         .route("/admin/themes/github/releases", axum::routing::get(theme_install::list_github_releases))
         .route("/admin/themes/github/install", axum::routing::post(theme_install::install_github_theme))
+        .route("/admin/themes/:name/update", axum::routing::post(theme_install::update_theme))
         .route("/admin/themes/:name", axum::routing::delete(theme_install::delete_theme))
         // Plugin installation routes
         .route("/admin/plugins/upload", axum::routing::post(plugin_install::upload_plugin))
         .route("/admin/plugins/github/releases", axum::routing::get(plugin_install::list_github_releases))
         .route("/admin/plugins/github/install", axum::routing::post(plugin_install::install_github_plugin))
+        .route("/admin/plugins/install-from-repo", axum::routing::post(plugin_install::install_from_repo))
+        .route("/admin/plugins/:id/update", axum::routing::post(plugin_install::update_plugin))
         .route("/admin/plugins/:id/uninstall", axum::routing::delete(plugin_install::uninstall_plugin))
         // Admin article operations by ID
         .route("/admin/articles/:id", axum::routing::get(articles::get_article_by_id_handler))

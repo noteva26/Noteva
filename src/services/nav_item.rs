@@ -1,17 +1,33 @@
 //! Navigation item service
 
+use crate::cache::{Cache, CacheLayer};
 use crate::db::repositories::NavItemRepository;
 use crate::models::{NavItem, NavItemTree, NavItemType, NavOrderItem};
 use anyhow::{Context, Result};
 use std::sync::Arc;
+use std::time::Duration;
+
+/// Default cache TTL for navigation (1 day - navigation rarely changes)
+const NAV_CACHE_TTL_SECS: u64 = 86400;
+
+/// Cache key prefixes
+const CACHE_KEY_NAV_LIST: &str = "nav:list";
+const CACHE_KEY_NAV_TREE: &str = "nav:tree";
+const CACHE_KEY_NAV_VISIBLE_TREE: &str = "nav:visible:tree";
 
 pub struct NavItemService {
     repo: Arc<dyn NavItemRepository>,
+    cache: Arc<Cache>,
+    cache_ttl: Duration,
 }
 
 impl NavItemService {
-    pub fn new(repo: Arc<dyn NavItemRepository>) -> Self {
-        Self { repo }
+    pub fn new(repo: Arc<dyn NavItemRepository>, cache: Arc<Cache>) -> Self {
+        Self {
+            repo,
+            cache,
+            cache_ttl: Duration::from_secs(NAV_CACHE_TTL_SECS),
+        }
     }
 
     pub async fn create(
@@ -31,7 +47,12 @@ impl NavItemService {
         item.sort_order = sort_order;
         item.visible = visible;
 
-        self.repo.create(&item).await.context("Failed to create nav item")
+        let created = self.repo.create(&item).await.context("Failed to create nav item")?;
+
+        // Invalidate cache - CRITICAL: must clear all nav caches
+        self.invalidate_cache().await?;
+
+        Ok(created)
     }
 
     pub async fn get_by_id(&self, id: i64) -> Result<Option<NavItem>> {
@@ -39,15 +60,48 @@ impl NavItemService {
     }
 
     pub async fn list(&self) -> Result<Vec<NavItem>> {
-        self.repo.list().await
+        // Try cache first
+        if let Ok(Some(items)) = self.cache.get::<Vec<NavItem>>(CACHE_KEY_NAV_LIST).await {
+            return Ok(items);
+        }
+
+        // Get from database
+        let items = self.repo.list().await?;
+
+        // Cache the result
+        let _ = self.cache.set(CACHE_KEY_NAV_LIST, &items, self.cache_ttl).await;
+
+        Ok(items)
     }
 
     pub async fn list_tree(&self) -> Result<Vec<NavItemTree>> {
-        self.repo.list_tree().await
+        // Try cache first
+        if let Ok(Some(tree)) = self.cache.get::<Vec<NavItemTree>>(CACHE_KEY_NAV_TREE).await {
+            return Ok(tree);
+        }
+
+        // Get from database
+        let tree = self.repo.list_tree().await?;
+
+        // Cache the result
+        let _ = self.cache.set(CACHE_KEY_NAV_TREE, &tree, self.cache_ttl).await;
+
+        Ok(tree)
     }
 
     pub async fn list_visible_tree(&self) -> Result<Vec<NavItemTree>> {
-        self.repo.list_visible_tree().await
+        // Try cache first
+        if let Ok(Some(tree)) = self.cache.get::<Vec<NavItemTree>>(CACHE_KEY_NAV_VISIBLE_TREE).await {
+            return Ok(tree);
+        }
+
+        // Get from database
+        let tree = self.repo.list_visible_tree().await?;
+
+        // Cache the result
+        let _ = self.cache.set(CACHE_KEY_NAV_VISIBLE_TREE, &tree, self.cache_ttl).await;
+
+        Ok(tree)
     }
 
     pub async fn update(
@@ -85,18 +139,40 @@ impl NavItemService {
             item.visible = v;
         }
 
-        self.repo.update(&item).await
+        let updated = self.repo.update(&item).await?;
+
+        // Invalidate cache - CRITICAL: must clear all nav caches
+        self.invalidate_cache().await?;
+
+        Ok(updated)
     }
 
     pub async fn update_order(&self, items: Vec<NavOrderItem>) -> Result<()> {
         for item in items {
             self.repo.update_order(item.id, item.parent_id, item.sort_order).await?;
         }
+
+        // Invalidate cache - CRITICAL: must clear all nav caches
+        self.invalidate_cache().await?;
+
         Ok(())
     }
 
     pub async fn delete(&self, id: i64) -> Result<()> {
-        self.repo.delete(id).await
+        self.repo.delete(id).await?;
+
+        // Invalidate cache - CRITICAL: must clear all nav caches
+        self.invalidate_cache().await?;
+
+        Ok(())
+    }
+
+    /// Invalidate all navigation caches
+    async fn invalidate_cache(&self) -> Result<()> {
+        let _ = self.cache.delete(CACHE_KEY_NAV_LIST).await;
+        let _ = self.cache.delete(CACHE_KEY_NAV_TREE).await;
+        let _ = self.cache.delete(CACHE_KEY_NAV_VISIBLE_TREE).await;
+        Ok(())
     }
 
     /// Initialize default navigation items if none exist

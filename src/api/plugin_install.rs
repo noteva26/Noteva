@@ -161,7 +161,255 @@ pub struct GitHubInstallRequest {
     pub download_url: String,
 }
 
-/// POST /api/v1/admin/plugins/github/install - Install plugin from GitHub
+#[derive(Debug, Deserialize)]
+pub struct InstallFromRepoRequest {
+    pub repo: String,
+    pub plugin_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubTreeResponse {
+    tree: Vec<GitHubTreeItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubTreeItem {
+    path: String,
+    #[serde(rename = "type")]
+    item_type: String,
+}
+
+/// POST /api/v1/admin/plugins/install-from-repo - Install plugin from GitHub repo
+pub async fn install_from_repo(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+    Json(body): Json<InstallFromRepoRequest>,
+) -> Result<Json<PluginInstallResponse>, ApiError> {
+    // Parse repo from URL
+    let repo = if body.repo.contains("github.com") {
+        body.repo
+            .split("github.com/")
+            .nth(1)
+            .ok_or_else(|| ApiError::validation_error("Invalid GitHub URL"))?
+            .trim_end_matches('/')
+            .trim_end_matches(".git")
+            .to_string()
+    } else {
+        body.repo.clone()
+    };
+    
+    let client = reqwest::Client::builder()
+        .user_agent("Noteva-Plugin-Installer")
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
+    
+    // Check if it's official repo
+    if repo == "noteva26/noteva-plugins" {
+        // Official plugin: download specific directory using GitHub API
+        install_official_plugin(&client, &body.plugin_id, &state).await
+    } else {
+        // Third-party plugin: download entire repo ZIP
+        install_third_party_plugin(&client, &repo, &body.plugin_id, &state).await
+    }
+}
+
+/// Install official plugin from noteva26/noteva-plugins
+async fn install_official_plugin(
+    client: &reqwest::Client,
+    plugin_id: &str,
+    state: &AppState,
+) -> Result<Json<PluginInstallResponse>, ApiError> {
+    const REPO: &str = "noteva26/noteva-plugins";
+    
+    // Get file tree
+    let tree_url = format!("https://api.github.com/repos/{}/git/trees/main?recursive=1", REPO);
+    let tree_response = client
+        .get(&tree_url)
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to fetch tree: {}", e)))?;
+    
+    if !tree_response.status().is_success() {
+        return Err(ApiError::internal_error("Failed to fetch repository tree"));
+    }
+    
+    let tree: GitHubTreeResponse = tree_response
+        .json()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to parse tree: {}", e)))?;
+    
+    // Find all files in plugin directory
+    let plugin_files: Vec<String> = tree.tree
+        .iter()
+        .filter(|item| {
+            item.item_type == "blob" && 
+            item.path.starts_with(&format!("{}/", plugin_id))
+        })
+        .map(|item| item.path.clone())
+        .collect();
+    
+    if plugin_files.is_empty() {
+        return Err(ApiError::not_found(format!("Plugin '{}' not found in repository", plugin_id)));
+    }
+    
+    // Create plugin directory
+    let plugins_path = Path::new("plugins");
+    if !plugins_path.exists() {
+        fs::create_dir_all(plugins_path)
+            .map_err(|e| ApiError::internal_error(format!("Failed to create plugins dir: {}", e)))?;
+    }
+    
+    let plugin_path = plugins_path.join(plugin_id);
+    if plugin_path.exists() {
+        fs::remove_dir_all(&plugin_path)
+            .map_err(|e| ApiError::internal_error(format!("Failed to remove existing plugin: {}", e)))?;
+    }
+    fs::create_dir_all(&plugin_path)
+        .map_err(|e| ApiError::internal_error(format!("Failed to create plugin dir: {}", e)))?;
+    
+    // Download each file
+    for file_path in plugin_files {
+        let raw_url = format!("https://raw.githubusercontent.com/{}/main/{}", REPO, file_path);
+        let response = client
+            .get(&raw_url)
+            .send()
+            .await
+            .map_err(|e| ApiError::internal_error(format!("Failed to download {}: {}", file_path, e)))?;
+        
+        if !response.status().is_success() {
+            return Err(ApiError::internal_error(format!("Failed to download file: {}", file_path)));
+        }
+        
+        let content = response.bytes()
+            .await
+            .map_err(|e| ApiError::internal_error(format!("Failed to read {}: {}", file_path, e)))?;
+        
+        // Remove plugin_id prefix from path
+        let relative_path = file_path.strip_prefix(&format!("{}/", plugin_id))
+            .unwrap_or(&file_path);
+        let dest_path = plugin_path.join(relative_path);
+        
+        // Create parent directories if needed
+        if let Some(parent) = dest_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| ApiError::internal_error(format!("Failed to create dir: {}", e)))?;
+        }
+        
+        fs::write(&dest_path, content)
+            .map_err(|e| ApiError::internal_error(format!("Failed to write {}: {}", relative_path, e)))?;
+    }
+    
+    // Reload plugins
+    {
+        let mut manager = state.plugin_manager.write().await;
+        let _ = manager.reload().await;
+    }
+    
+    Ok(Json(PluginInstallResponse {
+        success: true,
+        plugin_name: plugin_id.to_string(),
+        message: format!("Plugin '{}' installed successfully", plugin_id),
+    }))
+}
+
+/// Install third-party plugin from author's repo
+async fn install_third_party_plugin(
+    client: &reqwest::Client,
+    repo: &str,
+    plugin_id: &str,
+    state: &AppState,
+) -> Result<Json<PluginInstallResponse>, ApiError> {
+    // Download repo ZIP
+    let zip_url = format!("https://github.com/{}/archive/refs/heads/main.zip", repo);
+    let response = client
+        .get(&zip_url)
+        .send()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Download failed: {}", e)))?;
+    
+    if !response.status().is_success() {
+        return Err(ApiError::internal_error(format!("Download error: {}", response.status())));
+    }
+    
+    let data = response.bytes()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
+    
+    let temp_dir = TempDir::new()
+        .map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
+    
+    // Extract ZIP
+    extract_zip(&data, temp_dir.path())?;
+    
+    // Find plugin.json in extracted files
+    let plugin_dir = find_plugin_dir(temp_dir.path(), plugin_id)?;
+    
+    let plugins_path = Path::new("plugins");
+    if !plugins_path.exists() {
+        fs::create_dir_all(plugins_path)
+            .map_err(|e| ApiError::internal_error(format!("Failed to create plugins dir: {}", e)))?;
+    }
+    
+    let dest_path = plugins_path.join(plugin_id);
+    if dest_path.exists() {
+        fs::remove_dir_all(&dest_path)
+            .map_err(|e| ApiError::internal_error(format!("Remove error: {}", e)))?;
+    }
+    
+    copy_dir_all(&plugin_dir, &dest_path)
+        .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
+    
+    // Reload plugins
+    {
+        let mut manager = state.plugin_manager.write().await;
+        let _ = manager.reload().await;
+    }
+    
+    Ok(Json(PluginInstallResponse {
+        success: true,
+        plugin_name: plugin_id.to_string(),
+        message: format!("Plugin '{}' installed from {}", plugin_id, repo),
+    }))
+}
+
+/// Find plugin directory containing plugin.json with matching ID
+fn find_plugin_dir(base_path: &Path, plugin_id: &str) -> Result<std::path::PathBuf, ApiError> {
+    for entry in fs::read_dir(base_path)
+        .map_err(|e| ApiError::internal_error(format!("Read dir error: {}", e)))? 
+    {
+        let entry = entry.map_err(|e| ApiError::internal_error(format!("Entry error: {}", e)))?;
+        let path = entry.path();
+        
+        if path.is_dir() {
+            // Check if plugin.json exists in this directory
+            let plugin_json_path = path.join("plugin.json");
+            if plugin_json_path.exists() {
+                // Verify plugin ID matches
+                let content = fs::read_to_string(&plugin_json_path)
+                    .map_err(|e| ApiError::internal_error(format!("Read plugin.json error: {}", e)))?;
+                
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
+                        if id == plugin_id {
+                            return Ok(path);
+                        }
+                    }
+                }
+            }
+            
+            // Recursively search subdirectories
+            if let Ok(found) = find_plugin_dir(&path, plugin_id) {
+                return Ok(found);
+            }
+        }
+    }
+    
+    Err(ApiError::not_found(format!("Plugin '{}' not found in archive", plugin_id)))
+}
+
+/// POST /api/v1/admin/plugins/github/install - Install plugin from GitHub (legacy, kept for compatibility)
 pub async fn install_github_plugin(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
@@ -370,4 +618,65 @@ fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+
+/// POST /api/v1/admin/plugins/:id/update - Update plugin to latest version
+pub async fn update_plugin(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<PluginInstallResponse>, ApiError> {
+    // Read current plugin.json to get homepage
+    let plugin_path = Path::new("plugins").join(&id);
+    if !plugin_path.exists() {
+        return Err(ApiError::not_found(format!("Plugin '{}' not found", id)));
+    }
+    
+    let plugin_json_path = plugin_path.join("plugin.json");
+    if !plugin_json_path.exists() {
+        return Err(ApiError::not_found("plugin.json not found"));
+    }
+    
+    let content = fs::read_to_string(&plugin_json_path)
+        .map_err(|e| ApiError::internal_error(format!("Failed to read plugin.json: {}", e)))?;
+    
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| ApiError::internal_error(format!("Failed to parse plugin.json: {}", e)))?;
+    
+    let old_version = json.get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    
+    let homepage = json.get("homepage")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::validation_error("Plugin homepage not found"))?
+        .to_string();
+    
+    // Install from repo (this will overwrite the existing plugin)
+    let install_request = InstallFromRepoRequest {
+        repo: homepage,
+        plugin_id: id.clone(),
+    };
+    
+    let _result = install_from_repo(State(state), _user, Json(install_request)).await?;
+    
+    // Read new version
+    let new_content = fs::read_to_string(&plugin_json_path)
+        .map_err(|e| ApiError::internal_error(format!("Failed to read updated plugin.json: {}", e)))?;
+    
+    let new_json: serde_json::Value = serde_json::from_str(&new_content)
+        .map_err(|e| ApiError::internal_error(format!("Failed to parse updated plugin.json: {}", e)))?;
+    
+    let new_version = new_json.get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    
+    Ok(Json(PluginInstallResponse {
+        success: true,
+        plugin_name: id.clone(),
+        message: format!("Plugin '{}' updated from {} to {}", id, old_version, new_version),
+    }))
 }
