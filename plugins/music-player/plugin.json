@@ -1,11 +1,14 @@
 {
   "id": "music-player",
   "name": "音乐播放器",
-  "version": "2.0.0",
-  "description": "黑胶唱片风格的歌单播放器，支持多首歌曲顺序播放",
+  "version": "3.0.0",
+  "description": "紧凑条状音乐播放器，支持歌单播放",
   "author": "Noteva Team",
-  "homepage": "https://github.com/noteva26/Noteva",
+  "homepage": "https://github.com/noteva26/noteva-plugins",
   "license": "MIT",
+  "requires": {
+    "noteva": ">=0.0.8"
+  },
   "hooks": {
     "frontend": ["body_end", "init"]
   },

@@ -101,9 +101,8 @@ pub async fn upload_plugin(
     
     // Reload plugins
     {
-        let mut manager = state.plugin_manager.write()
-            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        let _ = manager.reload();
+        let mut manager = state.plugin_manager.write().await;
+        let _ = manager.reload().await;
     }
     
     Ok(Json(PluginInstallResponse {
@@ -215,9 +214,8 @@ pub async fn install_github_plugin(
     
     // Reload plugins
     {
-        let mut manager = state.plugin_manager.write()
-            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        let _ = manager.reload();
+        let mut manager = state.plugin_manager.write().await;
+        let _ = manager.reload().await;
     }
     
     Ok(Json(PluginInstallResponse {
@@ -239,14 +237,17 @@ pub async fn uninstall_plugin(
         return Err(ApiError::not_found(format!("Plugin '{}' not found", id)));
     }
     
+    // Delete plugin files
     fs::remove_dir_all(&plugin_path)
         .map_err(|e| ApiError::internal_error(format!("Delete error: {}", e)))?;
     
-    // Reload plugins
+    // Clean up database state and reload plugins
     {
-        let mut manager = state.plugin_manager.write()
-            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        let _ = manager.reload();
+        let mut manager = state.plugin_manager.write().await;
+        // Delete plugin state from database
+        let _ = manager.delete_state(&id).await;
+        // Reload plugins
+        let _ = manager.reload().await;
     }
     
     Ok(StatusCode::NO_CONTENT)

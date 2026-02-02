@@ -21,6 +21,8 @@ pub struct SiteInfoResponse {
     pub site_logo: String,
     pub site_footer: String,
     pub email_verification_enabled: String,
+    pub permalink_structure: String,
+    pub demo_mode: bool,
 }
 
 /// Request for rendering markdown content
@@ -70,6 +72,15 @@ async fn get_site_info(
         .flatten()
         .unwrap_or_else(|| "false".to_string());
 
+    // Get permalink structure setting
+    let permalink_structure = state
+        .settings_service
+        .get("permalink_structure")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "/posts/{slug}".to_string());
+
     Json(SiteInfoResponse {
         site_name: settings.site_name,
         site_description: settings.site_description,
@@ -77,6 +88,8 @@ async fn get_site_info(
         site_logo: settings.site_logo,
         site_footer: settings.site_footer,
         email_verification_enabled,
+        permalink_structure,
+        demo_mode: crate::api::middleware::is_demo_mode(),
     })
 }
 

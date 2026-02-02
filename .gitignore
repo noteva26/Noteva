@@ -34,7 +34,7 @@ Thumbs.db
 config.yml
 
 # Frontend build outputs & dependencies
-/admin-dist/
+/web/dist/
 /themes/*/dist/
 /themes/*/.next/
 /themes/*/node_modules/
@@ -61,3 +61,10 @@ package-lock.json
 
 # Proptest regressions
 /proptest-regressions/
+
+# Plugins (will be in separate repo)
+/plugins/
+
+# Themes (except default)
+/themes/*
+!/themes/default/

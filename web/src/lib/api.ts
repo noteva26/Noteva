@@ -156,6 +156,9 @@ export const adminApi = {
   deleteTheme: (name: string) =>
     api.delete(`/admin/themes/${name}`),
   
+  // Theme store
+  getThemeStore: () => api.get<ThemeStoreResponse>("/admin/themes/store"),
+  
   getSettings: () => api.get<SiteSettings>("/admin/settings"),
   
   updateSettings: (data: SiteSettingsInput) =>
@@ -202,6 +205,9 @@ export const pluginsApi = {
   
   uninstall: (id: string) =>
     api.delete(`/admin/plugins/${id}/uninstall`),
+  
+  // Plugin store
+  getStore: () => api.get<PluginStoreResponse>("/admin/plugins/store"),
 };
 
 // Upload API
@@ -347,11 +353,32 @@ export interface ThemeResponse {
   url: string | null;
   preview: string | null;
   active: boolean;
+  requires_noteva: string;
+  compatible: boolean;
+  compatibility_message: string | null;
 }
 
 export interface ThemeListResponse {
   themes: ThemeResponse[];
   current: string;
+}
+
+export interface StoreThemeInfo {
+  name: string;
+  display_name: string;
+  version: string;
+  description: string | null;
+  author: string | null;
+  url: string;
+  preview: string | null;
+  requires_noteva: string;
+  compatible: boolean;
+  compatibility_message: string | null;
+  installed: boolean;
+}
+
+export interface ThemeStoreResponse {
+  themes: StoreThemeInfo[];
 }
 
 export interface UploadResponse {
@@ -373,7 +400,10 @@ export interface SiteSettings {
   site_logo: string;
   site_footer: string;
   comment_moderation?: string;
-  [key: string]: string | undefined;
+  moderation_keywords?: string;
+  permalink_structure?: string;
+  demo_mode?: boolean;
+  [key: string]: string | boolean | undefined;
 }
 
 export interface SiteSettingsInput {
@@ -390,10 +420,31 @@ export interface Plugin {
   enabled: boolean;
   has_settings: boolean;
   shortcodes: string[];
+  requires_noteva: string;
+  compatible: boolean;
+  compatibility_message: string | null;
 }
 
 export interface PluginListResponse {
   plugins: Plugin[];
+}
+
+export interface StorePluginInfo {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  homepage: string;
+  license: string | null;
+  requires_noteva: string;
+  compatible: boolean;
+  compatibility_message: string | null;
+  installed: boolean;
+}
+
+export interface PluginStoreResponse {
+  plugins: StorePluginInfo[];
 }
 
 export interface PluginSettingsField {

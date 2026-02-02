@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { pluginsApi, Plugin, PluginSettingsSchema, PluginSettingsField, GitHubReleaseInfo, GitHubAssetInfo } from "@/lib/api";
+import { pluginsApi, Plugin, PluginSettingsSchema, PluginSettingsField, GitHubReleaseInfo, GitHubAssetInfo, StorePluginInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Settings, Puzzle, Code, Save, Upload, Download, Trash2, Github, Loader2, RefreshCw, Search, Package, Tag, Plus, X, List } from "lucide-react";
+import { Settings, Puzzle, Code, Save, Upload, Download, Trash2, Github, Loader2, RefreshCw, Search, Package, Tag, Plus, X, List, AlertTriangle, Store } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 
@@ -135,6 +135,11 @@ export default function PluginsPage() {
   const [loadingReleases, setLoadingReleases] = useState(false);
   const [installingAsset, setInstallingAsset] = useState<string | null>(null);
   
+  // Store
+  const [storePlugins, setStorePlugins] = useState<StorePluginInfo[]>([]);
+  const [loadingStore, setLoadingStore] = useState(false);
+  const [installingFromStore, setInstallingFromStore] = useState<string | null>(null);
+  
   // Settings dialog state
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedPlugin, setSelectedPlugin] = useState<Plugin | null>(null);
@@ -183,18 +188,37 @@ export default function PluginsPage() {
     }
   };
 
+  const fetchStore = async () => {
+    setLoadingStore(true);
+    try {
+      const { data } = await pluginsApi.getStore();
+      setStorePlugins(data?.plugins || []);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+      setStorePlugins([]);
+    } finally {
+      setLoadingStore(false);
+    }
+  };
+
   useEffect(() => {
     fetchPlugins();
   }, []);
 
   const handleToggle = async (plugin: Plugin) => {
+    // 检查兼容性
+    if (!plugin.enabled && !plugin.compatible) {
+      toast.error(plugin.compatibility_message || t("plugin.incompatible") || "Plugin is not compatible with current version");
+      return;
+    }
+    
     setToggling(plugin.id);
     try {
       await pluginsApi.toggle(plugin.id, !plugin.enabled);
       toast.success(plugin.enabled ? t("plugin.disableSuccess") : t("plugin.enableSuccess"));
       fetchPlugins();
-    } catch (error) {
-      toast.error(t("plugin.toggleFailed"));
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("plugin.toggleFailed"));
     } finally {
       setToggling(null);
     }
@@ -229,6 +253,47 @@ export default function PluginsPage() {
       toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
     } finally {
       setInstallingAsset(null);
+    }
+  };
+
+  const handleInstallFromStore = async (plugin: StorePluginInfo) => {
+    if (!plugin.compatible) {
+      toast.error(plugin.compatibility_message || t("plugin.incompatible"));
+      return;
+    }
+    
+    setInstallingFromStore(plugin.id);
+    try {
+      // Parse repo from homepage
+      const match = plugin.homepage.match(/github\.com\/([^\/]+\/[^\/]+)/);
+      if (!match) {
+        toast.error("Invalid repository URL");
+        return;
+      }
+      const repo = match[1].replace(/\.git$/, "");
+      
+      // Get latest release
+      const { data: releases } = await pluginsApi.listGitHubReleases(repo);
+      if (!releases || releases.length === 0) {
+        toast.error(t("plugin.noReleases") || "No releases found");
+        return;
+      }
+      
+      const latestRelease = releases[0];
+      if (!latestRelease.assets || latestRelease.assets.length === 0) {
+        toast.error(t("plugin.noAssets") || "No assets found");
+        return;
+      }
+      
+      // Install first asset
+      const { data } = await pluginsApi.installGitHubPlugin(latestRelease.assets[0].download_url);
+      toast.success(data.message);
+      fetchPlugins();
+      fetchStore(); // Refresh store to update installed status
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+    } finally {
+      setInstallingFromStore(null);
     }
   };
 
@@ -413,6 +478,10 @@ export default function PluginsPage() {
             <Puzzle className="h-4 w-4" />
             {t("plugin.installed") || "Installed"}
           </TabsTrigger>
+          <TabsTrigger value="store" className="gap-2" onClick={fetchStore}>
+            <Store className="h-4 w-4" />
+            {t("plugin.store") || "Store"}
+          </TabsTrigger>
           <TabsTrigger value="github" className="gap-2">
             <Github className="h-4 w-4" />
             {t("plugin.online") || "Online"}
@@ -451,18 +520,29 @@ export default function PluginsPage() {
                         <CardTitle className="text-lg flex items-center gap-2">
                           <Puzzle className="h-4 w-4" />
                           {plugin.name}
+                          {!plugin.compatible && (
+                            <span title={plugin.compatibility_message || "Not compatible"}>
+                              <AlertTriangle className="h-4 w-4 text-amber-500" />
+                            </span>
+                          )}
                         </CardTitle>
                         <CardDescription className="text-xs">
                           {t("plugin.version")}: {plugin.version}
                           {plugin.author && ` · ${t("plugin.author")}: ${plugin.author}`}
+                          {plugin.requires_noteva && ` · ${t("plugin.requires") || "Requires"}: ${plugin.requires_noteva}`}
                         </CardDescription>
                       </div>
                       <Switch
                         checked={plugin.enabled}
                         onCheckedChange={() => handleToggle(plugin)}
-                        disabled={toggling === plugin.id}
+                        disabled={toggling === plugin.id || (!plugin.enabled && !plugin.compatible)}
                       />
                     </div>
+                    {!plugin.compatible && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                        {plugin.compatibility_message}
+                      </p>
+                    )}
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <p className="text-sm text-muted-foreground">
@@ -512,6 +592,107 @@ export default function PluginsPage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="store">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Store className="h-5 w-5" />
+                {t("plugin.officialStore") || "Official Plugin Store"}
+              </CardTitle>
+              <CardDescription>
+                {t("plugin.storeDesc") || "Browse and install official plugins"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingStore ? (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <Card key={i}>
+                      <CardHeader>
+                        <Skeleton className="h-5 w-32" />
+                        <Skeleton className="h-4 w-48" />
+                      </CardHeader>
+                      <CardContent>
+                        <Skeleton className="h-4 w-full" />
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : storePlugins.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Store className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>{t("plugin.noStorePlugins") || "No plugins available"}</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {storePlugins.map((plugin) => (
+                    <Card key={plugin.id} className={!plugin.compatible ? "opacity-60" : ""}>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-1">
+                            <CardTitle className="text-lg flex items-center gap-2">
+                              <Puzzle className="h-4 w-4" />
+                              {plugin.name}
+                              {!plugin.compatible && (
+                                <span title={plugin.compatibility_message || "Not compatible"}>
+                                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                                </span>
+                              )}
+                            </CardTitle>
+                            <CardDescription className="text-xs">
+                              v{plugin.version} · {plugin.author}
+                              {plugin.requires_noteva && ` · ${t("plugin.requires") || "Requires"}: ${plugin.requires_noteva}`}
+                            </CardDescription>
+                          </div>
+                        </div>
+                        {!plugin.compatible && plugin.compatibility_message && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                            {plugin.compatibility_message}
+                          </p>
+                        )}
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                          {plugin.description || "No description"}
+                        </p>
+                        
+                        <div className="flex items-center justify-between pt-2 border-t">
+                          {plugin.installed ? (
+                            <Badge variant="secondary">{t("plugin.installed") || "Installed"}</Badge>
+                          ) : (
+                            <Button
+                              size="sm"
+                              onClick={() => handleInstallFromStore(plugin)}
+                              disabled={installingFromStore === plugin.id || !plugin.compatible}
+                            >
+                              {installingFromStore === plugin.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4 mr-2" />
+                              )}
+                              {t("plugin.install") || "Install"}
+                            </Button>
+                          )}
+                          {plugin.homepage && (
+                            <a
+                              href={plugin.homepage}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              <Github className="h-4 w-4" />
+                            </a>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="github">

@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FolderTree, Calendar, Eye, Heart, MessageSquare, Tag, Pin, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getNoteva } from "@/hooks/useNoteva";
+import { getNoteva, getArticleUrl } from "@/hooks/useNoteva";
 
 interface Category {
   id: number;
@@ -154,7 +154,7 @@ function CategoriesContent() {
                           <CardHeader>
                             <div className="flex items-center gap-2">
                               {isPinned(article) && (<Badge variant="destructive" className="gap-1"><Pin className="h-3 w-3" />{t("article.pinned")}</Badge>)}
-                              <CardTitle className="flex-1"><Link href={`/posts/${article.slug}`} className="hover:text-primary transition-colors">{article.title}</Link></CardTitle>
+                              <CardTitle className="flex-1"><Link href={getArticleUrl(article)} className="hover:text-primary transition-colors">{article.title}</Link></CardTitle>
                             </div>
                             <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                               <span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(getPublishedDate(article)).toLocaleDateString(getDateLocale())}</span>
@@ -176,7 +176,7 @@ function CategoriesContent() {
                         </div>
                         {thumbnail && (
                           <div className="hidden sm:block w-48 flex-shrink-0">
-                            <Link href={`/posts/${article.slug}`} className="block h-full">
+                            <Link href={getArticleUrl(article)} className="block h-full">
                               <div className="relative h-full min-h-[160px]"><Image src={thumbnail} alt={article.title} fill className="object-cover" sizes="192px" /></div>
                             </Link>
                           </div>

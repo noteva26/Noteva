@@ -268,7 +268,7 @@ pub const MIGRATIONS: &[Migration] = &[
                 value TEXT NOT NULL,
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
-            INSERT OR IGNORE INTO settings (key, value) VALUES ('site_name', 'Noteva Blog');
+            INSERT OR IGNORE INTO settings (key, value) VALUES ('site_name', 'Noteva');
             INSERT OR IGNORE INTO settings (key, value) VALUES ('site_description', 'A lightweight blog powered by Noteva');
             INSERT OR IGNORE INTO settings (key, value) VALUES ('posts_per_page', '10');
         "#,
@@ -278,7 +278,7 @@ pub const MIGRATIONS: &[Migration] = &[
                 value TEXT NOT NULL,
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             );
-            INSERT IGNORE INTO settings (`key`, value) VALUES ('site_name', 'Noteva Blog');
+            INSERT IGNORE INTO settings (`key`, value) VALUES ('site_name', 'Noteva');
             INSERT IGNORE INTO settings (`key`, value) VALUES ('site_description', 'A lightweight blog powered by Noteva');
             INSERT IGNORE INTO settings (`key`, value) VALUES ('posts_per_page', '10');
         "#,
@@ -531,6 +531,27 @@ pub const MIGRATIONS: &[Migration] = &[
             );
             CREATE INDEX idx_email_verifications_email ON email_verifications(email);
             CREATE INDEX idx_email_verifications_expires ON email_verifications(expires_at);
+        "#,
+    },
+    // Migration 18: Create plugin_states table for plugin configuration storage
+    Migration {
+        version: 18,
+        name: "create_plugin_states",
+        up_sqlite: r#"
+            CREATE TABLE IF NOT EXISTS plugin_states (
+                plugin_id VARCHAR(100) PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                settings TEXT NOT NULL DEFAULT '{}',
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        "#,
+        up_mysql: r#"
+            CREATE TABLE IF NOT EXISTS plugin_states (
+                plugin_id VARCHAR(100) PRIMARY KEY,
+                enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                settings JSON NOT NULL,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            );
         "#,
     },
 ];
@@ -1030,7 +1051,7 @@ mod tests {
             .expect("Failed to query settings");
 
         let value: String = row.get("value");
-        assert_eq!(value, "Noteva Blog");
+        assert_eq!(value, "Noteva");
     }
 
     #[tokio::test]
@@ -1171,7 +1192,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_total_migrations() {
-        assert_eq!(total_migrations(), 15);
+        assert_eq!(total_migrations(), 18);
     }
 
     #[test]

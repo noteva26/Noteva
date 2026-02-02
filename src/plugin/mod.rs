@@ -11,7 +11,8 @@ pub mod hooks;
 pub mod shortcode;
 
 // Re-export commonly used types
-pub use loader::{Plugin, PluginManager, PluginMetadata};
+pub use loader::{Plugin, PluginManager, PluginMetadata, PluginRequirements, PluginHooks, 
+                 check_version_requirement, VersionCheckResult, NOTEVA_VERSION};
 pub use hooks::{HookManager, hook_names};
 pub use shortcode::{ShortcodeManager, Shortcode, ShortcodeContext};
 

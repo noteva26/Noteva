@@ -284,6 +284,18 @@ export default function AdminLayout({
 
         {/* Page content with route transition */}
         <main className="flex-1 overflow-auto p-6">
+          {/* Demo mode banner */}
+          {settings.demo_mode && (
+            <div className="mb-4 rounded-lg bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-amber-700 dark:text-amber-400">
+              <div className="flex items-center gap-2">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="font-medium">Demo Mode</span>
+                <span className="text-sm opacity-80">- 这是演示站点，写操作已禁用</span>
+              </div>
+            </div>
+          )}
           <motion.div
             key={pathname}
             initial={{ opacity: 0, y: 8 }}

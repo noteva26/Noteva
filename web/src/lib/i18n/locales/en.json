@@ -147,7 +147,9 @@
     "pinOrderHint": "Lower number = higher priority",
     "thumbnail": "Thumbnail",
     "selectThumbnail": "Select from article images",
-    "noImages": "No images in article"
+    "noImages": "No images in article",
+    "autoSaved": "Auto-saved",
+    "unsavedChanges": "Unsaved changes"
   },
   "category": {
     "name": "Name",
@@ -266,7 +268,9 @@
     "sendTestEmail": "Send Test",
     "enterTestEmail": "Please enter a test email address",
     "testEmailSuccess": "Test email sent successfully",
-    "testEmailFailed": "Failed to send test email"
+    "testEmailFailed": "Failed to send test email",
+    "permalink": "Article URL Format",
+    "permalinkDesc": "Set the URL format for articles"
   },
   "theme": {
     "light": "Light",
@@ -284,7 +288,13 @@
     "enterRepo": "Please enter a GitHub repo",
     "noReleases": "No releases found",
     "noAssets": "No downloadable assets",
-    "searchHint": "Enter a repo and click search"
+    "searchHint": "Enter a repo and click search",
+    "requires": "Requires",
+    "incompatible": "Incompatible",
+    "store": "Store",
+    "officialStore": "Official Theme Store",
+    "storeDesc": "Browse and install official themes",
+    "noStoreThemes": "No themes available"
   },
   "pagination": {
     "page": "Page {current} of {total}",
@@ -403,7 +413,13 @@
     "enterRepo": "Please enter a GitHub repo",
     "noReleases": "No releases found",
     "noAssets": "No downloadable assets",
-    "searchHint": "Enter a repo and click search"
+    "searchHint": "Enter a repo and click search",
+    "requires": "Requires",
+    "incompatible": "Incompatible with current version",
+    "store": "Store",
+    "officialStore": "Official Plugin Store",
+    "storeDesc": "Browse and install official plugins",
+    "noStorePlugins": "No plugins available"
   },
   "user": {
     "title": "User Management",

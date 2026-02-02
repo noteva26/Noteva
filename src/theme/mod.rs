@@ -18,6 +18,7 @@ use tera::{Context as TeraContext, Tera};
 use tracing;
 
 use crate::plugin::HookManager;
+use crate::plugin::loader::{check_version_requirement, NOTEVA_VERSION};
 
 mod error;
 
@@ -71,30 +72,15 @@ impl ThemeEngine {
                 .with_context(|| format!("Failed to create themes directory: {:?}", themes_path))?;
         }
         
-        // Ensure default theme directory exists with minimal theme.json
+        // Ensure default theme directory exists
         let default_theme_path = themes_path.join(default_theme);
         if !default_theme_path.exists() {
             fs::create_dir_all(&default_theme_path)
                 .with_context(|| format!("Failed to create default theme directory: {:?}", default_theme_path))?;
         }
         
-        // Create theme.json if it doesn't exist (for embedded themes)
-        let theme_json_path = default_theme_path.join("theme.json");
-        if !theme_json_path.exists() {
-            let default_theme_json = serde_json::json!({
-                "name": "Noteva Default Theme",
-                "short": default_theme,
-                "description": "The default theme for Noteva blog system",
-                "version": "1.0.0",
-                "author": "Noteva Team",
-                "url": "https://github.com/noteva26/Noteva",
-                "preview": "preview.png",
-                "configuration": {}
-            });
-            fs::write(&theme_json_path, serde_json::to_string_pretty(&default_theme_json)?)
-                .with_context(|| format!("Failed to create theme.json: {:?}", theme_json_path))?;
-            tracing::info!("Created default theme.json at {:?}", theme_json_path);
-        }
+        // Note: For the default theme, we use embedded metadata instead of creating theme.json
+        // This keeps the themes/default directory clean (only dist/ folder)
 
         let mut engine = Self {
             tera: Tera::default(),
@@ -265,6 +251,23 @@ impl ThemeEngine {
 
     /// Load theme metadata from theme.json or theme.toml
     fn load_theme_metadata(&self, theme_name: &str) -> Result<ThemeInfo> {
+        // For default theme, use embedded metadata
+        if theme_name == self.default_theme {
+            let version_check = check_version_requirement(">=0.0.8", NOTEVA_VERSION);
+            return Ok(ThemeInfo {
+                name: self.default_theme.clone(),
+                display_name: "Noteva Default Theme".to_string(),
+                description: Some("The default theme for Noteva blog system".to_string()),
+                version: "1.0.0".to_string(),
+                author: Some("Noteva Team".to_string()),
+                url: Some("https://github.com/noteva26/Noteva".to_string()),
+                preview: Some("preview.png".to_string()),
+                requires_noteva: ">=0.0.8".to_string(),
+                compatible: version_check.compatible,
+                compatibility_message: version_check.message,
+            });
+        }
+        
         let theme_json_path = self.themes_path.join(theme_name).join("theme.json");
         let theme_toml_path = self.themes_path.join(theme_name).join("theme.toml");
         
@@ -276,6 +279,11 @@ impl ThemeEngine {
             let metadata: ThemeJsonMetadata = serde_json::from_str(&content)
                 .map_err(|e| ThemeError::InvalidMetadata(e.to_string()))?;
 
+            let requires_noteva = metadata.requires.as_ref()
+                .map(|r| r.noteva.clone())
+                .unwrap_or_default();
+            let version_check = check_version_requirement(&requires_noteva, NOTEVA_VERSION);
+
             return Ok(ThemeInfo {
                 name: metadata.short.unwrap_or_else(|| theme_name.to_string()),
                 display_name: metadata.name,
@@ -284,6 +292,9 @@ impl ThemeEngine {
                 author: metadata.author,
                 url: metadata.url,
                 preview: metadata.preview,
+                requires_noteva,
+                compatible: version_check.compatible,
+                compatibility_message: version_check.message,
             });
         }
         
@@ -303,6 +314,9 @@ impl ThemeEngine {
                 author: metadata.theme.author,
                 url: None,
                 preview: None,
+                requires_noteva: String::new(),
+                compatible: true,
+                compatibility_message: None,
             });
         }
         
@@ -315,6 +329,9 @@ impl ThemeEngine {
             author: None,
             url: None,
             preview: None,
+            requires_noteva: String::new(),
+            compatible: true,
+            compatibility_message: None,
         })
     }
 
@@ -724,8 +741,18 @@ pub struct ThemeJsonMetadata {
     pub url: Option<String>,
     /// Preview image filename
     pub preview: Option<String>,
+    /// Required Noteva version
+    pub requires: Option<ThemeRequirements>,
     /// Theme configuration
     pub configuration: Option<serde_json::Value>,
+}
+
+/// Theme requirements
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ThemeRequirements {
+    /// Minimum Noteva version
+    #[serde(default)]
+    pub noteva: String,
 }
 
 /// Information about a theme
@@ -745,6 +772,12 @@ pub struct ThemeInfo {
     pub url: Option<String>,
     /// Preview image filename
     pub preview: Option<String>,
+    /// Required Noteva version
+    pub requires_noteva: String,
+    /// Whether compatible with current version
+    pub compatible: bool,
+    /// Compatibility message if not compatible
+    pub compatibility_message: Option<String>,
 }
 
 /// Standard template variables (Requirement 6.5)

@@ -1,0 +1,18 @@
+{
+  "name": "noteva",
+  "version": "0.0.8-beta",
+  "private": true,
+  "description": "A lightweight modern blog system",
+  "scripts": {
+    "install:all": "cd web && pnpm install && cd ../themes/default && pnpm install",
+    "build:web": "cd web && pnpm run build",
+    "build:theme": "cd themes/default && pnpm run build",
+    "build:frontend": "pnpm run build:web && pnpm run build:theme",
+    "build:all": "pnpm run build:frontend && echo 'Frontend built. Run: cargo build --release'",
+    "dev:web": "cd web && pnpm run dev",
+    "dev:theme": "cd themes/default && pnpm run dev"
+  },
+  "keywords": ["blog", "cms", "rust"],
+  "author": "Noteva Team",
+  "license": "MIT"
+}

@@ -40,10 +40,17 @@ pub struct ListArticlesQuery {
     pub published_only: bool,
     /// Search keyword for title and content
     pub keyword: Option<String>,
-    /// Filter by category ID
-    pub category: Option<i64>,
-    /// Filter by tag ID
-    pub tag: Option<i64>,
+    /// Filter by category (ID or slug)
+    pub category: Option<String>,
+    /// Filter by tag (ID or slug)
+    pub tag: Option<String>,
+}
+
+/// Query parameters for resolving article path
+#[derive(Debug, Deserialize)]
+pub struct ResolveArticleQuery {
+    /// The path to resolve (e.g., "hello-world" or "42")
+    pub path: String,
 }
 
 /// Request body for creating an article
@@ -95,6 +102,7 @@ pub use delete_article as delete_article_handler;
 pub use get_article_by_id as get_article_by_id_handler;
 pub use list_articles as list_articles_handler;
 pub use get_article as get_article_handler;
+pub use resolve_article as resolve_article_handler;
 
 /// Build the articles router (legacy, combines both)
 pub fn router() -> Router<AppState> {
@@ -118,6 +126,40 @@ pub async fn list_articles(
     // Check if we should filter by published status
     let filter_published = query.published_only || query.status.as_deref() == Some("published");
 
+    // Resolve category: try as ID first, then as slug
+    let category_id = if let Some(ref cat) = query.category {
+        if let Ok(id) = cat.parse::<i64>() {
+            Some(id)
+        } else {
+            // Try to find by slug
+            state.category_service
+                .get_by_slug(cat)
+                .await
+                .ok()
+                .flatten()
+                .map(|c| c.id)
+        }
+    } else {
+        None
+    };
+
+    // Resolve tag: try as ID first, then as slug
+    let tag_id = if let Some(ref t) = query.tag {
+        if let Ok(id) = t.parse::<i64>() {
+            Some(id)
+        } else {
+            // Try to find by slug
+            state.tag_service
+                .get_by_slug(t)
+                .await
+                .ok()
+                .flatten()
+                .map(|t| t.id)
+        }
+    } else {
+        None
+    };
+
     let result = if let Some(ref keyword) = query.keyword {
         // Search by keyword
         state
@@ -125,18 +167,18 @@ pub async fn list_articles(
             .search(keyword, &params, filter_published)
             .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?
-    } else if let Some(category_id) = query.category {
+    } else if let Some(cat_id) = category_id {
         // Filter by category
         state
             .article_service
-            .list_by_category(category_id, &params)
+            .list_by_category(cat_id, &params)
             .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?
-    } else if let Some(tag_id) = query.tag {
+    } else if let Some(t_id) = tag_id {
         // Filter by tag
         state
             .article_service
-            .list_by_tag(tag_id, &params)
+            .list_by_tag(t_id, &params)
             .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?
     } else if filter_published {
@@ -194,18 +236,30 @@ pub async fn list_articles(
 /// - `article_view`: After article is viewed (for statistics, logging)
 pub async fn get_article(
     State(state): State<AppState>,
-    Path(slug): Path<String>,
+    Path(identifier): Path<String>,
 ) -> Result<Json<ArticleResponse>, ApiError> {
-    let article = state
-        .article_service
-        .get_by_slug(&slug)
-        .await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?
-        .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", slug)))?;
+    // Try to parse as ID first, then fall back to slug
+    let article = if let Ok(id) = identifier.parse::<i64>() {
+        // It's a numeric ID
+        state
+            .article_service
+            .get_by_id(id)
+            .await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?
+            .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", identifier)))?
+    } else {
+        // It's a slug
+        state
+            .article_service
+            .get_by_slug(&identifier)
+            .await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?
+            .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", identifier)))?
+    };
 
     // Only return published articles for public access
     if article.status != crate::models::ArticleStatus::Published {
-        return Err(ApiError::not_found(format!("Article not found: {}", slug)));
+        return Err(ApiError::not_found(format!("Article not found: {}", identifier)));
     }
 
     // Fetch category and tags
@@ -226,7 +280,7 @@ pub async fn get_article(
     let hook_data = serde_json::json!({
         "article": &response,
         "context": {
-            "slug": &slug,
+            "identifier": &identifier,
             "is_public": true
         }
     });
@@ -245,7 +299,7 @@ pub async fn get_article(
     // Trigger article_view hook (for statistics, logging - fire and forget)
     let view_data = serde_json::json!({
         "article_id": response.id,
-        "slug": &slug,
+        "identifier": &identifier,
         "title": &response.title,
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
@@ -421,6 +475,90 @@ pub async fn delete_article(
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Response for resolve endpoint
+#[derive(Debug, serde::Serialize)]
+pub struct ResolveArticleResponse {
+    /// The resolved article
+    pub article: ArticleResponse,
+    /// The canonical URL for this article (based on current permalink setting)
+    pub canonical_url: String,
+    /// Whether a redirect is recommended (path doesn't match canonical)
+    pub should_redirect: bool,
+}
+
+/// GET /api/v1/articles/resolve - Resolve article by path
+/// 
+/// This endpoint resolves an article from various path formats:
+/// - By slug: "hello-world"
+/// - By ID: "42"
+/// 
+/// Returns the article along with its canonical URL based on current permalink settings.
+/// If the requested path doesn't match the canonical URL, `should_redirect` will be true.
+pub async fn resolve_article(
+    State(state): State<AppState>,
+    Query(query): Query<ResolveArticleQuery>,
+) -> Result<Json<ResolveArticleResponse>, ApiError> {
+    let path = query.path.trim_start_matches('/');
+    
+    // Try to find article by different methods
+    let article = if let Ok(id) = path.parse::<i64>() {
+        // Try as ID first
+        state.article_service.get_by_id(id).await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?
+    } else {
+        // Try as slug
+        state.article_service.get_by_slug(path).await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?
+    };
+    
+    let article = article.ok_or_else(|| ApiError::not_found("Article not found"))?;
+    
+    // Only return published articles for public access
+    if article.status != crate::models::ArticleStatus::Published {
+        return Err(ApiError::not_found("Article not found"));
+    }
+    
+    // Get permalink structure from settings
+    let permalink_structure = state.settings_service
+        .get(crate::services::settings::keys::PERMALINK_STRUCTURE)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "/posts/{slug}".to_string());
+    
+    // Generate canonical URL
+    let canonical_url = crate::services::settings::generate_article_url(
+        &permalink_structure,
+        article.id,
+        &article.slug,
+        article.published_at.as_ref(),
+    );
+    
+    // Check if redirect is needed
+    let requested_path = format!("/posts/{}", path);
+    let should_redirect = requested_path != canonical_url;
+    
+    // Fetch category and tags
+    let category = state.category_service
+        .get_by_id(article.category_id)
+        .await
+        .ok()
+        .flatten();
+    let tags = state.tag_service
+        .get_by_article_id(article.id)
+        .await
+        .unwrap_or_default();
+    
+    let response: ArticleResponse = article.into();
+    let response = response.with_category(category).with_tags(tags);
+    
+    Ok(Json(ResolveArticleResponse {
+        article: response,
+        canonical_url,
+        should_redirect,
+    }))
 }
 
 // Extractor for AuthenticatedUser from request extensions

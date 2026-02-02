@@ -16,7 +16,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -92,11 +92,11 @@ pub struct AppState {
     pub tag_service: Arc<crate::services::tag::TagService>,
     pub settings_service: Arc<crate::services::settings::SettingsService>,
     pub comment_service: Arc<crate::services::comment::CommentService>,
-    pub theme_engine: Arc<RwLock<crate::theme::ThemeEngine>>,
+    pub theme_engine: Arc<std::sync::RwLock<crate::theme::ThemeEngine>>,
     pub upload_config: Arc<crate::config::UploadConfig>,
     pub page_service: Arc<crate::services::page::PageService>,
     pub nav_service: Arc<crate::services::nav_item::NavItemService>,
-    pub plugin_manager: Arc<RwLock<PluginManager>>,
+    pub plugin_manager: Arc<tokio::sync::RwLock<PluginManager>>,
     pub hook_manager: Arc<HookManager>,
     pub shortcode_manager: Arc<ShortcodeManager>,
     pub request_stats: Arc<RequestStats>,
@@ -334,6 +334,72 @@ pub async fn request_stats_middleware(
 /// Extract authenticated user from request extensions
 pub fn get_authenticated_user(request: &Request) -> Option<&User> {
     request.extensions().get::<AuthenticatedUser>().map(|au| &au.0)
+}
+
+// ============================================================================
+// Demo Mode Guard
+// ============================================================================
+
+/// Demo mode guard middleware
+/// 
+/// When compiled with `--features demo`, this middleware intercepts write operations
+/// (POST, PUT, DELETE) and returns a friendly error message, except for whitelisted
+/// endpoints like login.
+/// 
+/// This allows users to explore the admin interface without making actual changes.
+#[cfg(feature = "demo")]
+pub async fn demo_guard(
+    request: Request,
+    next: Next,
+) -> Result<Response, ApiError> {
+    use axum::http::Method;
+    
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+    
+    // Allow all GET requests
+    if method == Method::GET {
+        return Ok(next.run(request).await);
+    }
+    
+    // Whitelist: endpoints that should work in demo mode
+    let whitelisted = [
+        "/api/v1/auth/login",      // Login
+        "/api/v1/auth/logout",     // Logout
+        "/api/v1/comments",        // Allow posting comments (for demo interaction)
+        "/api/v1/site/render",     // Markdown preview
+    ];
+    
+    // Check if path is whitelisted
+    for allowed in &whitelisted {
+        if path.starts_with(allowed) {
+            return Ok(next.run(request).await);
+        }
+    }
+    
+    // Block write operations
+    if matches!(method, Method::POST | Method::PUT | Method::DELETE | Method::PATCH) {
+        return Err(ApiError::new(
+            "DEMO_MODE",
+            "This is a demo site. Write operations are disabled."
+        ));
+    }
+    
+    Ok(next.run(request).await)
+}
+
+/// No-op demo guard when demo feature is not enabled
+#[cfg(not(feature = "demo"))]
+pub async fn demo_guard(
+    request: Request,
+    next: Next,
+) -> Response {
+    next.run(request).await
+}
+
+/// Check if demo mode is enabled (compile-time)
+pub fn is_demo_mode() -> bool {
+    cfg!(feature = "demo")
 }
 
 

@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { adminApi, ThemeResponse, GitHubReleaseInfo, GitHubAssetInfo } from "@/lib/api";
+import { adminApi, ThemeResponse, GitHubReleaseInfo, GitHubAssetInfo, StoreThemeInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Palette, Check, RefreshCw, ExternalLink, User, Tag, Upload, Download, Trash2, Github, Loader2, Search, Package } from "lucide-react";
+import { Palette, Check, RefreshCw, ExternalLink, User, Tag, Upload, Download, Trash2, Github, Loader2, Search, Package, AlertTriangle, Store } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
@@ -28,6 +28,11 @@ export default function ThemesPage() {
   const [releases, setReleases] = useState<GitHubReleaseInfo[]>([]);
   const [loadingReleases, setLoadingReleases] = useState(false);
   const [installingAsset, setInstallingAsset] = useState<string | null>(null);
+  
+  // Store
+  const [storeThemes, setStoreThemes] = useState<StoreThemeInfo[]>([]);
+  const [loadingStore, setLoadingStore] = useState(false);
+  const [installingFromStore, setInstallingFromStore] = useState<string | null>(null);
 
   const fetchThemes = async () => {
     setLoading(true);
@@ -72,12 +77,33 @@ export default function ThemesPage() {
     }
   };
 
+  const fetchStore = async () => {
+    setLoadingStore(true);
+    try {
+      const { data } = await adminApi.getThemeStore();
+      setStoreThemes(data?.themes || []);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+      setStoreThemes([]);
+    } finally {
+      setLoadingStore(false);
+    }
+  };
+
   useEffect(() => {
     fetchThemes();
   }, []);
 
   const handleSwitchTheme = async (themeName: string) => {
     if (themeName === currentTheme) return;
+    
+    // 检查兼容性
+    const theme = themes.find(t => t.name === themeName);
+    if (theme && !theme.compatible) {
+      toast.error(theme.compatibility_message || t("theme.incompatible") || "Theme is not compatible with current version");
+      return;
+    }
+    
     setSwitching(true);
     try {
       await adminApi.switchTheme(themeName);
@@ -119,6 +145,47 @@ export default function ThemesPage() {
       toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
     } finally {
       setInstallingAsset(null);
+    }
+  };
+
+  const handleInstallFromStore = async (theme: StoreThemeInfo) => {
+    if (!theme.compatible) {
+      toast.error(theme.compatibility_message || t("theme.incompatible"));
+      return;
+    }
+    
+    setInstallingFromStore(theme.name);
+    try {
+      // Parse repo from URL
+      const match = theme.url.match(/github\.com\/([^\/]+\/[^\/]+)/);
+      if (!match) {
+        toast.error("Invalid repository URL");
+        return;
+      }
+      const repo = match[1].replace(/\.git$/, "");
+      
+      // Get latest release
+      const { data: releases } = await adminApi.listGitHubReleases(repo);
+      if (!releases || releases.length === 0) {
+        toast.error(t("theme.noReleases") || "No releases found");
+        return;
+      }
+      
+      const latestRelease = releases[0];
+      if (!latestRelease.assets || latestRelease.assets.length === 0) {
+        toast.error(t("theme.noAssets") || "No assets found");
+        return;
+      }
+      
+      // Install first asset
+      const { data } = await adminApi.installGitHubTheme(latestRelease.assets[0].download_url);
+      toast.success(data.message);
+      fetchThemes();
+      fetchStore(); // Refresh store to update installed status
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
+    } finally {
+      setInstallingFromStore(null);
     }
   };
 
@@ -185,6 +252,10 @@ export default function ThemesPage() {
             <Palette className="h-4 w-4" />
             {t("theme.installed") || "Installed"}
           </TabsTrigger>
+          <TabsTrigger value="store" className="gap-2" onClick={fetchStore}>
+            <Store className="h-4 w-4" />
+            {t("theme.store") || "Store"}
+          </TabsTrigger>
           <TabsTrigger value="github" className="gap-2">
             <Github className="h-4 w-4" />
             {t("theme.online") || "Online"}
@@ -228,6 +299,138 @@ export default function ThemesPage() {
                       onDelete={() => handleDelete(theme.name)}
                       t={t}
                     />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="store">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Store className="h-5 w-5" />
+                {t("theme.officialStore") || "Official Theme Store"}
+              </CardTitle>
+              <CardDescription>
+                {t("theme.storeDesc") || "Browse and install official themes"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingStore ? (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-64" />
+                  ))}
+                </div>
+              ) : storeThemes.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Store className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>{t("theme.noStoreThemes") || "No themes available"}</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {storeThemes.map((theme) => (
+                    <Card key={theme.name} className={!theme.compatible ? "opacity-60" : ""}>
+                      <div className="relative h-36 bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
+                        {theme.preview ? (
+                          <img
+                            src={theme.preview}
+                            alt={theme.display_name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <Palette className="h-12 w-12 text-muted-foreground/30" />
+                        )}
+                        {!theme.compatible && (
+                          <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-500 text-white px-2 py-1 rounded text-xs">
+                            <AlertTriangle className="h-3 w-3" />
+                            {t("theme.incompatible") || "Incompatible"}
+                          </div>
+                        )}
+                        {theme.installed && (
+                          <div className="absolute top-2 right-2 flex items-center gap-1 bg-primary text-primary-foreground px-2 py-1 rounded text-xs">
+                            <Check className="h-3 w-3" />
+                            {t("theme.installed") || "Installed"}
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-4">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <h3 className="font-semibold text-lg flex items-center gap-2">
+                              {theme.display_name}
+                              {!theme.compatible && (
+                                <span title={theme.compatibility_message || "Not compatible"}>
+                                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                                </span>
+                              )}
+                            </h3>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Tag className="h-3 w-3" />
+                              <span>v{theme.version}</span>
+                              {theme.author && (
+                                <>
+                                  <span>·</span>
+                                  <User className="h-3 w-3" />
+                                  <span>{theme.author}</span>
+                                </>
+                              )}
+                              {theme.requires_noteva && (
+                                <>
+                                  <span>·</span>
+                                  <span>{t("theme.requires") || "Requires"}: {theme.requires_noteva}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          {theme.url && (
+                            <a
+                              href={theme.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <Github className="h-4 w-4" />
+                            </a>
+                          )}
+                        </div>
+                        
+                        {theme.description && (
+                          <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
+                            {theme.description}
+                          </p>
+                        )}
+                        
+                        {!theme.compatible && theme.compatibility_message && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
+                            {theme.compatibility_message}
+                          </p>
+                        )}
+                        
+                        <Button
+                          onClick={() => handleInstallFromStore(theme)}
+                          disabled={installingFromStore === theme.name || theme.installed || !theme.compatible}
+                          size="sm"
+                          className="w-full"
+                        >
+                          {installingFromStore === theme.name ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : theme.installed ? (
+                            t("theme.installed") || "Installed"
+                          ) : (
+                            <>
+                              <Download className="h-4 w-4 mr-2" />
+                              {t("theme.install") || "Install"}
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </Card>
                   ))}
                 </div>
               )}
@@ -348,7 +551,8 @@ function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, 
     <div
       className={cn(
         "relative rounded-lg border-2 overflow-hidden transition-all hover:border-primary hover:shadow-md",
-        isActive ? "border-primary bg-primary/5 shadow-sm" : "border-muted"
+        isActive ? "border-primary bg-primary/5 shadow-sm" : "border-muted",
+        !theme.compatible && "opacity-70"
       )}
     >
       <div className="relative h-36 bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
@@ -371,12 +575,25 @@ function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, 
             {t("settings.currentTheme")}
           </div>
         )}
+        {!theme.compatible && (
+          <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-500 text-white px-2 py-1 rounded text-xs">
+            <AlertTriangle className="h-3 w-3" />
+            {t("theme.incompatible") || "Incompatible"}
+          </div>
+        )}
       </div>
 
       <div className="p-4">
         <div className="flex items-start justify-between mb-2">
           <div>
-            <h3 className="font-semibold text-lg">{theme.display_name}</h3>
+            <h3 className="font-semibold text-lg flex items-center gap-2">
+              {theme.display_name}
+              {!theme.compatible && (
+                <span title={theme.compatibility_message || "Not compatible"}>
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                </span>
+              )}
+            </h3>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Tag className="h-3 w-3" />
               <span>v{theme.version}</span>
@@ -385,6 +602,12 @@ function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, 
                   <span>·</span>
                   <User className="h-3 w-3" />
                   <span>{theme.author}</span>
+                </>
+              )}
+              {theme.requires_noteva && (
+                <>
+                  <span>·</span>
+                  <span>{t("theme.requires") || "Requires"}: {theme.requires_noteva}</span>
                 </>
               )}
             </div>
@@ -403,15 +626,21 @@ function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, 
         </div>
         
         {theme.description && (
-          <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
+          <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
             {theme.description}
+          </p>
+        )}
+        
+        {!theme.compatible && theme.compatibility_message && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
+            {theme.compatibility_message}
           </p>
         )}
         
         <div className="flex gap-2">
           <Button
             onClick={onSwitch}
-            disabled={switching || isActive}
+            disabled={switching || isActive || !theme.compatible}
             variant={isActive ? "secondary" : "default"}
             size="sm"
             className="flex-1"

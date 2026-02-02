@@ -11,10 +11,24 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2 } from "lucide-react";
+import { AvatarUpload } from "@/components/ui/avatar-upload";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2, Link } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import ReactMarkdown from "react-markdown";
+
+// Permalink format options
+const PERMALINK_OPTIONS = [
+  { value: "/posts/{slug}", label: "/posts/{slug}", example: "/posts/hello-world" },
+  { value: "/posts/{id}", label: "/posts/{id}", example: "/posts/42" },
+];
 
 export default function SettingsPage() {
   const { user } = useAuthStore();
@@ -31,6 +45,7 @@ export default function SettingsPage() {
     siteSubtitle: "",
     siteLogo: "",
     siteFooter: "",
+    permalinkStructure: "/posts/{slug}",
   });
 
   const [commentForm, setCommentForm] = useState({
@@ -64,6 +79,7 @@ export default function SettingsPage() {
           siteSubtitle: data.site_subtitle || "",
           siteLogo: data.site_logo || "",
           siteFooter: data.site_footer || "",
+          permalinkStructure: data.permalink_structure || "/posts/{slug}",
         });
         setCommentForm({
           commentModeration: data.comment_moderation === "true",
@@ -80,11 +96,12 @@ export default function SettingsPage() {
       .catch((err) => {
         console.error("Failed to load settings:", err);
         setSiteForm({
-          siteName: "Noteva Blog",
+          siteName: "Noteva",
           siteDescription: "",
           siteSubtitle: "",
           siteLogo: "",
           siteFooter: "",
+          permalinkStructure: "/posts/{slug}",
         });
         toast.error("Failed to load settings");
       })
@@ -100,6 +117,7 @@ export default function SettingsPage() {
         site_subtitle: siteForm.siteSubtitle,
         site_logo: siteForm.siteLogo,
         site_footer: siteForm.siteFooter,
+        permalink_structure: siteForm.permalinkStructure,
       };
       await adminApi.updateSettings(newSettings);
       // 更新全局 store
@@ -234,7 +252,7 @@ export default function SettingsPage() {
                     <Label htmlFor="siteName">{t("settings.siteName")}</Label>
                     <Input
                       id="siteName"
-                      placeholder="Noteva Blog"
+                      placeholder="Noteva"
                       value={siteForm.siteName}
                       onChange={(e) => setSiteForm((f) => ({ ...f, siteName: e.target.value }))}
                     />
@@ -274,6 +292,33 @@ export default function SettingsPage() {
                       value={siteForm.siteFooter}
                       onChange={(e) => setSiteForm((f) => ({ ...f, siteFooter: e.target.value }))}
                     />
+                  </div>
+                  <div className="space-y-2 pt-4 border-t">
+                    <Label className="flex items-center gap-2">
+                      <Link className="h-4 w-4" />
+                      {t("settings.permalink")}
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      {t("settings.permalinkDesc")}
+                    </p>
+                    <Select
+                      value={siteForm.permalinkStructure}
+                      onValueChange={(v) => setSiteForm((f) => ({ ...f, permalinkStructure: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PERMALINK_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            <div className="flex flex-col">
+                              <span>{opt.label}</span>
+                              <span className="text-xs text-muted-foreground">{opt.example}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <Button onClick={handleSaveSiteSettings} disabled={savingSite}>
                     {savingSite && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
@@ -377,12 +422,10 @@ export default function SettingsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="avatar">{t("user.avatar")}</Label>
-                <Input
-                  id="avatar"
-                  placeholder="https://..."
+                <Label>{t("user.avatar")}</Label>
+                <AvatarUpload
                   value={profileForm.avatar}
-                  onChange={(e) => setProfileForm((f) => ({ ...f, avatar: e.target.value }))}
+                  onChange={(url) => setProfileForm((f) => ({ ...f, avatar: url }))}
                 />
               </div>
               <Button onClick={handleSaveProfile} disabled={savingProfile}>

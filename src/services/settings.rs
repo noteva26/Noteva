@@ -19,6 +19,21 @@ pub mod keys {
     pub const SITE_LOGO: &str = "site_logo";
     pub const SITE_FOOTER: &str = "site_footer";
     pub const POSTS_PER_PAGE: &str = "posts_per_page";
+    pub const PERMALINK_STRUCTURE: &str = "permalink_structure";
+}
+
+/// Permalink structure presets
+pub mod permalink {
+    /// Default: /posts/{slug}
+    pub const DEFAULT: &str = "/posts/{slug}";
+    /// By ID: /posts/{id}
+    pub const BY_ID: &str = "/posts/{id}";
+    /// Date-based: /{year}/{month}/{slug}
+    pub const DATE_SLUG: &str = "/{year}/{month}/{slug}";
+    /// Full date: /{year}/{month}/{day}/{slug}
+    pub const FULL_DATE_SLUG: &str = "/{year}/{month}/{day}/{slug}";
+    /// Archives: /archives/{id}
+    pub const ARCHIVES: &str = "/archives/{id}";
 }
 
 /// Site settings structure
@@ -35,7 +50,7 @@ pub struct SiteSettings {
 impl Default for SiteSettings {
     fn default() -> Self {
         Self {
-            site_name: "Noteva Blog".to_string(),
+            site_name: "Noteva".to_string(),
             site_description: "A lightweight blog powered by Noteva".to_string(),
             site_subtitle: String::new(),
             site_logo: String::new(),
@@ -152,5 +167,63 @@ impl SettingsService {
         let settings = self.repo.get_all().await
             .map_err(|e| SettingsServiceError::LoadError(e.to_string()))?;
         Ok(settings.into_iter().map(|s| (s.key, s.value)).collect())
+    }
+}
+
+
+/// Generate article URL based on permalink structure
+/// 
+/// Supported placeholders:
+/// - {id} - Article ID
+/// - {slug} - Article slug
+/// - {year} - Publication year (4 digits)
+/// - {month} - Publication month (2 digits)
+/// - {day} - Publication day (2 digits)
+pub fn generate_article_url(
+    structure: &str,
+    id: i64,
+    slug: &str,
+    published_at: Option<&chrono::DateTime<chrono::Utc>>,
+) -> String {
+    let now = chrono::Utc::now();
+    let date = published_at.unwrap_or(&now);
+    
+    structure
+        .replace("{id}", &id.to_string())
+        .replace("{slug}", slug)
+        .replace("{year}", &date.format("%Y").to_string())
+        .replace("{month}", &date.format("%m").to_string())
+        .replace("{day}", &date.format("%d").to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn test_generate_article_url_default() {
+        let url = generate_article_url("/posts/{slug}", 1, "hello-world", None);
+        assert_eq!(url, "/posts/hello-world");
+    }
+
+    #[test]
+    fn test_generate_article_url_by_id() {
+        let url = generate_article_url("/posts/{id}", 42, "hello-world", None);
+        assert_eq!(url, "/posts/42");
+    }
+
+    #[test]
+    fn test_generate_article_url_date_based() {
+        let date = chrono::Utc.with_ymd_and_hms(2024, 3, 15, 12, 0, 0).unwrap();
+        let url = generate_article_url("/{year}/{month}/{slug}", 1, "hello-world", Some(&date));
+        assert_eq!(url, "/2024/03/hello-world");
+    }
+
+    #[test]
+    fn test_generate_article_url_full_date() {
+        let date = chrono::Utc.with_ymd_and_hms(2024, 12, 25, 12, 0, 0).unwrap();
+        let url = generate_article_url("/{year}/{month}/{day}/{slug}", 1, "christmas", Some(&date));
+        assert_eq!(url, "/2024/12/25/christmas");
     }
 }

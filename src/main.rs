@@ -62,8 +62,8 @@ async fn main() -> Result<()> {
     tracing::info!("Cache initialized");
 
     // Initialize plugin system (before services, so shortcodes are available)
-    let mut plugin_manager = PluginManager::new(Path::new("plugins"), Path::new("data"));
-    if let Err(e) = plugin_manager.init() {
+    let mut plugin_manager = PluginManager::new(Path::new("plugins"), Path::new("data"), pool.clone());
+    if let Err(e) = plugin_manager.init().await {
         tracing::warn!("Failed to initialize plugins: {}", e);
     }
     
@@ -141,7 +141,7 @@ async fn main() -> Result<()> {
         upload_config: Arc::new(config.upload.clone()),
         page_service,
         nav_service,
-        plugin_manager: Arc::new(std::sync::RwLock::new(plugin_manager)),
+        plugin_manager: Arc::new(tokio::sync::RwLock::new(plugin_manager)),
         hook_manager: hook_manager.clone(),
         shortcode_manager: shortcode_manager_arc,
         request_stats,

@@ -16,7 +16,7 @@ use crate::db::repositories::{SettingsRepository, SqlxSettingsRepository};
 
 /// Embedded admin files (management interface)
 #[derive(RustEmbed)]
-#[folder = "admin-dist/"]
+#[folder = "web/dist/"]
 #[include = "*"]
 struct AdminAssets;
 
@@ -77,6 +77,24 @@ pub async fn serve_static(
 /// Path format: /themes/{theme_name}/{file}
 async fn serve_theme_static(path: &str) -> Response {
     // path = /themes/default/preview.png
+    let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    
+    // For default theme preview, try embedded assets first
+    if parts.len() >= 3 && parts[1] == "default" {
+        let file_name = parts[2..].join("/");
+        // Try to serve from embedded dist folder
+        if let Some(content) = DefaultThemeAssets::get(&file_name) {
+            let content_type = get_content_type(&file_name);
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, content_type)
+                .header(header::CACHE_CONTROL, "public, max-age=3600")
+                .body(Body::from(content.data.to_vec()))
+                .unwrap();
+        }
+    }
+    
+    // Fall back to disk for all themes
     let file_path = PathBuf::from(".").join(path.trim_start_matches('/'));
     
     match fs::read(&file_path).await {

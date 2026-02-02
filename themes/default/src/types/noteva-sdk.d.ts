@@ -70,11 +70,13 @@ interface NotevaSiteInfo {
   subtitle: string;
   logo: string;
   footer: string;
+  permalinkStructure?: string;
   site_name?: string;
   site_description?: string;
   site_subtitle?: string;
   site_logo?: string;
   site_footer?: string;
+  permalink_structure?: string;
   email_verification_enabled?: string;
 }
 
@@ -135,6 +137,7 @@ interface NotevaSDK {
     getInfo(): Promise<NotevaSiteInfo>;
     getNav(): Promise<NotevaNavItem[]>;
     getThemeConfig(key?: string): any;
+    getArticleUrl(article: { id: number | string; slug?: string }): string;
   };
   
   // 文章 API

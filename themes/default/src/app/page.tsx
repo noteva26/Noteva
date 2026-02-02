@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Calendar, Folder, Eye, Heart, MessageSquare, Tag, Pin, FileText } from "lucide-react";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
-import { getNoteva } from "@/hooks/useNoteva";
+import { getNoteva, getArticleUrl } from "@/hooks/useNoteva";
 
 // 文章类型（兼容 SDK 和原 API）
 interface Article {
@@ -254,7 +254,7 @@ function HomeContent() {
                             )}
                             <CardTitle className="flex-1">
                               <Link
-                                href={`/posts/${article.slug}`}
+                                href={getArticleUrl(article)}
                                 className="hover:text-primary transition-colors"
                               >
                                 {article.title}
@@ -311,7 +311,7 @@ function HomeContent() {
                       </div>
                       {thumbnail && (
                         <div className="hidden sm:block w-48 flex-shrink-0">
-                          <Link href={`/posts/${article.slug}`} className="block h-full">
+                          <Link href={getArticleUrl(article)} className="block h-full">
                             <div className="relative h-full min-h-[160px]">
                               <Image
                                 src={thumbnail}

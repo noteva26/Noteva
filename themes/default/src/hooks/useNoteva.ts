@@ -53,6 +53,7 @@ export function useSiteInfo() {
     subtitle: string;
     logo: string;
     footer: string;
+    permalinkStructure?: string;
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -80,6 +81,20 @@ export function useSiteInfo() {
   }, []);
 
   return { info, loading };
+}
+
+/**
+ * 生成文章 URL
+ * @param article - 文章对象，需要包含 id 和 slug
+ * @returns 文章 URL 路径
+ */
+export function getArticleUrl(article: { id: number | string; slug?: string }): string {
+  const noteva = getNoteva();
+  if (noteva?.site?.getArticleUrl) {
+    return noteva.site.getArticleUrl(article);
+  }
+  // 默认使用 slug
+  return `/posts/${article.slug || article.id}`;
 }
 
 /**

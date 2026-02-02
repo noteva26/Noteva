@@ -147,7 +147,9 @@
     "pinOrderHint": "数字越小越靠前",
     "thumbnail": "缩略图",
     "selectThumbnail": "从文章图片中选择",
-    "noImages": "文章中暂无图片"
+    "noImages": "文章中暂无图片",
+    "autoSaved": "已自动保存",
+    "unsavedChanges": "有未保存的更改"
   },
   "category": {
     "name": "名称",
@@ -266,7 +268,9 @@
     "sendTestEmail": "发送测试",
     "enterTestEmail": "请输入测试邮箱地址",
     "testEmailSuccess": "测试邮件发送成功",
-    "testEmailFailed": "测试邮件发送失败"
+    "testEmailFailed": "测试邮件发送失败",
+    "permalink": "文章链接格式",
+    "permalinkDesc": "设置文章 URL 的显示格式"
   },
   "theme": {
     "light": "浅色",
@@ -284,7 +288,13 @@
     "enterRepo": "请输入 GitHub 仓库地址",
     "noReleases": "该仓库暂无 Releases",
     "noAssets": "该版本暂无可下载文件",
-    "searchHint": "输入仓库地址后点击搜索"
+    "searchHint": "输入仓库地址后点击搜索",
+    "requires": "要求",
+    "incompatible": "不兼容",
+    "store": "集市",
+    "officialStore": "官方主题集市",
+    "storeDesc": "浏览并安装官方主题",
+    "noStoreThemes": "暂无可用主题"
   },
   "pagination": {
     "page": "第 {current} / {total} 页",
@@ -403,7 +413,13 @@
     "enterRepo": "请输入 GitHub 仓库地址",
     "noReleases": "该仓库暂无 Releases",
     "noAssets": "该版本暂无可下载文件",
-    "searchHint": "输入仓库地址后点击搜索"
+    "searchHint": "输入仓库地址后点击搜索",
+    "requires": "要求",
+    "incompatible": "与当前版本不兼容",
+    "store": "集市",
+    "officialStore": "官方插件集市",
+    "storeDesc": "浏览并安装官方插件",
+    "noStorePlugins": "暂无可用插件"
   },
   "user": {
     "title": "用户管理",

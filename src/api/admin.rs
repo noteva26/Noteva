@@ -110,6 +110,9 @@ pub struct ThemeResponse {
     pub url: Option<String>,
     pub preview: Option<String>,
     pub active: bool,
+    pub requires_noteva: String,
+    pub compatible: bool,
+    pub compatibility_message: Option<String>,
 }
 
 /// Response for theme list
@@ -202,6 +205,7 @@ pub fn router() -> Router<AppState> {
         // Theme management
         .route("/themes", get(list_themes))
         .route("/themes/switch", post(switch_theme))
+        .route("/themes/store", get(get_theme_store))
         // Site settings
         .route("/settings", get(get_settings))
         .route("/settings", put(update_settings))
@@ -491,6 +495,9 @@ async fn list_themes(
             url: info.url,
             preview: info.preview,
             active: info.name == current,
+            requires_noteva: info.requires_noteva,
+            compatible: info.compatible,
+            compatibility_message: info.compatibility_message,
         })
         .collect();
 
@@ -533,14 +540,187 @@ async fn switch_theme(
 
     Ok(Json(ThemeResponse {
         name: actual_theme.clone(),
-        display_name: theme_info.map(|i| i.display_name.clone()).unwrap_or(actual_theme),
+        display_name: theme_info.map(|i| i.display_name.clone()).unwrap_or_else(|| actual_theme.clone()),
         description: theme_info.and_then(|i| i.description.clone()),
         version: theme_info.map(|i| i.version.clone()).unwrap_or_else(|| "1.0.0".to_string()),
         author: theme_info.and_then(|i| i.author.clone()),
         url: theme_info.and_then(|i| i.url.clone()),
         preview: theme_info.and_then(|i| i.preview.clone()),
         active: true,
+        requires_noteva: theme_info.map(|i| i.requires_noteva.clone()).unwrap_or_default(),
+        compatible: theme_info.map(|i| i.compatible).unwrap_or(true),
+        compatibility_message: theme_info.and_then(|i| i.compatibility_message.clone()),
     }))
+}
+
+/// Store theme info from official repository
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StoreThemeInfo {
+    pub name: String,
+    pub display_name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub author: Option<String>,
+    pub url: String,
+    pub preview: Option<String>,
+    pub requires_noteva: String,
+    pub compatible: bool,
+    pub compatibility_message: Option<String>,
+    pub installed: bool,
+}
+
+/// Theme store response
+#[derive(Debug, Serialize)]
+pub struct ThemeStoreResponse {
+    pub themes: Vec<StoreThemeInfo>,
+}
+
+/// GET /api/v1/admin/themes/store - Get theme store from official repository
+#[axum::debug_handler]
+async fn get_theme_store(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+) -> Result<Json<ThemeStoreResponse>, ApiError> {
+    use crate::plugin::loader::{check_version_requirement, NOTEVA_VERSION};
+    
+    const STORE_REPO: &str = "noteva26/noteva-themes";
+    const STORE_PATH: &str = "store";
+    
+    let client = reqwest::Client::new();
+    
+    // Get the tree of store directory
+    let tree_url = format!(
+        "https://api.github.com/repos/{}/git/trees/main?recursive=1",
+        STORE_REPO
+    );
+    
+    let tree_response = client
+        .get(&tree_url)
+        .header("User-Agent", "Noteva")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to fetch store: {}", e)))?;
+    
+    if !tree_response.status().is_success() {
+        return Ok(Json(ThemeStoreResponse { themes: vec![] }));
+    }
+    
+    let tree_json: serde_json::Value = tree_response
+        .json()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to parse tree: {}", e)))?;
+    
+    // Find all theme.json files in root directory (official themes) and store/ (third-party themes)
+    let mut theme_paths = Vec::new();
+    if let Some(tree_array) = tree_json.get("tree").and_then(|v| v.as_array()) {
+        for item in tree_array {
+            if let (Some(path), Some(item_type)) = (
+                item.get("path").and_then(|v| v.as_str()),
+                item.get("type").and_then(|v| v.as_str()),
+            ) {
+                if item_type != "blob" || !path.ends_with("/theme.json") {
+                    continue;
+                }
+                
+                // Include root-level themes (e.g., "default/theme.json")
+                // and store themes (e.g., "store/some-theme/theme.json")
+                let parts: Vec<&str> = path.split('/').collect();
+                if parts.len() == 2 {
+                    // Root level: theme-name/theme.json
+                    theme_paths.push(path.to_string());
+                } else if parts.len() == 3 && parts[0] == STORE_PATH {
+                    // Store level: store/theme-name/theme.json
+                    theme_paths.push(path.to_string());
+                }
+            }
+        }
+    }
+    
+    // Get installed themes
+    let installed_names: std::collections::HashSet<String> = {
+        let theme_engine = state
+            .theme_engine
+            .read()
+            .map_err(|e| ApiError::internal_error(format!("Failed to acquire theme lock: {}", e)))?;
+        
+        let installed_themes = theme_engine
+            .list_themes()
+            .map_err(|e| ApiError::internal_error(e.to_string()))?;
+        
+        installed_themes
+            .iter()
+            .map(|t| t.name.clone())
+            .collect()
+    };
+    
+    let mut themes = Vec::new();
+    
+    // Fetch each theme.json
+    for path in theme_paths {
+        let raw_url = format!(
+            "https://raw.githubusercontent.com/{}/main/{}",
+            STORE_REPO, path
+        );
+        
+        if let Ok(response) = client
+            .get(&raw_url)
+            .header("User-Agent", "Noteva")
+            .send()
+            .await
+        {
+            if let Ok(theme_json) = response.json::<serde_json::Value>().await {
+                let name = theme_json.get("short")
+                    .or_else(|| theme_json.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                
+                if name.is_empty() {
+                    continue;
+                }
+                
+                let requires_noteva = theme_json.get("requires")
+                    .and_then(|r| r.get("noteva"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                
+                let version_check = check_version_requirement(&requires_noteva, NOTEVA_VERSION);
+                
+                themes.push(StoreThemeInfo {
+                    name: name.clone(),
+                    display_name: theme_json.get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&name)
+                        .to_string(),
+                    version: theme_json.get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("1.0.0")
+                        .to_string(),
+                    description: theme_json.get("description")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    author: theme_json.get("author")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    url: theme_json.get("url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    preview: theme_json.get("preview")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    requires_noteva,
+                    compatible: version_check.compatible,
+                    compatibility_message: version_check.message,
+                    installed: installed_names.contains(&name),
+                });
+            }
+        }
+    }
+    
+    Ok(Json(ThemeStoreResponse { themes }))
 }
 
 

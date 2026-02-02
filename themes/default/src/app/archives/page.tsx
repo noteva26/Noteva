@@ -7,7 +7,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getNoteva } from "@/hooks/useNoteva";
+import { getNoteva, getArticleUrl } from "@/hooks/useNoteva";
 
 interface Article {
   id: number;
@@ -134,7 +134,7 @@ export default function ArchivesPage() {
                           <li key={article.id} className="relative">
                             <span className="absolute -left-[9px] top-2 w-4 h-4 bg-background border-2 border-muted rounded-full" />
                             <Link
-                              href={`/posts/${article.slug}`}
+                              href={getArticleUrl(article)}
                               className="block pl-6 py-1 hover:text-primary transition-colors"
                             >
                               <span className="text-sm text-muted-foreground mr-2">

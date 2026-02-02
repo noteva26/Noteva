@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'export',
-  distDir: '../admin-dist',
+  distDir: 'dist',
   trailingSlash: true,
   images: {
     unoptimized: true,

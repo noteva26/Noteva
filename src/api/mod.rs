@@ -91,6 +91,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
     // Public routes
     Router::new()
         .route("/articles", axum::routing::get(articles::list_articles_handler))
+        .route("/articles/resolve", axum::routing::get(articles::resolve_article_handler))
         .route("/articles/:slug", axum::routing::get(articles::get_article_handler))
         .nest("/categories", categories::router())
         .nest("/tags", tags::router())
@@ -127,6 +128,8 @@ pub fn build_router(state: AppState, cors_origin: &str) -> Router {
         // Static file serving (for production)
         .fallback(static_files::serve_static)
         .layer(cors)
+        // Demo mode guard (blocks write operations when compiled with --features demo)
+        .layer(axum_middleware::from_fn(middleware::demo_guard))
         // Request stats middleware (outermost layer, runs for all requests)
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),

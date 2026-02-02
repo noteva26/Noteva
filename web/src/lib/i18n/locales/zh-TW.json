@@ -147,7 +147,9 @@
     "pinOrderHint": "數字越小越靠前",
     "thumbnail": "縮圖",
     "selectThumbnail": "從文章圖片中選擇",
-    "noImages": "文章中暫無圖片"
+    "noImages": "文章中暫無圖片",
+    "autoSaved": "已自動保存",
+    "unsavedChanges": "有未保存的更改"
   },
   "category": {
     "name": "名稱",
@@ -266,7 +268,9 @@
     "sendTestEmail": "發送測試",
     "enterTestEmail": "請輸入測試電子郵件地址",
     "testEmailSuccess": "測試郵件發送成功",
-    "testEmailFailed": "測試郵件發送失敗"
+    "testEmailFailed": "測試郵件發送失敗",
+    "permalink": "文章連結格式",
+    "permalinkDesc": "設定文章 URL 的顯示格式"
   },
   "theme": {
     "light": "淺色",
@@ -284,7 +288,13 @@
     "enterRepo": "請輸入 GitHub 倉庫地址",
     "noReleases": "該倉庫暫無 Releases",
     "noAssets": "該版本暫無可下載檔案",
-    "searchHint": "輸入倉庫地址後點擊搜尋"
+    "searchHint": "輸入倉庫地址後點擊搜尋",
+    "requires": "要求",
+    "incompatible": "不相容",
+    "store": "集市",
+    "officialStore": "官方主題集市",
+    "storeDesc": "瀏覽並安裝官方主題",
+    "noStoreThemes": "暫無可用主題"
   },
   "pagination": {
     "page": "第 {current} / {total} 頁",
@@ -403,7 +413,13 @@
     "enterRepo": "請輸入 GitHub 倉庫地址",
     "noReleases": "該倉庫暫無 Releases",
     "noAssets": "該版本暫無可下載檔案",
-    "searchHint": "輸入倉庫地址後點擊搜尋"
+    "searchHint": "輸入倉庫地址後點擊搜尋",
+    "requires": "要求",
+    "incompatible": "與目前版本不相容",
+    "store": "集市",
+    "officialStore": "官方外掛集市",
+    "storeDesc": "瀏覽並安裝官方外掛",
+    "noStorePlugins": "暫無可用外掛"
   },
   "user": {
     "title": "使用者管理",

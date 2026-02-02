@@ -8,6 +8,7 @@ const defaultSettings: SiteSettings = {
   site_subtitle: "",
   site_logo: "/logo.png",
   site_footer: "",
+  demo_mode: false,
 };
 
 // 从 window.__SITE_CONFIG__ 读取后端注入的配置
@@ -22,6 +23,7 @@ const getInjectedSettings = (): SiteSettings | null => {
         site_subtitle: injected.site_subtitle || defaultSettings.site_subtitle,
         site_logo: injected.site_logo || defaultSettings.site_logo,
         site_footer: injected.site_footer || defaultSettings.site_footer,
+        demo_mode: injected.demo_mode || false,
       };
     }
   } catch {
@@ -57,6 +59,7 @@ export const useSiteStore = create<SiteState>((set, get) => ({
         site_subtitle: data.site_subtitle || defaultSettings.site_subtitle,
         site_logo: data.site_logo || defaultSettings.site_logo,
         site_footer: data.site_footer || defaultSettings.site_footer,
+        demo_mode: data.demo_mode || false,
       };
       set({ settings, loaded: true, loading: false });
     } catch {

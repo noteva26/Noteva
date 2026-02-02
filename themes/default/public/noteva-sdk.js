@@ -175,10 +175,13 @@
     _info: null,
     _nav: null,
     _themeConfig: {},
+    _permalinkStructure: '/posts/{slug}',
     
     async getInfo() {
       if (this._info) return this._info;
       const data = await api.get('/site/info');
+      // 缓存 permalink 结构
+      this._permalinkStructure = data.permalink_structure || '/posts/{slug}';
       // 转换字段名，兼容 snake_case 和简短名
       this._info = {
         name: data.site_name || data.name || '',
@@ -186,14 +189,29 @@
         subtitle: data.site_subtitle || data.subtitle || '',
         logo: data.site_logo || data.logo || '',
         footer: data.site_footer || data.footer || '',
+        permalinkStructure: this._permalinkStructure,
         // 保留原始字段
         site_name: data.site_name,
         site_description: data.site_description,
         site_subtitle: data.site_subtitle,
         site_logo: data.site_logo,
         site_footer: data.site_footer,
+        permalink_structure: this._permalinkStructure,
       };
       return this._info;
+    },
+    
+    /**
+     * 生成文章 URL
+     * @param {object} article - 文章对象，需要包含 id 和 slug
+     * @returns {string} 文章 URL
+     */
+    getArticleUrl(article) {
+      if (!article) return '/posts/';
+      const structure = this._permalinkStructure || '/posts/{slug}';
+      return structure
+        .replace('{id}', article.id)
+        .replace('{slug}', article.slug || article.id);
     },
     
     async getNav() {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -26,7 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Save, Eye, X, Trash2, Bold, Italic, Link, Image as ImageIcon, List, ListOrdered, Quote, Code, Heading1, Heading2, Pin } from "lucide-react";
+import { ArrowLeft, Save, Eye, X, Trash2, Bold, Italic, Link, Image as ImageIcon, List, ListOrdered, Quote, Code, Heading1, Heading2, Pin, Loader2, Check } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,11 +68,18 @@ export default function EditArticleClient() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [preview, setPreview] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTags, setSelectedTags] = useState<number[]>([]);
+  
+  // Track unsaved changes
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [lastSavedContent, setLastSavedContent] = useState("");
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [form, setForm] = useState({
     title: "",
@@ -87,6 +94,63 @@ export default function EditArticleClient() {
 
   // Extract images from content for thumbnail selection
   const contentImages = useMemo(() => extractImages(form.content), [form.content]);
+
+  // Track changes for unsaved warning
+  useEffect(() => {
+    if (!loading && lastSavedContent) {
+      const currentState = JSON.stringify({ ...form, selectedTags });
+      setHasUnsavedChanges(currentState !== lastSavedContent);
+    }
+  }, [form, selectedTags, lastSavedContent, loading]);
+
+  // Warn before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // Auto-save every 30 seconds if there are unsaved changes
+  useEffect(() => {
+    if (!autoSaveEnabled || !hasUnsavedChanges || !articleId || form.status === "published") {
+      return;
+    }
+    
+    autoSaveTimerRef.current = setTimeout(async () => {
+      if (hasUnsavedChanges && form.title.trim()) {
+        try {
+          const data: UpdateArticleInput = {
+            title: form.title,
+            slug: form.slug,
+            content: form.content,
+            status: form.status,
+            category_id: form.category_id,
+            tag_ids: selectedTags,
+            thumbnail: form.thumbnail,
+            is_pinned: form.is_pinned,
+            pin_order: form.pin_order,
+          };
+          await articlesApi.update(articleId, data);
+          setLastSavedContent(JSON.stringify({ ...form, selectedTags }));
+          setHasUnsavedChanges(false);
+          toast.success(t("article.autoSaved"), { duration: 2000 });
+        } catch {
+          // Silent fail for auto-save
+        }
+      }
+    }, 30000);
+    
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [hasUnsavedChanges, autoSaveEnabled, articleId, form, selectedTags, t]);
 
   useEffect(() => {
     const id = getArticleIdFromPath();
@@ -107,7 +171,7 @@ export default function EditArticleClient() {
         setTags(tagRes.data.tags);
 
         const article = articleRes.data;
-        setForm({
+        const formData = {
           title: article.title,
           slug: article.slug,
           content: article.content,
@@ -116,8 +180,11 @@ export default function EditArticleClient() {
           thumbnail: article.thumbnail || null,
           is_pinned: article.is_pinned || false,
           pin_order: article.pin_order || 0,
-        });
-        setSelectedTags(article.tags?.map((t) => t.id) || []);
+        };
+        const tagIds = article.tags?.map((t) => t.id) || [];
+        setForm(formData);
+        setSelectedTags(tagIds);
+        setLastSavedContent(JSON.stringify({ ...formData, selectedTags: tagIds }));
       } catch (error) {
         toast.error("加载失败");
         router.push("/manage/articles");
@@ -201,6 +268,7 @@ export default function EditArticleClient() {
     }
 
     setSaving(true);
+    setSaveSuccess(false);
     try {
       const data: UpdateArticleInput = {
         title: form.title,
@@ -214,7 +282,22 @@ export default function EditArticleClient() {
         pin_order: form.pin_order,
       };
       await articlesApi.update(articleId, data);
-      toast.success(t("article.saveSuccess"));
+      
+      // Update saved state
+      const newForm = { ...form, status: status || form.status };
+      setForm(newForm);
+      setLastSavedContent(JSON.stringify({ ...newForm, selectedTags }));
+      setHasUnsavedChanges(false);
+      
+      // Show success animation
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+      
+      toast.success(
+        status === "published" 
+          ? t("article.publishSuccess") 
+          : t("article.saveSuccess")
+      );
     } catch (error) {
       toast.error(t("article.saveFailed"));
     } finally {
@@ -319,10 +402,18 @@ export default function EditArticleClient() {
             {preview ? t("common.edit") : t("article.preview")}
           </Button>
           <Button variant="outline" onClick={() => handleSubmit("draft")} disabled={saving}>
-            <Save className="h-4 w-4 mr-2" />
+            {saving ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : saveSuccess ? (
+              <Check className="h-4 w-4 mr-2 text-green-500" />
+            ) : (
+              <Save className="h-4 w-4 mr-2" />
+            )}
             {t("article.saveDraft")}
+            {hasUnsavedChanges && <span className="ml-1 text-amber-500">•</span>}
           </Button>
           <Button onClick={() => handleSubmit("published")} disabled={saving}>
+            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {t("article.publish")}
           </Button>
         </div>
@@ -436,19 +527,40 @@ export default function EditArticleClient() {
             <CardHeader>
               <CardTitle className="text-base">{t("article.tags")}</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {tags.map((tag) => (
-                  <Badge
-                    key={tag.id}
-                    variant={selectedTags.includes(tag.id) ? "default" : "outline"}
-                    className="cursor-pointer"
-                    onClick={() => toggleTag(tag.id)}
-                  >
-                    {tag.name}
-                    {selectedTags.includes(tag.id) && <X className="h-3 w-3 ml-1" />}
-                  </Badge>
-                ))}
+            <CardContent className="space-y-3">
+              {/* Selected tags */}
+              {selectedTags.length > 0 && (
+                <div className="flex flex-wrap gap-2 pb-2 border-b">
+                  {selectedTags.map((tagId) => {
+                    const tag = tags.find((t) => t.id === tagId);
+                    return tag ? (
+                      <Badge
+                        key={tag.id}
+                        variant="default"
+                        className="cursor-pointer"
+                        onClick={() => toggleTag(tag.id)}
+                      >
+                        {tag.name}
+                        <X className="h-3 w-3 ml-1" />
+                      </Badge>
+                    ) : null;
+                  })}
+                </div>
+              )}
+              {/* Available tags */}
+              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                {tags
+                  .filter((tag) => !selectedTags.includes(tag.id))
+                  .map((tag) => (
+                    <Badge
+                      key={tag.id}
+                      variant="outline"
+                      className="cursor-pointer hover:bg-muted"
+                      onClick={() => toggleTag(tag.id)}
+                    >
+                      {tag.name}
+                    </Badge>
+                  ))}
                 {tags.length === 0 && (
                   <p className="text-sm text-muted-foreground">{t("tag.noTags")}</p>
                 )}
