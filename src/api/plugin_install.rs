@@ -111,7 +111,11 @@ pub async fn upload_plugin(
                 enabled: false,
                 settings: std::collections::HashMap::new(),
             };
-            let _ = manager.ensure_state_exists(&initial_state).await;
+            
+            if let Err(e) = manager.ensure_state_exists(&initial_state).await {
+                tracing::error!("Failed to create plugin state for {}: {}", plugin_name, e);
+                return Err(ApiError::internal_error(format!("Failed to save plugin state: {}", e)));
+            }
             
             // Use plugin display name for user-friendly message
             let display_name = &plugin.metadata.name;
@@ -332,7 +336,11 @@ async fn install_official_plugin(
                 enabled: false,
                 settings: std::collections::HashMap::new(),
             };
-            let _ = manager.ensure_state_exists(&initial_state).await;
+            
+            if let Err(e) = manager.ensure_state_exists(&initial_state).await {
+                tracing::error!("Failed to create plugin state for {}: {}", plugin_id, e);
+                return Err(ApiError::internal_error(format!("Failed to save plugin state: {}", e)));
+            }
             
             // Use plugin display name for user-friendly message
             let display_name = &plugin.metadata.name;
@@ -410,7 +418,11 @@ async fn install_third_party_plugin(
                 enabled: false,
                 settings: std::collections::HashMap::new(),
             };
-            let _ = manager.ensure_state_exists(&initial_state).await;
+            
+            if let Err(e) = manager.ensure_state_exists(&initial_state).await {
+                tracing::error!("Failed to create plugin state for {}: {}", plugin_id, e);
+                return Err(ApiError::internal_error(format!("Failed to save plugin state: {}", e)));
+            }
             
             // Use plugin display name for user-friendly message
             let display_name = &plugin.metadata.name;
@@ -527,7 +539,11 @@ pub async fn install_github_plugin(
                 enabled: false,
                 settings: std::collections::HashMap::new(),
             };
-            let _ = manager.ensure_state_exists(&initial_state).await;
+            
+            if let Err(e) = manager.ensure_state_exists(&initial_state).await {
+                tracing::error!("Failed to create plugin state for {}: {}", plugin_name, e);
+                return Err(ApiError::internal_error(format!("Failed to save plugin state: {}", e)));
+            }
             
             // Use plugin display name for user-friendly message
             let display_name = &plugin.metadata.name;
