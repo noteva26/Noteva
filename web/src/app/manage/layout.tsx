@@ -30,6 +30,7 @@ import {
   Navigation,
   Puzzle,
   MessageSquare,
+  Shield,
 } from "lucide-react";
 
 export default function AdminLayout({
@@ -61,6 +62,7 @@ export default function AdminLayout({
     { href: "/manage/comments", label: t("manage.comments"), icon: MessageSquare },
     { href: "/manage/plugins", label: t("manage.plugins"), icon: Puzzle },
     { href: "/manage/themes", label: t("manage.themes"), icon: Palette },
+    { href: "/manage/security", label: "安全日志", icon: Shield },
     { href: "/manage/settings", label: t("manage.settings"), icon: Settings },
   ];
 

@@ -128,6 +128,8 @@ async fn main() -> Result<()> {
     // Build application state
     let request_stats = Arc::new(RequestStats::new());
     
+    let rate_limiter = Arc::new(noteva::services::LoginRateLimiter::new());
+    
     let state = AppState {
         pool: pool.clone(),
         user_service,
@@ -145,7 +147,20 @@ async fn main() -> Result<()> {
         hook_manager: hook_manager.clone(),
         shortcode_manager: shortcode_manager_arc,
         request_stats,
+        rate_limiter: rate_limiter.clone(),
     };
+    
+    // Start rate limiter cleanup task (runs every 5 minutes)
+    {
+        let limiter = rate_limiter.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                limiter.cleanup().await;
+            }
+        });
+    }
 
     // Trigger system_init hook
     hook_manager.trigger(

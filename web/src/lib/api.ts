@@ -175,6 +175,10 @@ export const adminApi = {
   
   checkUpdate: (beta: boolean = false) =>
     api.get<UpdateCheckResponse>("/admin/update-check", { params: { beta } }),
+  
+  // Login logs (security)
+  getLoginLogs: (params?: { page?: number; per_page?: number; username?: string; ip_address?: string; success?: boolean }) =>
+    api.get<LoginLogsResponse>("/admin/login-logs", { params }),
 };
 
 // Public site info API (no auth required)
@@ -582,6 +586,26 @@ export interface PendingCommentsResponse {
   total_pages: number;
 }
 
+// Login logs types (security)
+export interface LoginLogEntry {
+  id: number;
+  username: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  success: boolean;
+  failure_reason: string | null;
+  created_at: string;
+}
+
+export interface LoginLogsResponse {
+  logs: LoginLogEntry[];
+  total: number;
+  page: number;
+  per_page: number;
+  success_count: number;
+  failed_count: number;
+}
+
 // Comments API (admin)
 export const commentsApi = {
   listPending: (params?: { page?: number; per_page?: number }) =>
@@ -591,3 +615,4 @@ export const commentsApi = {
   
   reject: (id: number) => api.post(`/admin/comments/${id}/reject`),
 };
+

@@ -57,7 +57,19 @@ export default function SetupPage() {
       toast.success(t("setup.success"));
       router.push("/manage");
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || t("setup.error");
+      const errorCode = error.response?.data?.error?.code;
+      let message = error.response?.data?.error?.message || t("setup.error");
+      
+      // Handle admin already exists error
+      if (errorCode === "FORBIDDEN" && message.includes("管理员")) {
+        toast.error(message);
+        // Redirect to login after 2 seconds
+        setTimeout(() => {
+          router.push("/manage/login");
+        }, 2000);
+        return;
+      }
+      
       toast.error(message);
     } finally {
       setSubmitting(false);

@@ -106,10 +106,19 @@ pub async fn upload_theme(
         let _ = engine.reload_templates();
     }
     
+    // Get theme display name for user-friendly message
+    let display_name = {
+        let engine = state.theme_engine.read()
+            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
+        engine.get_theme_info(&theme_name)
+            .map(|info| info.display_name.clone())
+            .unwrap_or_else(|| theme_name.clone())
+    };
+    
     Ok(Json(ThemeInstallResponse {
         success: true,
         theme_name: theme_name.clone(),
-        message: format!("Theme '{}' installed", theme_name),
+        message: format!("主题「{}」安装成功", display_name),
     }))
 }
 
@@ -219,10 +228,19 @@ pub async fn install_github_theme(
         let _ = engine.reload_templates();
     }
     
+    // Get theme display name for user-friendly message
+    let display_name = {
+        let engine = state.theme_engine.read()
+            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
+        engine.get_theme_info(&theme_name)
+            .map(|info| info.display_name.clone())
+            .unwrap_or_else(|| theme_name.clone())
+    };
+    
     Ok(Json(ThemeInstallResponse {
         success: true,
         theme_name: theme_name.clone(),
-        message: format!("Theme '{}' installed from GitHub", theme_name),
+        message: format!("主题「{}」安装成功", display_name),
     }))
 }
 
@@ -503,7 +521,7 @@ pub async fn update_theme(
         let _ = engine.reload_templates();
     }
     
-    // Read new version
+    // Read new version and display name
     let new_theme_json_path = dest_path.join("theme.json");
     let new_content = fs::read_to_string(&new_theme_json_path)
         .map_err(|e| ApiError::internal_error(format!("Failed to read updated theme.json: {}", e)))?;
@@ -516,9 +534,14 @@ pub async fn update_theme(
         .unwrap_or("unknown")
         .to_string();
     
+    let display_name = new_json.get("display_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&name)
+        .to_string();
+    
     Ok(Json(ThemeInstallResponse {
         success: true,
         theme_name: name.clone(),
-        message: format!("Theme '{}' updated from {} to {}", name, old_version, new_version),
+        message: format!("主题「{}」已从 {} 更新到 {}", display_name, old_version, new_version),
     }))
 }

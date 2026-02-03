@@ -554,6 +554,41 @@ pub const MIGRATIONS: &[Migration] = &[
             );
         "#,
     },
+    // Migration 19: Create login_logs table for security auditing
+    Migration {
+        version: 19,
+        name: "create_login_logs",
+        up_sqlite: r#"
+            CREATE TABLE IF NOT EXISTS login_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                ip_address TEXT,
+                user_agent TEXT,
+                success INTEGER NOT NULL DEFAULT 0,
+                failure_reason TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_login_logs_username ON login_logs(username);
+            CREATE INDEX IF NOT EXISTS idx_login_logs_ip ON login_logs(ip_address);
+            CREATE INDEX IF NOT EXISTS idx_login_logs_created_at ON login_logs(created_at);
+            CREATE INDEX IF NOT EXISTS idx_login_logs_success ON login_logs(success);
+        "#,
+        up_mysql: r#"
+            CREATE TABLE IF NOT EXISTS login_logs (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                username VARCHAR(255) NOT NULL,
+                ip_address VARCHAR(45),
+                user_agent TEXT,
+                success TINYINT NOT NULL DEFAULT 0,
+                failure_reason TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX idx_login_logs_username ON login_logs(username);
+            CREATE INDEX idx_login_logs_ip ON login_logs(ip_address);
+            CREATE INDEX idx_login_logs_created_at ON login_logs(created_at);
+            CREATE INDEX idx_login_logs_success ON login_logs(success);
+        "#,
+    },
 ];
 
 /// Run all pending migrations

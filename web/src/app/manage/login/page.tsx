@@ -73,7 +73,20 @@ export default function LoginPage() {
       toast.success(t("auth.loginSuccess"));
       router.push("/manage");
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || t("auth.loginFailed");
+      const errorCode = error.response?.data?.error?.code;
+      const errorDetails = error.response?.data?.error?.details;
+      let message = error.response?.data?.error?.message || t("auth.loginFailed");
+      
+      // Handle rate limit errors with retry time
+      if (errorCode === "RATE_LIMIT" && errorDetails?.retry_after) {
+        const retryMinutes = Math.ceil(errorDetails.retry_after / 60);
+        if (retryMinutes > 1) {
+          message = `${message}（${retryMinutes} 分钟后重试）`;
+        } else {
+          message = `${message}（${errorDetails.retry_after} 秒后重试）`;
+        }
+      }
+      
       toast.error(message);
     } finally {
       setSubmitting(false);

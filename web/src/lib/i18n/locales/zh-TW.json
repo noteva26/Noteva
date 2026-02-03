@@ -465,5 +465,27 @@
     "rejectSuccess": "評論已拒絕",
     "rejectFailed": "操作失敗",
     "confirmReject": "確定要拒絕並刪除這條評論嗎？"
+  },
+  "security": {
+    "title": "安全日誌",
+    "description": "查看所有登入嘗試記錄，監控系統安全",
+    "filters": "篩選條件",
+    "username": "使用者名稱",
+    "searchUsername": "搜尋使用者名稱...",
+    "ipAddress": "IP 位址",
+    "searchIp": "搜尋 IP...",
+    "status": "狀態",
+    "success": "成功",
+    "failed": "失敗",
+    "totalRecords": "總記錄數",
+    "successfulLogins": "成功登入",
+    "failedAttempts": "失敗嘗試",
+    "loginRecords": "登入記錄",
+    "recordsInfo": "共 {total} 條記錄，當前第 {page} / {totalPages} 頁",
+    "noRecords": "暫無登入記錄",
+    "userAgent": "User-Agent",
+    "failureReason": "失敗原因",
+    "time": "時間",
+    "showing": "顯示 {from} - {to} 條，共 {total} 條"
   }
 }

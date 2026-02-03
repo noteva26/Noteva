@@ -465,5 +465,27 @@
     "rejectSuccess": "评论已拒绝",
     "rejectFailed": "操作失败",
     "confirmReject": "确定要拒绝并删除这条评论吗？"
+  },
+  "security": {
+    "title": "安全日志",
+    "description": "查看所有登录尝试记录，监控系统安全",
+    "filters": "筛选条件",
+    "username": "用户名",
+    "searchUsername": "搜索用户名...",
+    "ipAddress": "IP 地址",
+    "searchIp": "搜索 IP...",
+    "status": "状态",
+    "success": "成功",
+    "failed": "失败",
+    "totalRecords": "总记录数",
+    "successfulLogins": "成功登录",
+    "failedAttempts": "失败尝试",
+    "loginRecords": "登录记录",
+    "recordsInfo": "共 {total} 条记录，当前第 {page} / {totalPages} 页",
+    "noRecords": "暂无登录记录",
+    "userAgent": "User-Agent",
+    "failureReason": "失败原因",
+    "time": "时间",
+    "showing": "显示 {from} - {to} 条，共 {total} 条"
   }
 }

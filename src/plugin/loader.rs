@@ -540,6 +540,21 @@ impl PluginManager {
         self.repo.delete(id).await
     }
     
+    /// Ensure plugin state exists in database (used after installation)
+    /// Only creates if not exists, doesn't overwrite existing state
+    pub async fn ensure_state_exists(&self, state: &PluginState) -> Result<()> {
+        // Check if state already exists
+        if let Ok(existing) = self.repo.get(&state.plugin_id).await {
+            if existing.is_some() {
+                // State already exists, don't overwrite
+                return Ok(());
+            }
+        }
+        
+        // Create new state
+        self.repo.save(state).await
+    }
+    
     /// Reload plugins (rescan directory)
     pub async fn reload(&mut self) -> Result<()> {
         self.plugins.clear();

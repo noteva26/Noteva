@@ -16,14 +16,33 @@ jobs:
     strategy:
       matrix:
         include:
+          # Linux
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             binary: noteva
             archive: noteva-linux-x86_64.tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary: noteva
+            archive: noteva-linux-arm64.tar.gz
+          # Windows
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             binary: noteva.exe
             archive: noteva-windows-x86_64.zip
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            binary: noteva.exe
+            archive: noteva-windows-arm64.zip
+          # macOS
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            binary: noteva
+            archive: noteva-macos-x86_64.tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            binary: noteva
+            archive: noteva-macos-arm64.tar.gz
 
     steps:
       - name: Checkout
@@ -63,6 +82,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev
+          
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
 
       - name: Build Rust Binary
         run: cargo build --release --features redis-cache --target ${{ matrix.target }}
@@ -72,10 +99,15 @@ jobs:
         run: |
           mkdir -p release
           cp target/${{ matrix.target }}/release/${{ matrix.binary }} release/noteva
-          cp -r plugins release/
           cp config.example.yml release/
-          cp README.md release/
-          cp -r docs release/
+          cd release && tar -czvf ../${{ matrix.archive }} *
+
+      - name: Prepare artifacts (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          mkdir -p release
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} release/noteva
+          cp config.example.yml release/
           cd release && tar -czvf ../${{ matrix.archive }} *
 
       - name: Prepare artifacts (Windows)
@@ -84,10 +116,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path release
           Copy-Item target/${{ matrix.target }}/release/${{ matrix.binary }} release/noteva.exe
-          Copy-Item -Recurse plugins release/
           Copy-Item config.example.yml release/
-          Copy-Item README.md release/
-          Copy-Item -Recurse docs release/
           Compress-Archive -Path release/* -DestinationPath ${{ matrix.archive }}
 
       - name: Upload artifact
@@ -120,18 +149,28 @@ jobs:
             ## Noteva ${{ github.ref_name }}
             
             ### Downloads
-            - **Linux**: `noteva-linux-x86_64.tar.gz`
-            - **Windows**: `noteva-windows-x86_64.zip`
+            
+            **Linux**
+            - x86_64 (Intel/AMD): `noteva-linux-x86_64.tar.gz`
+            - ARM64 (树莓派/ARM服务器): `noteva-linux-arm64.tar.gz`
+            
+            **Windows**
+            - x86_64 (Intel/AMD): `noteva-windows-x86_64.zip`
+            - ARM64: `noteva-windows-arm64.zip`
+            
+            **macOS**
+            - x86_64 (Intel): `noteva-macos-x86_64.tar.gz`
+            - ARM64 (Apple Silicon M1/M2/M3): `noteva-macos-arm64.tar.gz`
             
             ### Quick Start
             ```bash
-            # Linux
-            tar -xzf noteva-linux-x86_64.tar.gz
+            # Linux / macOS
+            tar -xzf noteva-*.tar.gz
             cp config.example.yml config.yml
             ./noteva
             
             # Windows
-            # 解压 noteva-windows-x86_64.zip
+            # 解压 noteva-windows-*.zip
             # 复制 config.example.yml 为 config.yml
             # 运行 noteva.exe
             ```

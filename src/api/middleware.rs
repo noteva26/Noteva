@@ -100,6 +100,7 @@ pub struct AppState {
     pub hook_manager: Arc<HookManager>,
     pub shortcode_manager: Arc<ShortcodeManager>,
     pub request_stats: Arc<RequestStats>,
+    pub rate_limiter: Arc<crate::services::LoginRateLimiter>,
 }
 
 /// Authenticated user extracted from request

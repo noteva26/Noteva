@@ -465,5 +465,27 @@
     "rejectSuccess": "Comment rejected",
     "rejectFailed": "Operation failed",
     "confirmReject": "Are you sure you want to reject and delete this comment?"
+  },
+  "security": {
+    "title": "Security Logs",
+    "description": "View all login attempts and monitor system security",
+    "filters": "Filters",
+    "username": "Username",
+    "searchUsername": "Search username...",
+    "ipAddress": "IP Address",
+    "searchIp": "Search IP...",
+    "status": "Status",
+    "success": "Success",
+    "failed": "Failed",
+    "totalRecords": "Total Records",
+    "successfulLogins": "Successful Logins",
+    "failedAttempts": "Failed Attempts",
+    "loginRecords": "Login Records",
+    "recordsInfo": "{total} records total, page {page} of {totalPages}",
+    "noRecords": "No login records",
+    "userAgent": "User-Agent",
+    "failureReason": "Failure Reason",
+    "time": "Time",
+    "showing": "Showing {from} - {to} of {total}"
   }
 }

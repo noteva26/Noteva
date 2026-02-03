@@ -1,6 +1,6 @@
 [package]
 name = "noteva"
-version = "0.0.9-beta"
+version = "0.1.0"
 edition = "2021"
 description = "A lightweight modern blog system"
 authors = ["Noteva Team"]

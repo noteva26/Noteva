@@ -7,7 +7,7 @@
   "url": "https://github.com/noteva26/noteva-themes",
   "preview": "preview.png",
   "requires": {
-    "noteva": ">=0.0.9"
+    "noteva": ">=0.1.0"
   },
   "configuration": {}
 }

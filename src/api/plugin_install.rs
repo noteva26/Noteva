@@ -99,10 +99,28 @@ pub async fn upload_plugin(
     copy_dir_all(&src_path, &dest_path)
         .map_err(|e| ApiError::internal_error(format!("Failed to install: {}", e)))?;
     
-    // Reload plugins
+    // Reload plugins and ensure database record exists
     {
         let mut manager = state.plugin_manager.write().await;
         let _ = manager.reload().await;
+        
+        // CRITICAL: Create initial database record for new plugin
+        if let Some(plugin) = manager.get(&plugin_name) {
+            let initial_state = crate::db::repositories::PluginState {
+                plugin_id: plugin_name.clone(),
+                enabled: false,
+                settings: std::collections::HashMap::new(),
+            };
+            let _ = manager.ensure_state_exists(&initial_state).await;
+            
+            // Use plugin display name for user-friendly message
+            let display_name = &plugin.metadata.name;
+            return Ok(Json(PluginInstallResponse {
+                success: true,
+                plugin_name: plugin_name.clone(),
+                message: format!("插件「{}」安装成功", display_name),
+            }));
+        }
     }
     
     Ok(Json(PluginInstallResponse {
@@ -301,10 +319,29 @@ async fn install_official_plugin(
             .map_err(|e| ApiError::internal_error(format!("Failed to write {}: {}", relative_path, e)))?;
     }
     
-    // Reload plugins
+    // Reload plugins and ensure database record exists
     {
         let mut manager = state.plugin_manager.write().await;
         let _ = manager.reload().await;
+        
+        // CRITICAL: Create initial database record for new plugin
+        // This ensures the plugin can be enabled/disabled properly
+        if let Some(plugin) = manager.get(plugin_id) {
+            let initial_state = crate::db::repositories::PluginState {
+                plugin_id: plugin_id.to_string(),
+                enabled: false,
+                settings: std::collections::HashMap::new(),
+            };
+            let _ = manager.ensure_state_exists(&initial_state).await;
+            
+            // Use plugin display name for user-friendly message
+            let display_name = &plugin.metadata.name;
+            return Ok(Json(PluginInstallResponse {
+                success: true,
+                plugin_name: plugin_id.to_string(),
+                message: format!("插件「{}」安装成功", display_name),
+            }));
+        }
     }
     
     Ok(Json(PluginInstallResponse {
@@ -361,10 +398,28 @@ async fn install_third_party_plugin(
     copy_dir_all(&plugin_dir, &dest_path)
         .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
     
-    // Reload plugins
+    // Reload plugins and ensure database record exists
     {
         let mut manager = state.plugin_manager.write().await;
         let _ = manager.reload().await;
+        
+        // CRITICAL: Create initial database record for new plugin
+        if let Some(plugin) = manager.get(plugin_id) {
+            let initial_state = crate::db::repositories::PluginState {
+                plugin_id: plugin_id.to_string(),
+                enabled: false,
+                settings: std::collections::HashMap::new(),
+            };
+            let _ = manager.ensure_state_exists(&initial_state).await;
+            
+            // Use plugin display name for user-friendly message
+            let display_name = &plugin.metadata.name;
+            return Ok(Json(PluginInstallResponse {
+                success: true,
+                plugin_name: plugin_id.to_string(),
+                message: format!("插件「{}」安装成功（来自 {}）", display_name, repo),
+            }));
+        }
     }
     
     Ok(Json(PluginInstallResponse {
@@ -460,10 +515,28 @@ pub async fn install_github_plugin(
     copy_dir_all(&src_path, &dest_path)
         .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
     
-    // Reload plugins
+    // Reload plugins and ensure database record exists
     {
         let mut manager = state.plugin_manager.write().await;
         let _ = manager.reload().await;
+        
+        // CRITICAL: Create initial database record for new plugin
+        if let Some(plugin) = manager.get(&plugin_name) {
+            let initial_state = crate::db::repositories::PluginState {
+                plugin_id: plugin_name.clone(),
+                enabled: false,
+                settings: std::collections::HashMap::new(),
+            };
+            let _ = manager.ensure_state_exists(&initial_state).await;
+            
+            // Use plugin display name for user-friendly message
+            let display_name = &plugin.metadata.name;
+            return Ok(Json(PluginInstallResponse {
+                success: true,
+                plugin_name: plugin_name.clone(),
+                message: format!("插件「{}」安装成功", display_name),
+            }));
+        }
     }
     
     Ok(Json(PluginInstallResponse {
@@ -660,9 +733,9 @@ pub async fn update_plugin(
         plugin_id: id.clone(),
     };
     
-    let _result = install_from_repo(State(state), _user, Json(install_request)).await?;
+    let _result = install_from_repo(State(state.clone()), _user, Json(install_request)).await?;
     
-    // Read new version
+    // Read new version and display name
     let new_content = fs::read_to_string(&plugin_json_path)
         .map_err(|e| ApiError::internal_error(format!("Failed to read updated plugin.json: {}", e)))?;
     
@@ -674,9 +747,14 @@ pub async fn update_plugin(
         .unwrap_or("unknown")
         .to_string();
     
+    let display_name = new_json.get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&id)
+        .to_string();
+    
     Ok(Json(PluginInstallResponse {
         success: true,
         plugin_name: id.clone(),
-        message: format!("Plugin '{}' updated from {} to {}", id, old_version, new_version),
+        message: format!("插件「{}」已从 {} 更新到 {}", display_name, old_version, new_version),
     }))
 }

@@ -1,6 +1,6 @@
 {
   "name": "noteva-admin",
-  "version": "0.0.9-beta",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",

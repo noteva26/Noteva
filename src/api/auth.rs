@@ -148,6 +148,17 @@ async fn register(
     use crate::services::EmailService;
     use std::sync::Arc;
 
+    // Check if admin already exists - block registration if true (security measure)
+    let is_first = state
+        .user_service
+        .is_first_user()
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    
+    if !is_first {
+        return Err(ApiError::forbidden("管理员账号已存在，注册功能已关闭"));
+    }
+
     // Check if email verification is enabled
     let settings_repo = Arc::new(SqlxSettingsRepository::new(state.pool.clone()));
     let email_service = EmailService::new(settings_repo.clone());
@@ -221,24 +232,80 @@ async fn register(
 /// Satisfies requirement 4.3: User login
 async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let input = LoginInput::new(body.username_or_email, body.password);
+    // Extract IP address and User-Agent
+    let ip_address = extract_ip_address(&headers);
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|h| h.to_str().ok())
+        .map(String::from);
+    
+    // Check IP rate limit (10 requests per minute)
+    if let Some(ip) = ip_address.as_ref().and_then(|s| s.parse().ok()) {
+        if state.rate_limiter.is_ip_limited(ip).await {
+            log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), false, Some("IP rate limit exceeded")).await;
+            return Err(ApiError::with_details(
+                "RATE_LIMIT",
+                "请求过于频繁，请稍后再试",
+                serde_json::json!({"retry_after": 60})
+            ));
+        }
+        state.rate_limiter.record_ip_request(ip).await;
+    }
+    
+    // Check username rate limit (5 attempts per 15 minutes)
+    if state.rate_limiter.is_username_limited(&body.username_or_email).await {
+        log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), false, Some("Username rate limit exceeded")).await;
+        return Err(ApiError::with_details(
+            "RATE_LIMIT",
+            "登录失败次数过多，请15分钟后再试",
+            serde_json::json!({"retry_after": 900})
+        ));
+    }
+    
+    let input = LoginInput::new(body.username_or_email.clone(), body.password);
 
     let session = state
         .user_service
         .login(input)
         .await
-        .map_err(|e| match e {
-            UserServiceError::AuthenticationError(msg) => {
-                // Check if it's a banned user error
-                if msg.contains("banned") || msg.contains("封禁") {
-                    ApiError::with_details("USER_BANNED", msg, serde_json::json!({}))
+        .map_err(|e| {
+            // Record failed attempt
+            let username = body.username_or_email.clone();
+            let ip = ip_address.clone();
+            let ua = user_agent.clone();
+            let pool = state.pool.clone();
+            let limiter = state.rate_limiter.clone();
+            
+            // Determine error type before moving
+            let is_banned = matches!(&e, UserServiceError::AuthenticationError(msg) if msg.contains("banned") || msg.contains("封禁"));
+            let is_auth_error = matches!(&e, UserServiceError::AuthenticationError(_));
+            
+            tokio::spawn(async move {
+                limiter.record_failed_attempt(&username).await;
+                let reason = if is_banned {
+                    "User banned"
+                } else if is_auth_error {
+                    "Invalid credentials"
                 } else {
-                    ApiError::unauthorized("Invalid username or password")
+                    "Unknown error"
+                };
+                log_login_attempt(&pool, &username, ip.as_deref(), ua.as_deref(), false, Some(reason)).await;
+            });
+            
+            match e {
+                UserServiceError::AuthenticationError(msg) => {
+                    // Check if it's a banned user error
+                    if msg.contains("banned") || msg.contains("封禁") {
+                        ApiError::with_details("USER_BANNED", msg, serde_json::json!({}))
+                    } else {
+                        ApiError::unauthorized("用户名或密码错误")
+                    }
                 }
+                _ => ApiError::internal_error("登录失败"),
             }
-            _ => ApiError::internal_error(e.to_string()),
         })?;
 
     let user = state
@@ -248,6 +315,12 @@ async fn login(
         .map_err(|e| ApiError::internal_error(e.to_string()))?
         .ok_or_else(|| ApiError::internal_error("Session validation failed"))?;
 
+    // Clear failed attempts on successful login
+    state.rate_limiter.clear_username_attempts(&body.username_or_email).await;
+    
+    // Log successful login
+    log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), true, None).await;
+
     // Set session cookie (httpOnly for security)
     let cookie = format!(
         "session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
@@ -255,14 +328,14 @@ async fn login(
         7 * 24 * 60 * 60 // 7 days
     );
 
-    let mut headers = HeaderMap::new();
-    headers.insert(
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(
         header::SET_COOKIE,
         HeaderValue::from_str(&cookie).unwrap(),
     );
 
     Ok((
-        headers,
+        response_headers,
         Json(AuthResponse {
             user: user.into(),
             token: session.id,
@@ -530,4 +603,77 @@ async fn delete_email_code(pool: &DynDatabasePool, email: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+
+// ============================================================================
+// Helper Functions for Security
+// ============================================================================
+
+/// Extract IP address from request headers
+/// Checks X-Forwarded-For, X-Real-IP, and falls back to connection info
+fn extract_ip_address(headers: &HeaderMap) -> Option<String> {
+    // Check X-Forwarded-For header (proxy/load balancer)
+    if let Some(forwarded) = headers.get("x-forwarded-for") {
+        if let Ok(forwarded_str) = forwarded.to_str() {
+            // Take the first IP in the list
+            if let Some(ip) = forwarded_str.split(',').next() {
+                return Some(ip.trim().to_string());
+            }
+        }
+    }
+    
+    // Check X-Real-IP header
+    if let Some(real_ip) = headers.get("x-real-ip") {
+        if let Ok(ip_str) = real_ip.to_str() {
+            return Some(ip_str.to_string());
+        }
+    }
+    
+    None
+}
+
+/// Log login attempt to database for security auditing
+async fn log_login_attempt(
+    pool: &DynDatabasePool,
+    username: &str,
+    ip_address: Option<&str>,
+    user_agent: Option<&str>,
+    success: bool,
+    failure_reason: Option<&str>,
+) {
+    let success_int = if success { 1 } else { 0 };
+    
+    let result: Result<(), sqlx::Error> = match pool.driver() {
+        DatabaseDriver::Sqlite => {
+            sqlx::query(
+                "INSERT INTO login_logs (username, ip_address, user_agent, success, failure_reason) VALUES (?, ?, ?, ?, ?)"
+            )
+            .bind(username)
+            .bind(ip_address)
+            .bind(user_agent)
+            .bind(success_int)
+            .bind(failure_reason)
+            .execute(pool.as_sqlite().unwrap())
+            .await
+            .map(|_| ())
+        }
+        DatabaseDriver::Mysql => {
+            sqlx::query(
+                "INSERT INTO login_logs (username, ip_address, user_agent, success, failure_reason) VALUES (?, ?, ?, ?, ?)"
+            )
+            .bind(username)
+            .bind(ip_address)
+            .bind(user_agent)
+            .bind(success_int)
+            .bind(failure_reason)
+            .execute(pool.as_mysql().unwrap())
+            .await
+            .map(|_| ())
+        }
+    };
+    
+    if let Err(e) = result {
+        tracing::warn!("Failed to log login attempt: {}", e);
+    }
 }
