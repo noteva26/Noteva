@@ -549,7 +549,7 @@ pub const MIGRATIONS: &[Migration] = &[
             CREATE TABLE IF NOT EXISTS plugin_states (
                 plugin_id VARCHAR(100) PRIMARY KEY,
                 enabled BOOLEAN NOT NULL DEFAULT FALSE,
-                settings JSON NOT NULL,
+                settings TEXT NOT NULL,
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             );
         "#,
@@ -587,6 +587,19 @@ pub const MIGRATIONS: &[Migration] = &[
             CREATE INDEX idx_login_logs_ip ON login_logs(ip_address);
             CREATE INDEX idx_login_logs_created_at ON login_logs(created_at);
             CREATE INDEX idx_login_logs_success ON login_logs(success);
+        "#,
+    },
+    // Migration 20: Fix plugin_states settings column type for MySQL
+    Migration {
+        version: 20,
+        name: "fix_plugin_states_settings_type",
+        up_sqlite: r#"
+            -- SQLite doesn't need this fix, settings is already TEXT
+            SELECT 1;
+        "#,
+        up_mysql: r#"
+            -- Convert settings column from JSON to TEXT for consistency with code expectations
+            ALTER TABLE plugin_states MODIFY COLUMN settings TEXT NOT NULL;
         "#,
     },
 ];

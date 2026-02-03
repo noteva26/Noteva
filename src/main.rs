@@ -57,23 +57,6 @@ async fn main() -> Result<()> {
     db::migrations::run_migrations(&pool).await?;
     tracing::info!("Database migrations completed");
 
-    // Demo mode: Create default admin user if not exists
-    #[cfg(feature = "demo")]
-    {
-        use crate::services::user::UserService;
-        use crate::db::repositories::SqlxUserRepository;
-        
-        let user_repo = SqlxUserRepository::new(pool.clone());
-        let user_service = UserService::new(user_repo);
-        
-        // Check if demo user exists
-        if user_service.find_by_username("demo").await.is_err() {
-            tracing::info!("Demo mode: Creating default admin user (demo/demo123)");
-            user_service.create_user("demo", "demo123", "demo@noteva.local", true).await?;
-            tracing::info!("Demo mode: Default admin user created");
-        }
-    }
-
     // Initialize cache
     let cache = create_cache(&config.cache).await?;
     tracing::info!("Cache initialized");
