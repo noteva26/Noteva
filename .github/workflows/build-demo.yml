@@ -1,9 +1,4 @@
-PS E:\my-blog> git tag v0.0.9-beta
->> git push origin v0.0.9-beta
-To https://github.com/noteva26/Noteva.git
- ! [rejected]        v0.0.9-beta -> v0.0.9-beta (already exists)
-error: failed to push some refs to 'https://github.com/noteva26/Noteva.git'
-hint: Updates were rejected because the tag already exists in the remote.name: Build Demo (Internal)
+name: Build Demo (Internal)
 
 on:
   push:
