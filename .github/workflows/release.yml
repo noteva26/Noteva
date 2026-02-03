@@ -21,10 +21,11 @@ jobs:
             os: ubuntu-latest
             binary: noteva
             archive: noteva-linux-x86_64.tar.gz
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            binary: noteva
-            archive: noteva-linux-arm64.tar.gz
+          # ARM64 Linux 暂时禁用（交叉编译问题）
+          # - target: aarch64-unknown-linux-gnu
+          #   os: ubuntu-latest
+          #   binary: noteva
+          #   archive: noteva-linux-arm64.tar.gz
           # Windows
           - target: x86_64-pc-windows-msvc
             os: windows-latest
