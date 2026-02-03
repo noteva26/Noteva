@@ -1847,7 +1847,11 @@ async fn list_login_logs(
     
     // Get logs
     let logs_sql = format!(
-        "SELECT id, username, ip_address, user_agent, success, failure_reason, created_at FROM login_logs {} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        "SELECT id, username, ip_address, user_agent, success, failure_reason, {} FROM login_logs {} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        match state.pool.driver() {
+            DatabaseDriver::Sqlite => "created_at",
+            DatabaseDriver::Mysql => "DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%sZ') as created_at",
+        },
         where_sql
     );
     
