@@ -1,7 +1,6 @@
-"use client";
+﻿"use client";
 
-import Link from "next/link";
-import Image from "next/image";
+import { Link } from "react-router-dom";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
 import { useTranslation } from "@/lib/i18n";
@@ -43,13 +42,10 @@ export function SiteHeader() {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">
         <div className="mr-4 flex">
-          <Link href="/" className="mr-6 flex items-center space-x-2">
+          <Link to="/" className="mr-6 flex items-center space-x-2">
             {settings.site_logo && (
-              <Image
-                src={settings.site_logo}
+              <img src={settings.site_logo}
                 alt={settings.site_name}
-                width={28}
-                height={28}
                 className="rounded"
               />
             )}
@@ -59,7 +55,7 @@ export function SiteHeader() {
             {navItems.map((item) => (
               <Link
                 key={item.href}
-                href={item.href}
+                to={item.href}
                 className="transition-colors hover:text-foreground/80 text-foreground/60"
               >
                 {item.label}
@@ -85,7 +81,7 @@ export function SiteHeader() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem asChild>
-                  <Link href="/manage" className="cursor-pointer">
+                  <Link to="/manage" className="cursor-pointer">
                     <Settings className="mr-2 h-4 w-4" />
                     {t("nav.manage")}
                   </Link>
@@ -100,10 +96,10 @@ export function SiteHeader() {
           ) : (
             <div className="hidden md:flex items-center gap-2">
               <Button variant="ghost" size="sm" asChild>
-                <Link href="/login">{t("nav.login")}</Link>
+                <Link to="/login">{t("nav.login")}</Link>
               </Button>
               <Button size="sm" asChild>
-                <Link href="/register">{t("nav.register")}</Link>
+                <Link to="/register">{t("nav.register")}</Link>
               </Button>
             </div>
           )}
@@ -127,7 +123,7 @@ export function SiteHeader() {
             {navItems.map((item) => (
               <Link
                 key={item.href}
-                href={item.href}
+                to={item.href}
                 className="text-foreground/60 hover:text-foreground"
                 onClick={() => setMobileMenuOpen(false)}
               >
@@ -137,10 +133,10 @@ export function SiteHeader() {
             {!isAuthenticated && (
               <div className="flex gap-2 pt-2 border-t">
                 <Button variant="outline" size="sm" asChild className="flex-1">
-                  <Link href="/login">{t("nav.login")}</Link>
+                  <Link to="/login">{t("nav.login")}</Link>
                 </Button>
                 <Button size="sm" asChild className="flex-1">
-                  <Link href="/register">{t("nav.register")}</Link>
+                  <Link to="/register">{t("nav.register")}</Link>
                 </Button>
               </div>
             )}
@@ -150,3 +146,4 @@ export function SiteHeader() {
     </header>
   );
 }
+

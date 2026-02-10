@@ -9,21 +9,19 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
-# Build admin frontend
+# Build admin frontend (Vite)
 COPY web/package.json web/pnpm-lock.yaml* ./web/
 WORKDIR /app/web
 RUN pnpm install
 COPY web/ ./
-# next.config.js outputs to ../admin-dist
 RUN pnpm build
 
-# Build default theme
+# Build default theme (Vite)
 WORKDIR /app
 COPY themes/default/package.json themes/default/pnpm-lock.yaml* ./themes/default/
 WORKDIR /app/themes/default
 RUN pnpm install
 COPY themes/default/ ./
-# next.config.js outputs to dist/
 RUN pnpm build
 
 # Stage 2: Build Rust backend
@@ -42,10 +40,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
 # Copy frontend build outputs from previous stage
-# web/dist contains the admin panel
 COPY --from=frontend-builder /app/web/dist ./web/dist
 COPY --from=frontend-builder /app/themes/default/dist ./themes/default/dist
-COPY --from=frontend-builder /app/themes/default/public ./themes/default/public
 COPY --from=frontend-builder /app/themes/default/theme.json ./themes/default/theme.json
 
 # Build release binary

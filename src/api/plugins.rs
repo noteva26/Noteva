@@ -15,6 +15,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 use crate::plugin::loader::{check_version_requirement, NOTEVA_VERSION};
@@ -77,6 +78,10 @@ pub fn router() -> Router<AppState> {
         .route("/:id/toggle", post(toggle_plugin))
         .route("/:id/settings", get(get_plugin_settings))
         .route("/:id/settings", post(update_plugin_settings))
+        // Plugin data routes (public, for plugin use)
+        .route("/:id/data/:key", get(get_plugin_data))
+        .route("/:id/data/:key", axum::routing::put(set_plugin_data))
+        .route("/:id/data/:key", axum::routing::delete(delete_plugin_data))
 }
 
 /// GET /api/v1/plugins - List all plugins
@@ -114,6 +119,8 @@ async fn list_plugins(
 pub struct EnabledPluginInfo {
     pub id: String,
     pub settings: std::collections::HashMap<String, serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub editor_config: Option<serde_json::Value>,
 }
 
 /// GET /api/v1/plugins/enabled - Get enabled plugins with settings (public, no auth)
@@ -124,13 +131,59 @@ async fn get_enabled_plugins(
     
     let plugins: Vec<EnabledPluginInfo> = manager.get_enabled()
         .iter()
-        .map(|p| EnabledPluginInfo {
-            id: p.metadata.id.clone(),
-            settings: p.settings.clone(),
+        .map(|p| {
+            // Filter out secret settings
+            let filtered_settings = filter_secret_settings(p);
+            
+            // Get editor config if exists
+            let editor_config = p.get_editor_config();
+            
+            EnabledPluginInfo {
+                id: p.metadata.id.clone(),
+                settings: filtered_settings,
+                editor_config,
+            }
         })
         .collect();
     
     Ok(Json(plugins))
+}
+
+/// Filter out secret settings from plugin settings
+/// 
+/// Reads the plugin's settings.json schema and removes any fields marked with "secret": true
+fn filter_secret_settings(plugin: &crate::plugin::Plugin) -> HashMap<String, serde_json::Value> {
+    // Get settings schema
+    let schema = match plugin.get_settings_schema() {
+        Some(s) => s,
+        None => return plugin.settings.clone(), // No schema, return all settings
+    };
+    
+    // Extract secret field IDs from schema
+    let mut secret_fields = std::collections::HashSet::new();
+    
+    if let Some(sections) = schema.get("sections").and_then(|v| v.as_array()) {
+        for section in sections {
+            if let Some(fields) = section.get("fields").and_then(|v| v.as_array()) {
+                for field in fields {
+                    // Check if field is marked as secret
+                    if let Some(true) = field.get("secret").and_then(|v| v.as_bool()) {
+                        if let Some(id) = field.get("id").and_then(|v| v.as_str()) {
+                            secret_fields.insert(id.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Filter out secret fields
+    let mut filtered = plugin.settings.clone();
+    for secret_field in secret_fields {
+        filtered.remove(&secret_field);
+    }
+    
+    filtered
 }
 
 /// GET /api/v1/plugins/:id - Get plugin details
@@ -626,3 +679,73 @@ fn compare_versions(v1: &str, v2: &str) -> bool {
     false
 }
 
+
+// ============================================
+// Plugin Data API
+// ============================================
+
+/// Plugin data value response
+#[derive(Debug, Serialize)]
+pub struct PluginDataResponse {
+    pub value: String,
+}
+
+/// Plugin data set request
+#[derive(Debug, Deserialize)]
+pub struct PluginDataRequest {
+    pub value: String,
+}
+
+/// GET /api/v1/plugins/:id/data/:key - Get plugin data
+pub async fn get_plugin_data(
+    State(state): State<AppState>,
+    Path((plugin_id, key)): Path<(String, String)>,
+) -> Result<Json<PluginDataResponse>, ApiError> {
+    use crate::db::repositories::{PluginDataRepository, SqlxPluginDataRepository};
+    
+    let repo = SqlxPluginDataRepository::new(state.pool.clone());
+    
+    let value = repo.get(&plugin_id, &key)
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to get plugin data: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Data not found"))?;
+    
+    Ok(Json(PluginDataResponse { value }))
+}
+
+/// PUT /api/v1/plugins/:id/data/:key - Set plugin data
+pub async fn set_plugin_data(
+    State(state): State<AppState>,
+    Path((plugin_id, key)): Path<(String, String)>,
+    Json(body): Json<PluginDataRequest>,
+) -> Result<StatusCode, ApiError> {
+    use crate::db::repositories::{PluginDataRepository, SqlxPluginDataRepository};
+    
+    let repo = SqlxPluginDataRepository::new(state.pool.clone());
+    
+    repo.set(&plugin_id, &key, &body.value)
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to set plugin data: {}", e)))?;
+    
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// DELETE /api/v1/plugins/:id/data/:key - Delete plugin data
+pub async fn delete_plugin_data(
+    State(state): State<AppState>,
+    Path((plugin_id, key)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    use crate::db::repositories::{PluginDataRepository, SqlxPluginDataRepository};
+    
+    let repo = SqlxPluginDataRepository::new(state.pool.clone());
+    
+    let deleted = repo.delete(&plugin_id, &key)
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to delete plugin data: {}", e)))?;
+    
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("Data not found"))
+    }
+}

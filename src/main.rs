@@ -15,6 +15,7 @@ use noteva::{
             SqlxCommentRepository, SqlxArticleRepository, SqlxCategoryRepository,
             SqlxNavItemRepository, SqlxPageRepository, SqlxSessionRepository,
             SqlxSettingsRepository, SqlxTagRepository, SqlxUserRepository,
+            SettingsRepository,
         },
     },
     plugin::{PluginManager, HookManager, ShortcodeManager, shortcode::builtins},
@@ -121,9 +122,19 @@ async fn main() -> Result<()> {
     nav_service.init_defaults().await?;
     tracing::info!("Navigation initialized");
 
-    // Initialize theme engine
-    let theme_engine = ThemeEngine::new(&config.theme.path, &config.theme.active)?;
-    tracing::info!("Theme engine initialized: {}", config.theme.active);
+    // Initialize theme engine - read active theme from database
+    let active_theme = {
+        let settings_repo_for_theme = SqlxSettingsRepository::new(pool.clone());
+        settings_repo_for_theme
+            .get("active_theme")
+            .await
+            .ok()
+            .flatten()
+            .map(|s| s.value)
+            .unwrap_or_else(|| config.theme.active.clone())
+    };
+    let theme_engine = ThemeEngine::new(&config.theme.path, &active_theme)?;
+    tracing::info!("Theme engine initialized: {}", active_theme);
 
     // Build application state
     let request_stats = Arc::new(RequestStats::new());

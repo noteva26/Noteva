@@ -98,6 +98,21 @@ impl CommentService {
         if let Some(content) = hook_data.get("content").and_then(|v| v.as_str()) {
             input.content = content.to_string();
         }
+        
+        // Trigger comment_content_filter hook
+        let filter_data = self.trigger_hook(
+            hook_names::COMMENT_CONTENT_FILTER,
+            json!({
+                "content": input.content,
+                "article_id": input.article_id,
+                "user_id": user_id,
+            })
+        );
+        
+        // Apply content filter
+        if let Some(filtered) = filter_data.get("content").and_then(|v| v.as_str()) {
+            input.content = filtered.to_string();
+        }
 
         // Determine comment status based on moderation settings
         let status = self.determine_comment_status(&input.content).await;

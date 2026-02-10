@@ -134,12 +134,20 @@ impl ThemeEngine {
             return Err(ThemeError::NotFound(theme_name.to_string()).into());
         }
 
+        // Try to load from dist/ directory first (for built themes like Next.js/Nuxt)
+        let dist_path = theme_path.join("dist");
+        let template_path = if dist_path.exists() && dist_path.is_dir() {
+            dist_path
+        } else {
+            theme_path.clone()
+        };
+
         // Create a new Tera instance
         let mut tera = Tera::default();
         
         // Collect all templates first
         let mut templates: Vec<(String, String)> = Vec::new();
-        self.collect_templates_from_dir(&theme_path, &theme_path, &mut templates)?;
+        self.collect_templates_from_dir(&template_path, &template_path, &mut templates)?;
         
         // Sort templates so base templates are loaded first
         templates.sort_by(|a, b| {
@@ -265,6 +273,7 @@ impl ThemeEngine {
                 requires_noteva: ">=0.0.8".to_string(),
                 compatible: version_check.compatible,
                 compatibility_message: version_check.message,
+                config: None,
             });
         }
         
@@ -295,6 +304,7 @@ impl ThemeEngine {
                 requires_noteva,
                 compatible: version_check.compatible,
                 compatibility_message: version_check.message,
+                config: metadata.configuration,
             });
         }
         
@@ -317,6 +327,7 @@ impl ThemeEngine {
                 requires_noteva: String::new(),
                 compatible: true,
                 compatibility_message: None,
+                config: None,
             });
         }
         
@@ -332,6 +343,7 @@ impl ThemeEngine {
             requires_noteva: String::new(),
             compatible: true,
             compatibility_message: None,
+            config: None,
         })
     }
 
@@ -786,6 +798,8 @@ pub struct ThemeInfo {
     pub compatible: bool,
     /// Compatibility message if not compatible
     pub compatibility_message: Option<String>,
+    /// Theme configuration from theme.json
+    pub config: Option<serde_json::Value>,
 }
 
 /// Standard template variables (Requirement 6.5)

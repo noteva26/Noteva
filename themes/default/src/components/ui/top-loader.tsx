@@ -1,16 +1,13 @@
-"use client"
-
 import { useEffect, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
-import { usePathname, useSearchParams } from "next/navigation"
+import { useLocation } from "react-router-dom"
 
 /**
  * 顶部加载进度条
  * 路由切换时显示
  */
 export function TopLoader() {
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
+  const location = useLocation()
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
 
@@ -32,7 +29,7 @@ export function TopLoader() {
       clearTimeout(timer3)
       clearTimeout(timer4)
     }
-  }, [pathname, searchParams])
+  }, [location.pathname, location.search])
 
   return (
     <AnimatePresence>

@@ -189,6 +189,9 @@ pub struct UploadConfig {
     /// Maximum file size in bytes (default: 10MB)
     #[serde(default = "default_max_file_size")]
     pub max_file_size: u64,
+    /// Maximum plugin file size in bytes (default: 50MB)
+    #[serde(default = "default_max_plugin_file_size")]
+    pub max_plugin_file_size: u64,
     /// Allowed image MIME types
     #[serde(default = "default_allowed_types")]
     pub allowed_types: Vec<String>,
@@ -199,6 +202,7 @@ impl Default for UploadConfig {
         Self {
             path: default_upload_path(),
             max_file_size: default_max_file_size(),
+            max_plugin_file_size: default_max_plugin_file_size(),
             allowed_types: default_allowed_types(),
         }
     }
@@ -210,6 +214,10 @@ fn default_upload_path() -> PathBuf {
 
 fn default_max_file_size() -> u64 {
     10 * 1024 * 1024 // 10MB
+}
+
+fn default_max_plugin_file_size() -> u64 {
+    50 * 1024 * 1024 // 50MB
 }
 
 fn default_allowed_types() -> Vec<String> {

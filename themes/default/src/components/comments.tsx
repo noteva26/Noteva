@@ -167,9 +167,10 @@ export function Comments({ articleId, authorId }: CommentsProps) {
     <div key={comment.id} className={`${isReply ? "ml-8 mt-4" : "mt-4"}`}>
       <div className="flex gap-3">
         <img
-          src={comment.avatar_url}
+          src={comment.avatar_url || "https://www.gravatar.com/avatar/?d=mp&s=80"}
           alt={comment.nickname || "User"}
           className="w-10 h-10 rounded-full"
+          onError={(e) => { (e.target as HTMLImageElement).src = "https://www.gravatar.com/avatar/?d=mp&s=80"; }}
         />
         <div className="flex-1">
           <div className="flex items-center gap-2">

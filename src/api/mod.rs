@@ -18,6 +18,7 @@
 pub mod admin;
 pub mod articles;
 pub mod auth;
+pub mod cache;
 pub mod categories;
 pub mod comments;
 pub mod common;
@@ -26,10 +27,12 @@ pub mod nav;
 pub mod pages;
 pub mod plugins;
 pub mod plugin_install;
+pub mod proxy;
 pub mod responses;
 pub mod site;
 pub mod static_files;
 pub mod tags;
+pub mod theme;
 pub mod theme_install;
 pub mod upload;
 
@@ -100,6 +103,15 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .nest("/tags", tags::router())
         .nest("/auth", auth::public_router())
         .nest("/site", site::router())
+        .nest("/theme", Router::new()
+            .route("/config", axum::routing::get(theme::get_theme_config))
+            .route("/info", axum::routing::get(theme::get_theme_info))
+        )
+        .nest("/cache", Router::new()
+            .route("/:key", axum::routing::get(cache::get_cache))
+            .route("/:key", axum::routing::put(cache::set_cache))
+            .route("/:key", axum::routing::delete(cache::delete_cache))
+        )
         .nest("/pages", pages::public_router())
         .nest("/page", pages::slug_router())
         .nest("/nav", nav::public_router())
@@ -107,6 +119,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .route("/plugins/assets/plugins.js", axum::routing::get(plugins::get_plugins_js_public))
         .route("/plugins/assets/plugins.css", axum::routing::get(plugins::get_plugins_css_public))
         .route("/plugins/enabled", axum::routing::get(plugins::get_enabled_plugins_public))
+        .route("/plugins/proxy", axum::routing::post(proxy::proxy_request))
         // Comment routes
         .route("/comments/:article_id", axum::routing::get(comments::get_comments))
         .route("/comments", axum::routing::post(comments::create_comment))

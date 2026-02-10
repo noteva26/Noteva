@@ -56,16 +56,27 @@ pub async fn serve_static(
         return serve_admin(path, &state).await;
     }
     
-    // /_next/* -> could be admin or theme, try both
+    // /_next/* -> theme assets (Next.js based themes)
     if path.starts_with("/_next") {
-        // Try admin first, then theme
+        // Try default theme embedded assets
         let asset_path = path.trim_start_matches('/');
-        if let Some(content) = AdminAssets::get(asset_path) {
-            return build_response(asset_path, &content.data);
-        }
         if let Some(content) = DefaultThemeAssets::get(asset_path) {
             return build_response(asset_path, &content.data);
         }
+        
+        // Try current user theme from disk
+        let current_theme = {
+            let engine = state.theme_engine.read().unwrap();
+            engine.get_current_theme().to_string()
+        };
+        
+        if current_theme != "default" {
+            let theme_file = PathBuf::from("themes").join(&current_theme).join("dist").join(asset_path);
+            if let Ok(contents) = fs::read(&theme_file).await {
+                return build_response(asset_path, &contents);
+            }
+        }
+        
         return not_found();
     }
     
@@ -154,12 +165,10 @@ async fn serve_admin(path: &str, state: &AppState) -> Response {
     
     // Special handling for /manage/setup - redirect to /manage/login if admin exists
     if normalized_path == "manage/setup" {
-        // Check if any user exists (first user is always admin)
         use crate::db::repositories::{UserRepository, SqlxUserRepository};
         let user_repo = SqlxUserRepository::new(state.pool.clone());
         if let Ok(count) = user_repo.count().await {
             if count > 0 {
-                // Admin exists, redirect to login
                 return Response::builder()
                     .status(StatusCode::FOUND)
                     .header(header::LOCATION, "/manage/login")
@@ -175,7 +184,6 @@ async fn serve_admin(path: &str, state: &AppState) -> Response {
         let user_repo = SqlxUserRepository::new(state.pool.clone());
         if let Ok(count) = user_repo.count().await {
             if count == 0 {
-                // No admin, redirect to setup
                 return Response::builder()
                     .status(StatusCode::FOUND)
                     .header(header::LOCATION, "/manage/setup")
@@ -185,33 +193,21 @@ async fn serve_admin(path: &str, state: &AppState) -> Response {
         }
     }
     
-    // Try exact file (e.g., manage/index.html, manage/articles/index.html)
-    if let Some(content) = AdminAssets::get(asset_path) {
-        return build_response(asset_path, &content.data);
-    }
+    // For Vite SPA: strip the /manage prefix to match files in dist/
+    // e.g., /manage/assets/index-xxx.js -> assets/index-xxx.js
+    let relative_path = asset_path.strip_prefix("manage/").unwrap_or(asset_path);
     
-    // Try with /index.html suffix for directories
-    let with_index = format!("{}/index.html", asset_path.trim_end_matches('/'));
-    if let Some(content) = AdminAssets::get(&with_index) {
-        return build_response(&with_index, &content.data);
-    }
-    
-    // SPA fallback for dynamic routes like /manage/articles/123
-    // The static export generates /manage/articles/0/index.html as the template
-    if asset_path.starts_with("manage/articles/") && !asset_path.contains('.') {
-        let parts: Vec<&str> = asset_path.split('/').collect();
-        // /manage/articles/123 -> parts = ["manage", "articles", "123"]
-        if parts.len() >= 3 && parts[2] != "new" {
-            // Serve the [id] template (generated as /0/)
-            if let Some(content) = AdminAssets::get("manage/articles/0/index.html") {
-                return build_response("manage/articles/0/index.html", &content.data);
-            }
+    // Try exact file match (static assets like JS, CSS, images)
+    if !relative_path.is_empty() {
+        if let Some(content) = AdminAssets::get(relative_path) {
+            return build_response(relative_path, &content.data);
         }
     }
     
-    // General SPA fallback - serve manage/index.html for all unmatched /manage/* routes
-    if let Some(content) = AdminAssets::get("manage/index.html") {
-        return build_response("manage/index.html", &content.data);
+    // SPA fallback: serve index.html for all /manage/* routes
+    // React Router handles client-side routing
+    if let Some(content) = AdminAssets::get("index.html") {
+        return build_response("index.html", &content.data);
     }
     
     not_found()
@@ -243,57 +239,21 @@ async fn serve_theme(path: &str, state: &AppState) -> Response {
 async fn try_user_theme(theme: &str, asset_path: &str, state: &AppState) -> Option<Response> {
     let theme_dir = PathBuf::from("themes").join(theme).join("dist");
     
-    // Try exact file
+    // Try exact file match (static assets like JS, CSS, images)
     let file_path = theme_dir.join(asset_path);
     if let Ok(contents) = fs::read(&file_path).await {
-        // Inject config into HTML files
         if asset_path.ends_with(".html") {
-            if let Some(injected) = inject_config_into_html(&contents, state).await {
+            if let Some(injected) = inject_seo_into_html(&contents, state, asset_path).await {
                 return Some(build_response(asset_path, &injected));
             }
         }
         return Some(build_response(asset_path, &contents));
     }
     
-    // Try with /index.html for directories
-    let with_index = theme_dir.join(format!("{}/index.html", asset_path.trim_end_matches('/')));
-    if let Ok(contents) = fs::read(&with_index).await {
-        if let Some(injected) = inject_config_into_html(&contents, state).await {
-            return Some(build_response(&with_index.to_string_lossy(), &injected));
-        }
-        return Some(build_response(&with_index.to_string_lossy(), &contents));
-    }
-    
-    // SPA fallback for /posts/* routes
-    if asset_path.starts_with("posts/") && !asset_path.contains('.') {
-        let posts_index = theme_dir.join("posts/index.html");
-        if let Ok(contents) = fs::read(&posts_index).await {
-            if let Some(injected) = inject_config_into_html(&contents, state).await {
-                return Some(build_response("posts/index.html", &injected));
-            }
-            return Some(build_response("posts/index.html", &contents));
-        }
-    }
-    
-    // SPA fallback for custom pages (single segment paths like /about, /test, /faq)
-    if !asset_path.is_empty() 
-        && !asset_path.contains('/') 
-        && !asset_path.contains('.') 
-        && !is_known_static_route(asset_path) 
-    {
-        let slug_index = theme_dir.join("_/index.html");
-        if let Ok(contents) = fs::read(&slug_index).await {
-            if let Some(injected) = inject_config_into_html(&contents, state).await {
-                return Some(build_response("_/index.html", &injected));
-            }
-            return Some(build_response("_/index.html", &contents));
-        }
-    }
-    
-    // General SPA fallback
+    // SPA fallback: serve index.html for all routes
     let index_path = theme_dir.join("index.html");
     if let Ok(contents) = fs::read(&index_path).await {
-        if let Some(injected) = inject_config_into_html(&contents, state).await {
+        if let Some(injected) = inject_seo_into_html(&contents, state, asset_path).await {
             return Some(build_response("index.html", &injected));
         }
         return Some(build_response("index.html", &contents));
@@ -304,81 +264,37 @@ async fn try_user_theme(theme: &str, asset_path: &str, state: &AppState) -> Opti
 
 /// Serve from embedded default theme
 async fn serve_default_theme(asset_path: &str, state: Option<&AppState>) -> Response {
-    // Try exact file
+    // Try exact file match (static assets like JS, CSS, images)
     if let Some(content) = DefaultThemeAssets::get(asset_path) {
-        // Inject config into HTML files
-        if asset_path.ends_with(".html") || asset_path == "index.html" {
+        // Inject config + SEO into HTML files
+        if asset_path.ends_with(".html") {
             if let Some(state) = state {
-                if let Some(injected) = inject_config_into_html(&content.data, state).await {
+                if let Some(injected) = inject_seo_into_html(&content.data, state, asset_path).await {
                     return build_response(asset_path, &injected);
                 }
             }
         }
         return build_response(asset_path, &content.data);
     }
-    
-    // Try with /index.html for directories
-    let with_index = format!("{}/index.html", asset_path.trim_end_matches('/'));
-    if let Some(content) = DefaultThemeAssets::get(&with_index) {
-        // Inject config into HTML files
-        if let Some(state) = state {
-            if let Some(injected) = inject_config_into_html(&content.data, state).await {
-                return build_response(&with_index, &injected);
-            }
-        }
-        return build_response(&with_index, &content.data);
-    }
-    
-    // SPA fallback for /posts/* routes
-    if asset_path.starts_with("posts/") && !asset_path.contains('.') {
-        if let Some(content) = DefaultThemeAssets::get("posts/index.html") {
-            if let Some(state) = state {
-                if let Some(injected) = inject_config_into_html(&content.data, state).await {
-                    return build_response("posts/index.html", &injected);
-                }
-            }
-            return build_response("posts/index.html", &content.data);
-        }
-    }
-    
-    // SPA fallback for custom pages (single segment paths like /about, /test, /faq)
-    // These are handled by the [slug] dynamic route
-    if !asset_path.is_empty() 
-        && !asset_path.contains('/') 
-        && !asset_path.contains('.') 
-        && !is_known_static_route(asset_path) 
-    {
-        // Try the [slug] template (generated as /_/index.html)
-        if let Some(content) = DefaultThemeAssets::get("_/index.html") {
-            if let Some(state) = state {
-                if let Some(injected) = inject_config_into_html(&content.data, state).await {
-                    return build_response("_/index.html", &injected);
-                }
-            }
-            return build_response("_/index.html", &content.data);
-        }
-    }
-    
-    // General SPA fallback
+
+    // SPA fallback: serve index.html for all routes
+    // React Router handles client-side routing
     if let Some(content) = DefaultThemeAssets::get("index.html") {
         if let Some(state) = state {
-            if let Some(injected) = inject_config_into_html(&content.data, state).await {
+            if let Some(injected) = inject_seo_into_html(&content.data, state, asset_path).await {
                 return build_response("index.html", &injected);
             }
         }
         return build_response("index.html", &content.data);
     }
-    
+
     not_found()
 }
 
-/// Check if path is a known static route (not a custom page)
-fn is_known_static_route(path: &str) -> bool {
-    matches!(path, "archives" | "categories" | "tags" | "login" | "register" | "posts" | "manage")
-}
 
-/// Inject site config and SDK into HTML before </head>
-async fn inject_config_into_html(html_bytes: &[u8], state: &AppState) -> Option<Vec<u8>> {
+/// Inject site config, SDK, and SEO content into HTML
+/// For article pages (/posts/*), also injects meta tags and article content into <div id="root">
+async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &str) -> Option<Vec<u8>> {
     let html = String::from_utf8_lossy(html_bytes);
     
     // Get settings from database
@@ -403,37 +319,154 @@ async fn inject_config_into_html(html_bytes: &[u8], state: &AppState) -> Option<
         "site_footer": site_footer
     });
     
-    // Create injection content:
-    // 1. Site config
-    // 2. SDK CSS
-    // 3. SDK JS
-    // 4. Plugin CSS
-    // 5. Plugin JS
-    // Add version query string to prevent caching issues
     let version = env!("CARGO_PKG_VERSION");
-    let injection = format!(
-        r#"<script>window.__SITE_CONFIG__={};</script>
+    
+    // Try to fetch article data for SEO if this is a post page
+    let article_seo = if asset_path.starts_with("posts/") && !asset_path.contains('.') {
+        let slug = asset_path.strip_prefix("posts/").unwrap_or("").trim_end_matches('/');
+        if !slug.is_empty() {
+            fetch_article_seo(slug, &state.pool, &site_name).await
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    // Build meta tags for SEO
+    let (title_tag, meta_tags, body_content) = if let Some(ref seo) = article_seo {
+        let title = format!("{} - {}", seo.title, site_name);
+        let description = seo.excerpt.replace('"', "&quot;");
+        let meta = format!(
+            r#"<title>{}</title>
+<meta name="description" content="{}">
+<meta property="og:title" content="{}">
+<meta property="og:description" content="{}">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="{}">
+<meta property="article:author" content="{}">"#,
+            html_escape(&title),
+            html_escape(&description),
+            html_escape(&seo.title),
+            html_escape(&description),
+            seo.published_at,
+            html_escape(&site_name),
+        );
+        // Inject article content into <div id="root"> for crawlers
+        let body = format!(
+            r#"<article style="display:none" data-noteva-seo="true"><h1>{}</h1><div>{}</div></article>"#,
+            html_escape(&seo.title),
+            seo.content_html,
+        );
+        (Some(title), meta, body)
+    } else {
+        let meta = format!(
+            r#"<title>{}</title>
+<meta name="description" content="{}">"#,
+            html_escape(&site_name),
+            html_escape(&site_description),
+        );
+        (None, meta, String::new())
+    };
+    
+    // Build head injection: meta tags + config + SDK + plugins
+    let head_injection = format!(
+        r#"{}
+<script>window.__SITE_CONFIG__={};</script>
 <link rel="stylesheet" href="/noteva-sdk.css?v={}">
 <script src="/noteva-sdk.js?v={}"></script>
 <link rel="stylesheet" href="/api/v1/plugins/assets/plugins.css?v={}">
 <script src="/api/v1/plugins/assets/plugins.js?v={}"></script>"#,
+        meta_tags,
         serde_json::to_string(&config_json).unwrap_or_else(|_| "{}".to_string()),
-        version,
-        version,
-        version,
-        version
+        version, version, version, version
     );
     
-    // Inject before </head>
-    if let Some(pos) = html.find("</head>") {
-        let mut result = String::with_capacity(html.len() + injection.len());
-        result.push_str(&html[..pos]);
-        result.push_str(&injection);
-        result.push_str(&html[pos..]);
-        return Some(result.into_bytes());
+    let mut result = html.to_string();
+    
+    // Remove existing <title> tag if we're injecting a new one
+    if title_tag.is_some() {
+        if let Some(start) = result.find("<title>") {
+            if let Some(end) = result[start..].find("</title>") {
+                result = format!("{}{}", &result[..start], &result[start + end + 8..]);
+            }
+        }
     }
     
-    None
+    // Inject before </head>
+    if let Some(pos) = result.find("</head>") {
+        result.insert_str(pos, &head_injection);
+    }
+    
+    // Inject SEO content into <div id="root"> for crawlers
+    if !body_content.is_empty() {
+        if let Some(pos) = result.find(r#"<div id="root">"#) {
+            let insert_pos = pos + r#"<div id="root">"#.len();
+            result.insert_str(insert_pos, &body_content);
+        }
+    }
+    
+    Some(result.into_bytes())
+}
+
+/// Article SEO data
+struct ArticleSeo {
+    title: String,
+    excerpt: String,
+    content_html: String,
+    published_at: String,
+}
+
+/// Fetch article data for SEO injection
+async fn fetch_article_seo(slug: &str, pool: &crate::db::DynDatabasePool, _site_name: &str) -> Option<ArticleSeo> {
+    use crate::db::repositories::{ArticleRepository, SqlxArticleRepository};
+    
+    let repo = SqlxArticleRepository::new(pool.clone());
+    
+    // Try by slug first, then by ID
+    let article = if let Ok(Some(a)) = repo.get_by_slug(slug).await {
+        Some(a)
+    } else if let Ok(id) = slug.parse::<i64>() {
+        repo.get_by_id(id).await.ok().flatten()
+    } else {
+        None
+    };
+    
+    let article = article?;
+    
+    // Only inject SEO for published articles
+    if article.status != crate::models::ArticleStatus::Published {
+        return None;
+    }
+    
+    // Generate excerpt from content (strip markdown, limit to 200 chars)
+    let excerpt = article.content
+        .replace('#', "")
+        .replace('*', "")
+        .replace('`', "")
+        .replace('\n', " ")
+        .chars()
+        .take(200)
+        .collect::<String>();
+    
+    let published_at = article.published_at
+        .map(|d| d.to_rfc3339())
+        .unwrap_or_default();
+    
+    Some(ArticleSeo {
+        title: article.title,
+        excerpt,
+        content_html: article.content_html,
+        published_at,
+    })
+}
+
+/// Simple HTML escaping for injected content
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+     .replace('<', "&lt;")
+     .replace('>', "&gt;")
+     .replace('"', "&quot;")
 }
 
 /// Build HTTP response with proper headers
@@ -487,5 +520,8 @@ fn get_content_type(path: &str) -> &'static str {
 
 /// Check if file is immutable (hashed filename)
 fn is_immutable(path: &str) -> bool {
-    path.contains("/_next/static/") && (path.ends_with(".js") || path.ends_with(".css"))
+    // Next.js: /_next/static/xxx.js
+    // Vite: /assets/index-xxx.js
+    (path.contains("/_next/static/") || path.contains("/assets/")) 
+        && (path.ends_with(".js") || path.ends_with(".css"))
 }

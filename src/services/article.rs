@@ -210,8 +210,23 @@ impl ArticleService {
         }
 
         // Render markdown to HTML with shortcode processing
-        let content_html = self.markdown_renderer.render_article(&input.content, 0, None);
-        input.content_html = Some(content_html);
+        let _content_html = self.markdown_renderer.render_article(&input.content, 0, None);
+        
+        // Trigger article_content_filter hook
+        let filter_data = self.trigger_hook(
+            hook_names::ARTICLE_CONTENT_FILTER,
+            json!({
+                "content": &input.content,
+                "article_id": 0,
+            })
+        );
+        
+        let filtered_content = filter_data.get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&input.content);
+        
+        let final_content_html = self.markdown_renderer.render_article(filtered_content, 0, None);
+        input.content_html = Some(final_content_html);
 
         // Create article
         let article = self
@@ -555,7 +570,20 @@ impl ArticleService {
 
         // Re-render markdown if content is being updated (with shortcode processing)
         if let Some(ref content) = input.content {
-            let content_html = self.markdown_renderer.render_article(content, id, None);
+            // Trigger article_content_filter hook
+            let filter_data = self.trigger_hook(
+                hook_names::ARTICLE_CONTENT_FILTER,
+                json!({
+                    "content": content,
+                    "article_id": id,
+                })
+            );
+            
+            let filtered_content = filter_data.get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or(content);
+            
+            let content_html = self.markdown_renderer.render_article(filtered_content, id, None);
             input.content_html = Some(content_html);
         }
 

@@ -2,24 +2,21 @@
 
 import { useEffect, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
-import { usePathname, useSearchParams } from "next/navigation"
+import { useLocation } from "react-router-dom"
 
 /**
  * 顶部加载进度条
  * 路由切换时显示，模拟 NProgress 效果
  */
 export function TopLoader() {
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
+  const { pathname } = useLocation()
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
 
   useEffect(() => {
-    // 路由变化时触发加载动画
     setLoading(true)
     setProgress(0)
 
-    // 模拟进度
     const timer1 = setTimeout(() => setProgress(30), 100)
     const timer2 = setTimeout(() => setProgress(60), 200)
     const timer3 = setTimeout(() => setProgress(80), 400)
@@ -34,7 +31,7 @@ export function TopLoader() {
       clearTimeout(timer3)
       clearTimeout(timer4)
     }
-  }, [pathname, searchParams])
+  }, [pathname])
 
   return (
     <AnimatePresence>

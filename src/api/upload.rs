@@ -47,6 +47,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/image", post(upload_image))
         .route("/images", post(upload_images))
+        .route("/plugin/:plugin_id/file", post(upload_plugin_file))
 }
 
 /// POST /api/v1/upload/image - Upload a single image
@@ -240,4 +241,74 @@ fn get_extension(filename: &str, content_type: &str) -> String {
         "image/x-icon" => "ico".to_string(),
         _ => "bin".to_string(),
     }
+}
+
+/// POST /api/v1/upload/plugin/:plugin_id/file - Upload file for plugin
+///
+/// Uploads a file to the plugin's dedicated directory.
+/// Files are stored in uploads/plugins/{plugin_id}/
+async fn upload_plugin_file(
+    State(state): State<AppState>,
+    axum::extract::Path(plugin_id): axum::extract::Path<String>,
+    mut multipart: Multipart,
+) -> Result<Json<UploadResponse>, ApiError> {
+    let config = &state.upload_config;
+    
+    // Create plugin-specific upload directory
+    let plugin_upload_dir = config.path.join("plugins").join(&plugin_id);
+    ensure_upload_dir(&plugin_upload_dir).await?;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to read multipart: {}", e)))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        if name != "file" {
+            continue;
+        }
+
+        let filename = field
+            .file_name()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let content_type = field
+            .content_type()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+
+        // Read file data
+        let data = field
+            .bytes()
+            .await
+            .map_err(|e| ApiError::internal_error(format!("Failed to read file: {}", e)))?;
+
+        // Validate file size (use plugin file size limit from config)
+        if data.len() as u64 > config.max_plugin_file_size {
+            return Err(ApiError::validation_error(format!(
+                "File too large. Maximum size: {} MB",
+                config.max_plugin_file_size / 1024 / 1024
+            )));
+        }
+
+        // Generate unique filename
+        let ext = get_extension(&filename, &content_type);
+        let new_filename = format!("{}.{}", Uuid::new_v4(), ext);
+        let file_path = plugin_upload_dir.join(&new_filename);
+
+        // Save file
+        fs::write(&file_path, &data)
+            .await
+            .map_err(|e| ApiError::internal_error(format!("Failed to save file: {}", e)))?;
+
+        return Ok(Json(UploadResponse {
+            url: format!("/uploads/plugins/{}/{}", plugin_id, new_filename),
+            filename: new_filename,
+            size: data.len() as u64,
+            content_type,
+        }));
+    }
+
+    Err(ApiError::validation_error("No file provided"))
 }

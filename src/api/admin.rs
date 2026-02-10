@@ -535,39 +535,50 @@ async fn switch_theme(
     _user: AuthenticatedUser,
     Json(body): Json<ThemeSwitchRequest>,
 ) -> Result<Json<ThemeResponse>, ApiError> {
-    let mut theme_engine = state
-        .theme_engine
-        .write()
-        .map_err(|e| ApiError::internal_error(format!("Failed to acquire theme lock: {}", e)))?;
+    // Switch theme and get result
+    let (actual_theme, theme_info) = {
+        let mut theme_engine = state
+            .theme_engine
+            .write()
+            .map_err(|e| ApiError::internal_error(format!("Failed to acquire theme lock: {}", e)))?;
 
-    let result = theme_engine.set_theme_with_fallback(&body.theme);
+        let result = theme_engine.set_theme_with_fallback(&body.theme);
 
-    if !result.success {
-        return Err(ApiError::internal_error(
-            result.error.unwrap_or_else(|| "Failed to switch theme".to_string())
-        ));
-    }
+        if !result.success {
+            return Err(ApiError::internal_error(
+                result.error.unwrap_or_else(|| "Failed to switch theme".to_string())
+            ));
+        }
 
-    let actual_theme = if result.used_fallback {
-        theme_engine.get_default_theme().to_string()
-    } else {
-        body.theme
-    };
+        let actual_theme = if result.used_fallback {
+            theme_engine.get_default_theme().to_string()
+        } else {
+            body.theme
+        };
 
-    // Get theme info for the response
-    let theme_info = theme_engine.get_theme_info(&actual_theme);
+        // Get theme info before releasing lock
+        let theme_info = theme_engine.get_theme_info(&actual_theme).cloned();
+        
+        (actual_theme, theme_info)
+    }; // Lock released here
+
+    // Save active theme to database
+    state.settings_service
+        .set("active_theme", &actual_theme)
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to save theme setting: {}", e)))?;
 
     Ok(Json(ThemeResponse {
         name: actual_theme.clone(),
-        display_name: theme_info.map(|i| i.display_name.clone()).unwrap_or_else(|| actual_theme.clone()),
-        description: theme_info.and_then(|i| i.description.clone()),
-        version: theme_info.map(|i| i.version.clone()).unwrap_or_else(|| "1.0.0".to_string()),
-        author: theme_info.and_then(|i| i.author.clone()),
-        url: theme_info.and_then(|i| i.url.clone()),
-        preview: theme_info.and_then(|i| i.preview.clone()),
+        display_name: theme_info.as_ref().map(|i| i.display_name.clone()).unwrap_or_else(|| actual_theme.clone()),
+        description: theme_info.as_ref().and_then(|i| i.description.clone()),
+        version: theme_info.as_ref().map(|i| i.version.clone()).unwrap_or_else(|| "1.0.0".to_string()),
+        author: theme_info.as_ref().and_then(|i| i.author.clone()),
+        url: theme_info.as_ref().and_then(|i| i.url.clone()),
+        preview: theme_info.as_ref().and_then(|i| i.preview.clone()),
         active: true,
-        requires_noteva: theme_info.map(|i| i.requires_noteva.clone()).unwrap_or_default(),
-        compatible: theme_info.map(|i| i.compatible).unwrap_or(true),
+        requires_noteva: theme_info.as_ref().map(|i| i.requires_noteva.clone()).unwrap_or_default(),
+        compatible: theme_info.as_ref().map(|i| i.compatible).unwrap_or(true),
         compatibility_message: theme_info.and_then(|i| i.compatibility_message.clone()),
     }))
 }

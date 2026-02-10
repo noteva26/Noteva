@@ -137,6 +137,16 @@ pub mod hook_names {
     pub const THEME_SWITCH: &str = "theme_switch";         // src/theme/mod.rs
     pub const PLUGIN_ACTIVATE: &str = "plugin_activate";   // src/api/plugins.rs
     pub const PLUGIN_DEACTIVATE: &str = "plugin_deactivate"; // src/api/plugins.rs
+    
+    // Content filter hooks - triggered in services
+    pub const ARTICLE_CONTENT_FILTER: &str = "article_content_filter";     // src/services/article.rs
+    pub const ARTICLE_EXCERPT_FILTER: &str = "article_excerpt_filter";     // src/services/article.rs
+    pub const COMMENT_CONTENT_FILTER: &str = "comment_content_filter";     // src/services/comment.rs
+    
+    // Frontend hooks - triggered by frontend SDK
+    pub const SEO_META_TAGS: &str = "seo_meta_tags";                       // frontend
+    pub const ADMIN_MENU: &str = "admin_menu";                             // frontend
+    pub const ADMIN_DASHBOARD: &str = "admin_dashboard";                   // frontend
 }
 
 #[cfg(test)]

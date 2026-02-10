@@ -25,7 +25,8 @@ cache:
 
 upload:
   dir: "uploads"
-  max_size: 10485760  # 10MB
+  max_size: 10485760  # 10MB (for images)
+  max_plugin_file_size: 52428800  # 50MB (for plugin files)
   allowed_types:
     - "image/jpeg"
     - "image/png"

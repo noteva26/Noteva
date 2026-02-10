@@ -221,6 +221,18 @@
       return this._nav;
     },
     
+    async loadThemeConfig() {
+      try {
+        const result = await api.get('/theme/config');
+        this._themeConfig = result.config || {};
+        events.emit('theme:config:loaded', this._themeConfig);
+        return this._themeConfig;
+      } catch (e) {
+        console.warn('[Noteva] Failed to load theme config:', e);
+        return {};
+      }
+    },
+    
     getThemeConfig(key) {
       if (key) return this._themeConfig[key];
       return this._themeConfig;
@@ -882,6 +894,93 @@
   };
 
   // ============================================
+  // 文件上传 API
+  // ============================================
+  const upload = {
+    /**
+     * 上传图片
+     * @param {File} file - 文件对象
+     * @returns {Promise<{url: string, filename: string, size: number}>}
+     */
+    async image(file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch('/api/v1/upload/image', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error?.message || 'Upload failed');
+      }
+      
+      return response.json();
+    },
+    
+    /**
+     * 上传插件文件
+     * @param {string} pluginId - 插件 ID
+     * @param {File} file - 文件对象
+     * @returns {Promise<{url: string, filename: string, size: number}>}
+     */
+    async file(pluginId, file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`/api/v1/upload/plugin/${pluginId}/file`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error?.message || 'Upload failed');
+      }
+      
+      return response.json();
+    },
+  };
+
+  // ============================================
+  // 缓存 API
+  // ============================================
+  const cache = {
+    /**
+     * 获取缓存值
+     */
+    async get(key) {
+      try {
+        const result = await api.get(`/cache/${key}`);
+        return result.value;
+      } catch (e) {
+        if (e.status === 404) return null;
+        throw e;
+      }
+    },
+    
+    /**
+     * 设置缓存值
+     * @param {string} key - 缓存键
+     * @param {string} value - 缓存值
+     * @param {number} ttl - 过期时间（秒），默认 3600
+     */
+    async set(key, value, ttl = 3600) {
+      await api.put(`/cache/${key}`, { value, ttl });
+    },
+    
+    /**
+     * 删除缓存值
+     */
+    async delete(key) {
+      await api.delete(`/cache/${key}`);
+    },
+  };
+
+  // ============================================
   // SEO 辅助
   // ============================================
   const seo = {
@@ -932,6 +1031,15 @@
       if (options.meta) this.setMeta(options.meta);
       if (options.og) this.setOpenGraph(options.og);
       if (options.twitter) this.setTwitterCard(options.twitter);
+      
+      // 触发 SEO meta 标签钩子，允许插件修改或添加 meta 标签
+      const modifiedOptions = hooks.trigger('seo_meta_tags', options);
+      if (modifiedOptions && modifiedOptions !== options) {
+        if (modifiedOptions.title) this.setTitle(modifiedOptions.title);
+        if (modifiedOptions.meta) this.setMeta(modifiedOptions.meta);
+        if (modifiedOptions.og) this.setOpenGraph(modifiedOptions.og);
+        if (modifiedOptions.twitter) this.setTwitterCard(modifiedOptions.twitter);
+      }
     },
   };
 
@@ -1032,11 +1140,30 @@
         const enabledPlugins = await api.get('/plugins/enabled');
         for (const plugin of enabledPlugins) {
           this._settings[plugin.id] = plugin.settings || {};
+          
+          // 触发编辑器工具栏钩子
+          if (plugin.editor_config && plugin.editor_config.toolbar) {
+            for (const button of plugin.editor_config.toolbar) {
+              hooks.trigger('editor_toolbar_button', {
+                pluginId: plugin.id,
+                button: button,
+              });
+            }
+          }
         }
         this._loaded = true;
       } catch (e) {
         console.warn('[Noteva] Failed to load plugin settings:', e);
       }
+    },
+    
+    /**
+     * 获取编辑器工具栏按钮
+     */
+    getEditorButtons() {
+      const buttons = [];
+      hooks.trigger('editor_toolbar_buttons', buttons);
+      return buttons;
     },
   };
 
@@ -1254,6 +1381,9 @@
     // 加载站点信息
     await site.getInfo();
     
+    // 加载主题配置
+    await site.loadThemeConfig();
+    
     // 加载启用的插件设置
     await plugins.loadEnabledPlugins();
     
@@ -1315,7 +1445,9 @@
     router,
     utils,
     ui,
+    upload,
     storage,
+    cache,
     seo,
     i18n,
     

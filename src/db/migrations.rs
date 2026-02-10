@@ -602,6 +602,31 @@ pub const MIGRATIONS: &[Migration] = &[
             ALTER TABLE plugin_states MODIFY COLUMN settings TEXT NOT NULL;
         "#,
     },
+    // Migration 21: Create plugin_data table for plugin key-value storage
+    Migration {
+        version: 21,
+        name: "create_plugin_data",
+        up_sqlite: r#"
+            CREATE TABLE IF NOT EXISTS plugin_data (
+                plugin_id VARCHAR(100) NOT NULL,
+                key VARCHAR(255) NOT NULL,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (plugin_id, key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_plugin_data_plugin_id ON plugin_data(plugin_id);
+        "#,
+        up_mysql: r#"
+            CREATE TABLE IF NOT EXISTS plugin_data (
+                plugin_id VARCHAR(100) NOT NULL,
+                `key` VARCHAR(255) NOT NULL,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (plugin_id, `key`)
+            );
+            CREATE INDEX idx_plugin_data_plugin_id ON plugin_data(plugin_id);
+        "#,
+    },
 ];
 
 /// Run all pending migrations

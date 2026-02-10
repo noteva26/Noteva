@@ -251,7 +251,9 @@ async fn get_by_article_sqlite(pool: &SqlitePool, article_id: i64, fingerprint: 
         );
         
         // Use user's avatar if set, otherwise use Gravatar
-        let avatar_url = user_avatar.unwrap_or_else(|| CommentWithMeta::gravatar_url(&email));
+        let avatar_url = user_avatar
+            .filter(|a| !a.is_empty())
+            .unwrap_or_else(|| CommentWithMeta::gravatar_url(&email));
         let is_liked = if let Some(fp) = fingerprint {
             is_liked_sqlite(pool, LikeTargetType::Comment, id, None, Some(fp)).await.unwrap_or(false)
         } else {

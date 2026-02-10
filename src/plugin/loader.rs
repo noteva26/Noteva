@@ -306,6 +306,14 @@ impl Plugin {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
     }
+    
+    /// Get editor.json configuration if exists
+    pub fn get_editor_config(&self) -> Option<serde_json::Value> {
+        let path = self.path.join("editor.json");
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+    }
 }
 
 /// Plugin manager - handles loading and managing plugins
