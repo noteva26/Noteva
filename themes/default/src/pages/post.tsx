@@ -69,21 +69,6 @@ export default function PostPage() {
     }
   }, [article, siteInfo.name]);
 
-  // 文章内容渲染到 DOM 后，通知插件处理内容（视频嵌入等）
-  useEffect(() => {
-    if (!article || loading) return;
-    // requestAnimationFrame 确保 React 已经把 HTML 渲染到 DOM
-    requestAnimationFrame(() => {
-      const Noteva = (window as any).Noteva;
-      if (Noteva?.hooks) {
-        Noteva.hooks.trigger('content_render', {
-          path: window.location.pathname,
-          articleId: article.id,
-        });
-      }
-    });
-  }, [article, loading]);
-
   useEffect(() => {
     if (!slug) return;
     

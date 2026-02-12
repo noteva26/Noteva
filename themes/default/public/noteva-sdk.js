@@ -1399,6 +1399,100 @@
       query: router.getQueryAll(),
     });
     
+    // SPA 路由变化监听：拦截 pushState/replaceState 和 popstate
+    // 自动触发 route_change 和 content_render，主题无需手动处理
+    let _lastPath = router.getPath();
+    let _contentRenderTimer = null;
+    
+    const _triggerContentRender = (path) => {
+      hooks.trigger('content_render', {
+        path: path || router.getPath(),
+        query: router.getQueryAll(),
+      });
+    };
+    
+    const _onRouteChange = () => {
+      const newPath = router.getPath();
+      if (newPath !== _lastPath) {
+        const oldPath = _lastPath;
+        _lastPath = newPath;
+        
+        // 触发路由变化钩子
+        hooks.trigger('route_change', {
+          from: oldPath,
+          to: newPath,
+          query: router.getQueryAll(),
+        });
+        events.emit('route:change', { from: oldPath, to: newPath });
+        
+        // 清除之前的定时器，避免重复触发
+        if (_contentRenderTimer) clearTimeout(_contentRenderTimer);
+        
+        // 兜底：最多等 800ms 后强制触发一次
+        _contentRenderTimer = setTimeout(() => {
+          _triggerContentRender(newPath);
+        }, 800);
+      }
+    };
+    
+    // MutationObserver：监听 DOM 变化，自动检测内容渲染完成
+    // 这样主题开发者完全不需要手动触发 content_render
+    const _contentSelectors = [
+      'article', '.post-content', '.article-content', '.page-content',
+      '.entry-content', '#content', '#post-content', 'main',
+      '[data-content]', '.prose', '.markdown-body',
+    ];
+    
+    let _mutationDebounce = null;
+    const _observer = new MutationObserver((mutations) => {
+      // 检查是否有实质性的内容变化（不只是属性变化）
+      const hasContentChange = mutations.some(m => 
+        m.type === 'childList' && m.addedNodes.length > 0
+      );
+      if (!hasContentChange) return;
+      
+      // 检查变化是否发生在内容区域
+      const isContentArea = mutations.some(m => {
+        const target = m.target;
+        if (!target || !target.matches) return false;
+        // 直接匹配或者是内容区域的子元素
+        return _contentSelectors.some(sel => {
+          try { return target.matches(sel) || target.closest(sel); } catch(e) { return false; }
+        });
+      });
+      
+      if (isContentArea) {
+        // 防抖：DOM 可能连续变化，等稳定后再触发
+        if (_mutationDebounce) clearTimeout(_mutationDebounce);
+        _mutationDebounce = setTimeout(() => {
+          // 清除兜底定时器
+          if (_contentRenderTimer) {
+            clearTimeout(_contentRenderTimer);
+            _contentRenderTimer = null;
+          }
+          _triggerContentRender();
+        }, 150);
+      }
+    });
+    
+    _observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+    
+    // 拦截 history.pushState 和 replaceState
+    const _origPushState = history.pushState.bind(history);
+    const _origReplaceState = history.replaceState.bind(history);
+    history.pushState = function(...args) {
+      _origPushState(...args);
+      _onRouteChange();
+    };
+    history.replaceState = function(...args) {
+      _origReplaceState(...args);
+      _onRouteChange();
+    };
+    window.addEventListener('popstate', _onRouteChange);
+    
     // 触发初始化完成
     _ready = true;
     events.emit('theme:ready');
@@ -1425,7 +1519,7 @@
   // ============================================
   window.Noteva = {
     // 版本
-    version: '0.0.6-beta',
+    version: '0.1.2-beta',
     
     // 核心系统
     hooks,

@@ -1,6 +1,6 @@
 [package]
 name = "noteva"
-version = "0.1.1"
+version = "0.1.2-beta"
 edition = "2021"
 description = "A lightweight modern blog system"
 authors = ["Noteva Team"]
@@ -8,6 +8,15 @@ license = "MIT"
 repository = "https://github.com/noteva26/Noteva"
 keywords = ["blog", "cms", "rust", "axum"]
 categories = ["web-programming"]
+default-run = "noteva"
+
+[[bin]]
+name = "noteva"
+path = "src/main.rs"
+
+[[bin]]
+name = "wasm-worker"
+path = "src/bin/wasm_worker.rs"
 
 [features]
 default = []
@@ -22,7 +31,7 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["fs", "cors", "compression-gzip", "trace"] }
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "mysql", "chrono", "uuid"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "mysql", "chrono", "uuid"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -68,10 +77,10 @@ once_cell = "1"
 redis = { version = "0.24", features = ["tokio-comp"], optional = true }
 
 # HTTP client for update checking
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
 
 # Email sending
-lettre = { version = "0.11", features = ["tokio1-native-tls", "builder"] }
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
 
 # Archive handling
 zip = "0.6"

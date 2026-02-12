@@ -101,6 +101,8 @@ pub struct AppState {
     pub shortcode_manager: Arc<ShortcodeManager>,
     pub request_stats: Arc<RequestStats>,
     pub rate_limiter: Arc<crate::services::LoginRateLimiter>,
+    pub wasm_runtime: Arc<tokio::sync::RwLock<crate::plugin::PluginRuntime>>,
+    pub wasm_registry: Arc<tokio::sync::RwLock<crate::plugin::wasm_bridge::WasmPluginRegistry>>,
 }
 
 /// Authenticated user extracted from request

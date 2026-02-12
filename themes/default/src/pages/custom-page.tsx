@@ -41,20 +41,6 @@ export default function CustomPage() {
     if (page) document.title = `${page.title} - ${siteInfo.name}`;
   }, [page, siteInfo.name]);
 
-  // 页面内容渲染到 DOM 后，通知插件处理（友链、个人主页等）
-  useEffect(() => {
-    if (!page || loading) return;
-    requestAnimationFrame(() => {
-      const Noteva = (window as any).Noteva;
-      if (Noteva?.hooks) {
-        Noteva.hooks.trigger('content_render', {
-          path: window.location.pathname,
-          slug,
-        });
-      }
-    });
-  }, [page, loading, slug]);
-
   useEffect(() => {
     if (!slug) return;
     const loadPage = async () => {

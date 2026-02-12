@@ -247,8 +247,13 @@ impl ThemeEngine {
             
             if path.is_dir() {
                 if let Some(theme_name) = path.file_name().and_then(|n| n.to_str()) {
-                    if let Ok(info) = self.load_theme_metadata(theme_name) {
-                        self.theme_cache.insert(theme_name.to_string(), info);
+                    match self.load_theme_metadata(theme_name) {
+                        Ok(info) => {
+                            self.theme_cache.insert(theme_name.to_string(), info);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to load theme metadata for '{}': {}", theme_name, e);
+                        }
                     }
                 }
             }
@@ -259,34 +264,16 @@ impl ThemeEngine {
 
     /// Load theme metadata from theme.json or theme.toml
     fn load_theme_metadata(&self, theme_name: &str) -> Result<ThemeInfo> {
-        // For default theme, use embedded metadata
-        if theme_name == self.default_theme {
-            let version_check = check_version_requirement(">=0.0.8", NOTEVA_VERSION);
-            return Ok(ThemeInfo {
-                name: self.default_theme.clone(),
-                display_name: "Noteva Default Theme".to_string(),
-                description: Some("The default theme for Noteva blog system".to_string()),
-                version: "1.0.0".to_string(),
-                author: Some("Noteva Team".to_string()),
-                url: Some("https://github.com/noteva26/Noteva".to_string()),
-                preview: Some("preview.png".to_string()),
-                requires_noteva: ">=0.0.8".to_string(),
-                compatible: version_check.compatible,
-                compatibility_message: version_check.message,
-                config: None,
-            });
-        }
-        
         let theme_json_path = self.themes_path.join(theme_name).join("theme.json");
         let theme_toml_path = self.themes_path.join(theme_name).join("theme.toml");
         
-        // Try theme.json first
+        // Try theme.json first (for ALL themes, including default)
         if theme_json_path.exists() {
             let content = fs::read_to_string(&theme_json_path)
                 .with_context(|| format!("Failed to read theme.json: {:?}", theme_json_path))?;
             
             let metadata: ThemeJsonMetadata = serde_json::from_str(&content)
-                .map_err(|e| ThemeError::InvalidMetadata(e.to_string()))?;
+                .map_err(|e| ThemeError::InvalidMetadata(format!("theme '{}': {}", theme_name, e)))?;
 
             let requires_noteva = metadata.requires.as_ref()
                 .map(|r| r.noteva.clone())
@@ -314,7 +301,7 @@ impl ThemeEngine {
                 .with_context(|| format!("Failed to read theme.toml: {:?}", theme_toml_path))?;
             
             let metadata: ThemeMetadata = toml::from_str(&content)
-                .map_err(|e| ThemeError::InvalidMetadata(e.to_string()))?;
+                .map_err(|e| ThemeError::InvalidMetadata(format!("theme '{}': {}", theme_name, e)))?;
 
             return Ok(ThemeInfo {
                 name: metadata.theme.name,
@@ -331,12 +318,30 @@ impl ThemeEngine {
             });
         }
         
+        // Fallback: hardcoded metadata for default theme (when no theme.json on disk)
+        if theme_name == self.default_theme {
+            let version_check = check_version_requirement(">=0.0.8", NOTEVA_VERSION);
+            return Ok(ThemeInfo {
+                name: self.default_theme.clone(),
+                display_name: "Noteva Default Theme".to_string(),
+                description: Some("The default theme for Noteva blog system".to_string()),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                author: Some("Noteva Team".to_string()),
+                url: Some("https://github.com/noteva26/Noteva".to_string()),
+                preview: Some("preview.png".to_string()),
+                requires_noteva: ">=0.0.8".to_string(),
+                compatible: version_check.compatible,
+                compatibility_message: version_check.message,
+                config: None,
+            });
+        }
+        
         // Return default metadata if no config file exists
         Ok(ThemeInfo {
             name: theme_name.to_string(),
             display_name: theme_name.to_string(),
             description: None,
-            version: "1.0.0".to_string(),
+            version: "0.0.0".to_string(),
             author: None,
             url: None,
             preview: None,

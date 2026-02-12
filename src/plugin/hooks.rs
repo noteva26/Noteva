@@ -147,6 +147,9 @@ pub mod hook_names {
     pub const SEO_META_TAGS: &str = "seo_meta_tags";                       // frontend
     pub const ADMIN_MENU: &str = "admin_menu";                             // frontend
     pub const ADMIN_DASHBOARD: &str = "admin_dashboard";                   // frontend
+    
+    // Navigation hooks - triggered in src/api/nav.rs
+    pub const NAV_ITEMS_FILTER: &str = "nav_items_filter";                 // src/api/nav.rs
 }
 
 #[cfg(test)]

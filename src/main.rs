@@ -136,6 +136,42 @@ async fn main() -> Result<()> {
     let theme_engine = ThemeEngine::new(&config.theme.path, &active_theme)?;
     tracing::info!("Theme engine initialized: {}", active_theme);
 
+    // Initialize WASM plugin runtime
+    let wasm_runtime = match noteva::plugin::PluginRuntime::new() {
+        Ok(mut runtime) => {
+            // Allow common permissions for WASM plugins
+            runtime.set_allowed_permissions(vec![
+                noteva::plugin::Permission::ReadArticles,
+                noteva::plugin::Permission::WriteArticles,
+                noteva::plugin::Permission::ReadConfig,
+                noteva::plugin::Permission::WriteConfig,
+                noteva::plugin::Permission::ReadComments,
+                noteva::plugin::Permission::WriteComments,
+                noteva::plugin::Permission::Network,
+            ]);
+            tracing::info!("WASM plugin runtime initialized");
+            Arc::new(tokio::sync::RwLock::new(runtime))
+        }
+        Err(e) => {
+            tracing::warn!("Failed to initialize WASM runtime: {}, WASM plugins disabled", e);
+            Arc::new(tokio::sync::RwLock::new(noteva::plugin::PluginRuntime::default()))
+        }
+    };
+
+    // Initialize WASM plugin registry and load WASM plugins for enabled plugins
+    let wasm_registry = Arc::new(tokio::sync::RwLock::new(
+        noteva::plugin::wasm_bridge::WasmPluginRegistry::new(),
+    ));
+    
+    // Load WASM modules for all enabled plugins at startup
+    // WASM execution is isolated in subprocess (wasm-worker) — safe on all platforms
+    noteva::plugin::wasm_bridge::load_all_wasm_plugins(
+        &plugin_manager,
+        &wasm_runtime,
+        &hook_manager,
+        &wasm_registry,
+    ).await;
+
     // Build application state
     let request_stats = Arc::new(RequestStats::new());
     
@@ -159,6 +195,8 @@ async fn main() -> Result<()> {
         shortcode_manager: shortcode_manager_arc,
         request_stats,
         rate_limiter: rate_limiter.clone(),
+        wasm_runtime: wasm_runtime.clone(),
+        wasm_registry: wasm_registry.clone(),
     };
     
     // Start rate limiter cleanup task (runs every 5 minutes)

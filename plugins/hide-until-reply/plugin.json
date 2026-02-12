@@ -1,7 +1,7 @@
 {
   "id": "hide-until-reply",
   "name": "回复可见",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "设置部分内容需要回复后才能查看",
   "author": "Noteva Team",
   "homepage": "https://github.com/noteva26/noteva-plugins",

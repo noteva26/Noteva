@@ -113,9 +113,24 @@ impl CommentService {
         if let Some(filtered) = filter_data.get("content").and_then(|v| v.as_str()) {
             input.content = filtered.to_string();
         }
+        
+        // Check if filter wants to override status (e.g. mark as pending for moderation)
+        let filter_status = filter_data.get("status").and_then(|v| v.as_str()).map(String::from);
+        let filter_reason = filter_data.get("filter_reason").and_then(|v| v.as_str()).map(String::from);
+        
+        if let Some(ref reason) = filter_reason {
+            tracing::info!("Comment filtered by plugin: reason={}", reason);
+        }
 
         // Determine comment status based on moderation settings
-        let status = self.determine_comment_status(&input.content).await;
+        let mut status = self.determine_comment_status(&input.content).await;
+        
+        // Plugin filter can override status to "pending" for moderation
+        if let Some(ref fs) = filter_status {
+            if fs == "pending" || fs == "spam" {
+                status = CommentStatus::Pending;
+            }
+        }
 
         let comment = self.repo.create_with_status(input.clone(), user_id, ip, user_agent, status).await?;
 

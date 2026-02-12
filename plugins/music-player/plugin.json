@@ -1,7 +1,7 @@
 {
   "id": "music-player",
   "name": "音乐播放器",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "紧凑条状音乐播放器，支持歌单播放",
   "author": "Noteva Team",
   "homepage": "https://github.com/noteva26/noteva-plugins",

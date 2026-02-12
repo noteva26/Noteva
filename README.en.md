@@ -24,7 +24,7 @@ A high-performance blog system built with Rust, supporting multi-theme and plugi
 
 ### 🚀 Modern
 - **Built with Rust** - Memory safe, high performance, concurrency friendly
-- **Modern Frontend** - Next.js 14 + React 18 + Tailwind CSS
+- **Modern Frontend** - Vite + React 18 + Tailwind CSS
 - **Hot Reload** - Plugins and themes support hot reload, no restart needed
 - **Responsive Design** - Perfect for desktop and mobile devices
 
@@ -73,8 +73,6 @@ chmod +x noteva-linux-x64
 ```
 
 ### Docker Deployment
-
-If you prefer containerized deployment:
 
 ```bash
 # Pull image
@@ -129,13 +127,15 @@ noteva/
 │   ├── plugin/            # Plugin system
 │   └── theme/             # Theme system
 ├── themes/                 # Themes directory
-│   └── default/           # Default theme (Next.js)
+│   ├── default/           # Default theme (Vite + React)
+│   └── prose/             # Prose theme (Vite + React)
 ├── plugins/                # Plugins directory
 │   ├── hide-until-reply/  # Reply-to-view plugin
 │   ├── music-player/      # Music player plugin
-│   ├── friendlinks/       # Friend links plugin (v0.1.0)
-│   └── profile/           # Profile page plugin (v0.1.0)
-├── web/                    # Admin panel (Next.js)
+│   ├── video-embed/       # Video embed plugin
+│   ├── friendlinks/       # Friend links plugin
+│   └── profile/           # Profile page plugin
+├── web/                    # Admin panel (Vite + React)
 ├── data/                   # Data directory
 │   └── noteva.db          # SQLite database
 ├── uploads/                # Upload directory
@@ -189,7 +189,7 @@ Noteva.ready(async () => {
 });
 ```
 
-See [Theme Development Guide](docs/theme-development.md)
+See [Theme Development Guide](docs/主题开发文档.md)
 
 ## 🔌 Plugin Development
 
@@ -207,10 +207,11 @@ plugins/my-plugin/
 
 - **hide-until-reply** - Reply-to-view plugin
 - **music-player** - Music player plugin
-- **friendlinks** - Friend links plugin (v0.1.0)
-- **profile** - Profile page plugin (v0.1.0)
+- **video-embed** - Video embed plugin (YouTube, Bilibili, Twitter/X)
+- **friendlinks** - Friend links plugin
+- **profile** - Profile page plugin
 
-See [Plugin Development Guide](docs/plugin-development.md)
+See [Plugin Development Guide](docs/插件开发文档.md)
 
 ## 🚢 Deployment
 
@@ -328,23 +329,16 @@ server {
 **Backend**
 - Rust 1.75+
 - Axum (Web framework)
-- SQLite (Database)
+- SQLite / MySQL (Database)
 - SQLx (Database driver)
 - Tokio (Async runtime)
 
-**Frontend (Default Theme)**
-- Next.js 14
+**Frontend (Themes & Admin Panel)**
+- Vite 5
 - React 18
 - TypeScript
 - Tailwind CSS
 - shadcn/ui
-
-**Admin Panel**
-- Next.js 14
-- React 18
-- TypeScript
-- Tailwind CSS
-- Zustand (State management)
 
 ## 💻 Development
 
@@ -357,6 +351,11 @@ cd themes/default
 pnpm install
 pnpm dev
 
+# Prose theme development
+cd themes/prose
+pnpm install
+pnpm dev
+
 # Admin panel development
 cd web
 pnpm install
@@ -365,7 +364,7 @@ pnpm dev
 
 ## 🗺️ Roadmap
 
-### v0.1.0 (Current) ✅
+### v0.1.0 ✅
 - [x] Basic blog features
 - [x] Theme system
 - [x] Plugin system (experimental)
@@ -375,19 +374,24 @@ pnpm dev
 - [x] Internationalization
 - [x] Hot reload mechanism
 
-### v0.1.1-beta (Planned)
-- [ ] Plugin data storage
-- [ ] Visit statistics plugin
-- [ ] Performance optimization
+### v0.1.1-beta ✅
+- [x] Plugin data storage
+- [x] Friend links & profile plugins
+- [x] Video embed plugin
+- [x] SEO optimization (Rust backend meta tag injection)
+- [x] Frontend migrated from Next.js to Vite
 
-### v0.1.2-beta (Planned)
-- [ ] Admin panel plugin integration
-- [ ] Friend links enhancement
-- [ ] Plugin marketplace improvement
+### v0.1.2-beta (Current)
+- [x] Prose theme (three-column layout, AnZhiYu-inspired visuals)
+- [x] Theme list fix & metadata loading optimization
+- [x] Plugin compatibility fixes (video embed, friend links, profile)
+- [x] TLS dependency switched to rustls (cross-compilation support)
+- [ ] Code cleanup & documentation updates
+- [ ] Stability improvements
 
 ### v0.1.3-beta (Planned)
+- [ ] Admin panel plugin integration
 - [ ] Editor extension API
-- [ ] Reply-to-view plugin enhancement
 - [ ] More editor features
 
 ### v0.1.4-beta (Planned)

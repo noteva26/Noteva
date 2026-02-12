@@ -30,6 +30,9 @@ pub struct PluginResponse {
     pub author: String,
     pub enabled: bool,
     pub has_settings: bool,
+    pub has_wasm: bool,
+    pub wasm_loaded: bool,
+    pub backend_hooks: Vec<String>,
     pub shortcodes: Vec<String>,
     pub requires_noteva: String,
     pub compatible: bool,
@@ -74,6 +77,7 @@ pub fn router() -> Router<AppState> {
         .route("/", get(list_plugins))
         .route("/store", get(get_plugin_store))
         .route("/updates", get(check_plugin_updates))
+        .route("/wasm/status", get(get_wasm_status))
         .route("/:id", get(get_plugin))
         .route("/:id/toggle", post(toggle_plugin))
         .route("/:id/settings", get(get_plugin_settings))
@@ -90,11 +94,14 @@ async fn list_plugins(
     _user: AuthenticatedUser,
 ) -> Result<Json<PluginListResponse>, ApiError> {
     let manager = state.plugin_manager.read().await;
+    let wasm_reg = state.wasm_registry.read().await;
     
     let plugins: Vec<PluginResponse> = manager.get_all()
         .iter()
         .map(|p| {
             let version_check = check_version_requirement(&p.metadata.requires.noteva, NOTEVA_VERSION);
+            let has_wasm = p.path.join("backend.wasm").exists();
+            let wasm_loaded = wasm_reg.has_plugin(&p.metadata.id);
             PluginResponse {
                 id: p.metadata.id.clone(),
                 name: p.metadata.name.clone(),
@@ -103,6 +110,9 @@ async fn list_plugins(
                 author: p.metadata.author.clone(),
                 enabled: p.enabled,
                 has_settings: p.metadata.settings,
+                has_wasm,
+                wasm_loaded,
+                backend_hooks: p.metadata.hooks.backend.clone(),
                 shortcodes: p.metadata.shortcodes.clone(),
                 requires_noteva: p.metadata.requires.noteva.clone(),
                 compatible: version_check.compatible,
@@ -198,6 +208,8 @@ async fn get_plugin(
         .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", id)))?;
     
     let version_check = check_version_requirement(&plugin.metadata.requires.noteva, NOTEVA_VERSION);
+    let has_wasm = plugin.path.join("backend.wasm").exists();
+    let wasm_loaded = state.wasm_registry.read().await.has_plugin(&id);
     
     Ok(Json(PluginResponse {
         id: plugin.metadata.id.clone(),
@@ -207,6 +219,9 @@ async fn get_plugin(
         author: plugin.metadata.author.clone(),
         enabled: plugin.enabled,
         has_settings: plugin.metadata.settings,
+        has_wasm,
+        wasm_loaded,
+        backend_hooks: plugin.metadata.hooks.backend.clone(),
         shortcodes: plugin.metadata.shortcodes.clone(),
         requires_noteva: plugin.metadata.requires.noteva.clone(),
         compatible: version_check.compatible,
@@ -239,7 +254,33 @@ async fn toggle_plugin(
         }
     }
     
-    // Trigger hooks after releasing lock
+    // Handle WASM plugin loading/unloading (subprocess-isolated, safe on all platforms)
+    if body.enabled {
+        let manager = state.plugin_manager.read().await;
+        if let Some(plugin) = manager.get(&id) {
+            if plugin.path.join("backend.wasm").exists() {
+                if let Err(e) = crate::plugin::wasm_bridge::load_wasm_plugin(
+                    plugin,
+                    &state.wasm_runtime,
+                    &state.hook_manager,
+                    &state.wasm_registry,
+                ).await {
+                    tracing::warn!("Failed to load WASM module for plugin '{}': {}", id, e);
+                }
+            }
+        }
+    } else {
+        if let Err(e) = crate::plugin::wasm_bridge::unload_wasm_plugin(
+            &id,
+            &state.wasm_runtime,
+            &state.hook_manager,
+            &state.wasm_registry,
+        ).await {
+            tracing::warn!("Failed to unload WASM module for plugin '{}': {}", id, e);
+        }
+    }
+    
+    // Trigger hooks after WASM handling
     if body.enabled {
         state.hook_manager.trigger(
             hook_names::PLUGIN_ACTIVATE,
@@ -258,6 +299,8 @@ async fn toggle_plugin(
         .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", id)))?;
     
     let version_check = check_version_requirement(&plugin.metadata.requires.noteva, NOTEVA_VERSION);
+    let has_wasm = plugin.path.join("backend.wasm").exists();
+    let wasm_loaded = state.wasm_registry.read().await.has_plugin(&id);
     
     Ok(Json(PluginResponse {
         id: plugin.metadata.id.clone(),
@@ -267,11 +310,51 @@ async fn toggle_plugin(
         author: plugin.metadata.author.clone(),
         enabled: plugin.enabled,
         has_settings: plugin.metadata.settings,
+        has_wasm,
+        wasm_loaded,
+        backend_hooks: plugin.metadata.hooks.backend.clone(),
         shortcodes: plugin.metadata.shortcodes.clone(),
         requires_noteva: plugin.metadata.requires.noteva.clone(),
         compatible: version_check.compatible,
         compatibility_message: version_check.message,
     }))
+}
+
+/// GET /api/v1/plugins/wasm/status - Get WASM runtime status
+async fn get_wasm_status(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let runtime = state.wasm_runtime.read().await;
+    let _registry = state.wasm_registry.read().await;
+    let manager = state.plugin_manager.read().await;
+    
+    let loaded_plugins: Vec<serde_json::Value> = runtime.list_plugins()
+        .into_iter()
+        .map(|info| {
+            serde_json::json!({
+                "name": info.name,
+                "version": info.version,
+                "description": info.description,
+                "author": info.author,
+                "permissions": info.permissions,
+            })
+        })
+        .collect();
+    
+    // Count plugins with WASM support
+    let wasm_capable: Vec<String> = manager.get_all()
+        .iter()
+        .filter(|p| p.path.join("backend.wasm").exists())
+        .map(|p| p.metadata.id.clone())
+        .collect();
+    
+    Ok(Json(serde_json::json!({
+        "runtime_active": true,
+        "loaded_count": loaded_plugins.len(),
+        "loaded_plugins": loaded_plugins,
+        "wasm_capable_plugins": wasm_capable,
+    })))
 }
 
 /// GET /api/v1/plugins/:id/settings - Get plugin settings schema

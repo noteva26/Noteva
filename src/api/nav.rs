@@ -55,6 +55,21 @@ async fn list_nav_tree(State(state): State<AppState>) -> Result<impl IntoRespons
 
 async fn list_visible_nav_tree(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let items = state.nav_service.list_visible_tree().await.map_err(|e| ApiError::internal_error(e.to_string()))?;
+    
+    // Trigger nav_items_filter hook - plugins can add/modify navigation items
+    let hook_data = serde_json::json!({ "items": items });
+    let modified = state.hook_manager.trigger(
+        crate::plugin::hook_names::NAV_ITEMS_FILTER,
+        hook_data,
+    );
+    
+    // If hook modified the items, use the modified version
+    if let Some(modified_items) = modified.get("items") {
+        if let Ok(items) = serde_json::from_value::<Vec<NavItemTree>>(modified_items.clone()) {
+            return Ok(Json(NavTreeResponse { items }));
+        }
+    }
+    
     Ok(Json(NavTreeResponse { items }))
 }
 

@@ -9,6 +9,7 @@
 pub mod loader;
 pub mod hooks;
 pub mod shortcode;
+pub mod wasm_bridge;
 
 // Re-export commonly used types
 pub use loader::{Plugin, PluginManager, PluginMetadata, PluginRequirements, PluginHooks, 
@@ -39,8 +40,14 @@ pub enum Permission {
     ReadArticles,
     /// Write access to articles
     WriteArticles,
+    /// Read access to comments
+    ReadComments,
+    /// Write access to comments
+    WriteComments,
     /// Read access to configuration
     ReadConfig,
+    /// Write access to configuration
+    WriteConfig,
     /// Network access (HTTP requests)
     Network,
     /// File system read access
@@ -55,7 +62,10 @@ impl Permission {
         match s.to_lowercase().as_str() {
             "read_articles" | "read-articles" => Some(Permission::ReadArticles),
             "write_articles" | "write-articles" => Some(Permission::WriteArticles),
+            "read_comments" | "read-comments" => Some(Permission::ReadComments),
+            "write_comments" | "write-comments" => Some(Permission::WriteComments),
             "read_config" | "read-config" => Some(Permission::ReadConfig),
+            "write_config" | "write-config" => Some(Permission::WriteConfig),
             "network" => Some(Permission::Network),
             "fs_read" | "fs-read" | "filesystem_read" => Some(Permission::FileSystemRead),
             "fs_write" | "fs-write" | "filesystem_write" => Some(Permission::FileSystemWrite),
@@ -68,7 +78,10 @@ impl Permission {
         match self {
             Permission::ReadArticles => "read_articles",
             Permission::WriteArticles => "write_articles",
+            Permission::ReadComments => "read_comments",
+            Permission::WriteComments => "write_comments",
             Permission::ReadConfig => "read_config",
+            Permission::WriteConfig => "write_config",
             Permission::Network => "network",
             Permission::FileSystemRead => "fs_read",
             Permission::FileSystemWrite => "fs_write",
@@ -172,6 +185,10 @@ struct LoadedPlugin {
     module: Module,
     /// Resource limits for this plugin
     limits: ResourceLimits,
+    /// Pre-created store (reusable)
+    store: Store<()>,
+    /// Pre-created instance
+    instance: Option<Instance>,
 }
 
 /// Plugin runtime for executing WASM plugins
@@ -266,6 +283,16 @@ impl PluginRuntime {
         let module = Module::new(&self.engine, wasm_bytes)
             .map_err(|e| PluginError::WasmError(e.to_string()))?;
 
+        // Pre-create store and instance so we don't instantiate on every call
+        let mut store = Store::new(&self.engine, ());
+        store.set_fuel(limits.fuel_limit)
+            .map_err(|e| PluginError::WasmError(e.to_string()))?;
+        store.epoch_deadline_trap();
+
+        let linker = Linker::new(&self.engine);
+        let instance = linker.instantiate(&mut store, &module)
+            .map_err(|e| PluginError::WasmError(format!("Failed to instantiate WASM module: {}", e)))?;
+
         let handle_id = self.next_handle.fetch_add(1, Ordering::SeqCst);
         let handle = PluginHandle(handle_id);
 
@@ -275,6 +302,8 @@ impl PluginRuntime {
                 manifest,
                 module,
                 limits,
+                store,
+                instance: Some(instance),
             },
         );
 
@@ -307,87 +336,125 @@ impl PluginRuntime {
     }
 
 
-    /// Execute a plugin function with resource limits and timeout
+    /// Execute a plugin function with resource limits
+    /// 
+    /// Data passing protocol:
+    /// 1. Host calls plugin's `allocate(size) -> ptr` to get a memory buffer
+    /// 2. Host writes JSON input bytes into that buffer
+    /// 3. Host calls `func_name(ptr, len) -> result_ptr`
+    /// 4. Result is encoded as: first 4 bytes = result length, followed by result JSON bytes
+    /// 5. If result_ptr is 0, no output data (function succeeded with no modifications)
+    /// 
+    /// For plugins without allocate/memory, falls back to simple () -> i32 calling convention.
     pub fn execute_with_limits(
-        &self,
+        &mut self,
         handle: PluginHandle,
         func_name: &str,
-        _input: &[u8],
+        input: &[u8],
     ) -> Result<ExecutionResult, PluginError> {
         let plugin = self
             .plugins
-            .get(&handle.0)
+            .get_mut(&handle.0)
             .ok_or(PluginError::NotFound(handle.0))?;
 
-        // Create a store with resource limits
-        let mut store = Store::new(&self.engine, ());
+        let instance = plugin.instance
+            .ok_or_else(|| PluginError::WasmError("Plugin not instantiated".to_string()))?;
 
-        // Set fuel limit
-        store
-            .set_fuel(plugin.limits.fuel_limit)
-            .map_err(|e| PluginError::WasmError(e.to_string()))?;
-
-        // Set epoch deadline for timeout
-        store.epoch_deadline_trap();
-        
-        // Create linker with minimal imports (sandboxed)
-        let linker = Linker::new(&self.engine);
-
-        // Instantiate the module
-        let instance = linker
-            .instantiate(&mut store, &plugin.module)
-            .map_err(|e| PluginError::WasmError(e.to_string()))?;
+        // Refuel the store for this execution
+        let _ = plugin.store.set_fuel(plugin.limits.fuel_limit);
 
         // Get memory for passing data
         let memory = instance
-            .get_memory(&mut store, "memory")
+            .get_memory(&mut plugin.store, "memory")
             .ok_or_else(|| PluginError::WasmError("Plugin has no memory export".to_string()))?;
 
         // Check memory limit
-        let current_memory = memory.data_size(&store) as u64;
+        let current_memory = memory.data_size(&plugin.store) as u64;
         if current_memory > plugin.limits.memory_limit_bytes {
             return Err(PluginError::MemoryLimitExceeded(plugin.limits.memory_limit_bytes));
         }
 
         // Get the function to call
         let func = instance
-            .get_func(&mut store, func_name)
+            .get_func(&mut plugin.store, func_name)
             .ok_or_else(|| PluginError::WasmError(format!("Function '{}' not found", func_name)))?;
 
-        // For simplicity, we assume the function takes no args and returns i32
-        // In a real implementation, we'd handle input/output through memory
-        let typed_func = func
-            .typed::<(), i32>(&store)
-            .map_err(|e| PluginError::WasmError(e.to_string()))?;
+        let start_fuel = plugin.store.get_fuel().unwrap_or(0);
 
-        // Execute with timeout using epoch-based interruption
-        let start_fuel = store.get_fuel().unwrap_or(0);
-        
-        let result = typed_func.call(&mut store, ());
+        // Try the data-passing protocol: func(ptr, len) -> result_ptr
+        let output = if let Some(alloc_func) = instance.get_func(&mut plugin.store, "allocate") {
+            if let Ok(alloc_typed) = alloc_func.typed::<i32, i32>(&plugin.store) {
+                let input_len = input.len() as i32;
+                let input_ptr = alloc_typed.call(&mut plugin.store, input_len)
+                    .map_err(|e| PluginError::WasmError(format!("allocate failed: {}", e)))?;
 
-        let end_fuel = store.get_fuel().unwrap_or(0);
+                // Write input data into WASM memory
+                let ptr = input_ptr as usize;
+                let mem = memory.data_mut(&mut plugin.store);
+                if ptr + input.len() <= mem.len() {
+                    mem[ptr..ptr + input.len()].copy_from_slice(input);
+                } else {
+                    return Err(PluginError::WasmError("Input data exceeds WASM memory".to_string()));
+                }
+
+                // Call the hook function with (ptr, len) -> result_ptr
+                if let Ok(typed_func) = func.typed::<(i32, i32), i32>(&plugin.store) {
+                    let result_ptr = typed_func.call(&mut plugin.store, (input_ptr, input_len))
+                        .map_err(|e| PluginError::WasmError(e.to_string()))?;
+
+                    if result_ptr > 0 {
+                        let mem_data = memory.data(&plugin.store);
+                        let rp = result_ptr as usize;
+                        if rp + 4 <= mem_data.len() {
+                            let result_len = u32::from_le_bytes([
+                                mem_data[rp], mem_data[rp + 1],
+                                mem_data[rp + 2], mem_data[rp + 3],
+                            ]) as usize;
+                            if rp + 4 + result_len <= mem_data.len() {
+                                mem_data[rp + 4..rp + 4 + result_len].to_vec()
+                            } else {
+                                vec![]
+                            }
+                        } else {
+                            vec![]
+                        }
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    // Fallback to simple call
+                    if let Ok(typed_func) = func.typed::<(), i32>(&plugin.store) {
+                        let _ = typed_func.call(&mut plugin.store, ());
+                    }
+                    vec![]
+                }
+            } else {
+                if let Ok(typed_func) = func.typed::<(), i32>(&plugin.store) {
+                    let _ = typed_func.call(&mut plugin.store, ());
+                }
+                vec![]
+            }
+        } else {
+            // No allocate function — use simple () -> i32 calling convention
+            if let Ok(typed_func) = func.typed::<(), i32>(&plugin.store) {
+                let _ = typed_func.call(&mut plugin.store, ());
+            }
+            vec![]
+        };
+
+        let end_fuel = plugin.store.get_fuel().unwrap_or(0);
         let fuel_consumed = start_fuel.saturating_sub(end_fuel);
 
-        match result {
-            Ok(_) => Ok(ExecutionResult {
-                output: vec![],
-                fuel_consumed,
-                success: true,
-            }),
-            Err(e) => {
-                // Check if it was a fuel exhaustion
-                if store.get_fuel().unwrap_or(0) == 0 {
-                    Err(PluginError::FuelExhausted)
-                } else {
-                    Err(PluginError::WasmError(e.to_string()))
-                }
-            }
-        }
+        Ok(ExecutionResult {
+            output,
+            fuel_consumed,
+            success: true,
+        })
     }
 
     /// Execute a plugin with timeout (async wrapper)
     pub async fn execute_with_timeout(
-        &self,
+        &mut self,
         handle: PluginHandle,
         func_name: &str,
         input: &[u8],
@@ -399,8 +466,6 @@ impl PluginRuntime {
 
         // Use tokio timeout for async timeout handling
         match tokio::time::timeout(timeout, async {
-            // In a real implementation, we'd use epoch interruption
-            // For now, we just execute synchronously
             self.execute_with_limits(handle_copy, &func_name, &input)
         })
         .await
@@ -411,18 +476,21 @@ impl PluginRuntime {
     }
 
     /// Call a hook on all plugins
-    pub async fn call_hook(&self, hook: &str, data: &[u8]) -> Result<Vec<u8>> {
+    pub async fn call_hook(&mut self, hook: &str, data: &[u8]) -> Result<Vec<u8>> {
         let mut results = Vec::new();
+        
+        let handle_ids: Vec<(u64, Duration)> = self.plugins.iter()
+            .map(|(&id, p)| (id, p.limits.timeout))
+            .collect();
 
-        for (&handle_id, plugin) in &self.plugins {
+        for (handle_id, timeout) in handle_ids {
             let handle = PluginHandle(handle_id);
             
-            // Try to call the hook function if it exists
             match self.execute_with_timeout(
                 handle,
                 &format!("hook_{}", hook),
                 data,
-                plugin.limits.timeout,
+                timeout,
             )
             .await
             {
@@ -430,16 +498,17 @@ impl PluginRuntime {
                     results.extend(result.output);
                 }
                 Err(PluginError::WasmError(_)) => {
-                    // Function doesn't exist, skip
                     continue;
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        "Plugin {} failed to handle hook {}: {}",
-                        plugin.manifest.name,
-                        hook,
-                        e
-                    );
+                    if let Some(plugin) = self.plugins.get(&handle_id) {
+                        tracing::warn!(
+                            "Plugin {} failed to handle hook {}: {}",
+                            plugin.manifest.name,
+                            hook,
+                            e
+                        );
+                    }
                 }
             }
         }
