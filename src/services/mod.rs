@@ -28,7 +28,7 @@ pub use category::{
 pub use comment::{CommentService, generate_fingerprint};
 pub use email::{EmailService, generate_verification_code};
 pub use emoji::{process_all_emoji, process_shortcodes, process_unicode_emoji};
-pub use markdown::MarkdownRenderer;
+pub use markdown::{MarkdownRenderer, TocEntry};
 pub use nav_item::NavItemService;
 pub use page::PageService;
 pub use password::{hash_password, verify_password};

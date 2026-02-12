@@ -189,6 +189,7 @@
         subtitle: data.site_subtitle || data.subtitle || '',
         logo: data.site_logo || data.logo || '',
         footer: data.site_footer || data.footer || '',
+        version: data.version || '',
         permalinkStructure: this._permalinkStructure,
         // 保留原始字段
         site_name: data.site_name,
@@ -1366,6 +1367,71 @@
   };
 
   // ============================================
+  // 数学公式 & Mermaid 图表自动渲染
+  // ============================================
+  const _loadedScripts = {};
+
+  function _loadScript(src) {
+    if (_loadedScripts[src]) return _loadedScripts[src];
+    _loadedScripts[src] = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    return _loadedScripts[src];
+  }
+
+  function _loadCSS(href) {
+    if (document.querySelector(`link[href="${href}"]`)) return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    document.head.appendChild(link);
+  }
+
+  async function _renderMathAndDiagrams() {
+    // KaTeX: render .math-inline and .math-block elements
+    const mathEls = document.querySelectorAll('.math-inline, .math-block');
+    if (mathEls.length > 0) {
+      _loadCSS('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css');
+      await _loadScript('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js');
+      mathEls.forEach(el => {
+        if (el.dataset.katexRendered) return;
+        try {
+          window.katex.render(el.textContent, el, {
+            displayMode: el.classList.contains('math-block'),
+            throwOnError: false,
+          });
+          el.dataset.katexRendered = '1';
+        } catch (e) {
+          console.warn('[Noteva] KaTeX render error:', e);
+        }
+      });
+    }
+
+    // Mermaid: render .mermaid elements
+    const mermaidEls = document.querySelectorAll('.mermaid:not([data-mermaid-rendered])');
+    if (mermaidEls.length > 0) {
+      await _loadScript('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js');
+      if (!window._notevaMermaidInit) {
+        window.mermaid.initialize({
+          startOnLoad: false,
+          theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default',
+        });
+        window._notevaMermaidInit = true;
+      }
+      try {
+        await window.mermaid.run({ nodes: mermaidEls });
+        mermaidEls.forEach(el => el.dataset.mermaidRendered = '1');
+      } catch (e) {
+        console.warn('[Noteva] Mermaid render error:', e);
+      }
+    }
+  }
+
+  // ============================================
   // 初始化
   // ============================================
   let _ready = false;
@@ -1379,7 +1445,12 @@
     await user.check();
     
     // 加载站点信息
-    await site.getInfo();
+    const siteInfo = await site.getInfo();
+    
+    // 从 site info 同步版本号
+    if (siteInfo && siteInfo.version) {
+      window.Noteva.version = siteInfo.version;
+    }
     
     // 加载主题配置
     await site.loadThemeConfig();
@@ -1398,6 +1469,9 @@
       path: router.getPath(),
       query: router.getQueryAll(),
     });
+
+    // 自动渲染数学公式和 Mermaid 图表
+    hooks.on('content_render', _renderMathAndDiagrams, 20);
     
     // SPA 路由变化监听：拦截 pushState/replaceState 和 popstate
     // 自动触发 route_change 和 content_render，主题无需手动处理
@@ -1519,7 +1593,7 @@
   // ============================================
   window.Noteva = {
     // 版本
-    version: '0.1.2-beta',
+    version: '0.1.3-beta',
     
     // 核心系统
     hooks,

@@ -86,6 +86,8 @@ pub fn router() -> Router<AppState> {
         .route("/:id/data/:key", get(get_plugin_data))
         .route("/:id/data/:key", axum::routing::put(set_plugin_data))
         .route("/:id/data/:key", axum::routing::delete(delete_plugin_data))
+        // Plugin action route (triggers plugin_action hook)
+        .route("/:id/action/:action", post(plugin_action))
 }
 
 /// GET /api/v1/plugins - List all plugins
@@ -264,12 +266,23 @@ async fn toggle_plugin(
                     &state.wasm_runtime,
                     &state.hook_manager,
                     &state.wasm_registry,
+                    &state.pool,
                 ).await {
                     tracing::warn!("Failed to load WASM module for plugin '{}': {}", id, e);
                 }
             }
         }
     } else {
+        // Trigger plugin_destroy BEFORE unloading WASM (so the plugin can still clean up)
+        if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            state.hook_manager.trigger(
+                hook_names::PLUGIN_DESTROY,
+                serde_json::json!({ "plugin_id": id })
+            );
+        })) {
+            tracing::error!("plugin_destroy hook panicked for plugin '{}': {:?}", id, e);
+        }
+
         if let Err(e) = crate::plugin::wasm_bridge::unload_wasm_plugin(
             &id,
             &state.wasm_runtime,
@@ -282,6 +295,50 @@ async fn toggle_plugin(
     
     // Trigger hooks after WASM handling
     if body.enabled {
+        // Check for version upgrade and trigger plugin_upgrade if needed
+        {
+            let manager = state.plugin_manager.read().await;
+            if let Some(plugin) = manager.get(&id) {
+                let current_version = plugin.metadata.version.clone();
+                let plugin_id = id.clone();
+                
+                // Drop read lock before calling async methods that need it
+                drop(manager);
+                
+                let last_version = {
+                    let mgr = state.plugin_manager.read().await;
+                    mgr.get_last_version(&plugin_id).await.unwrap_or(None)
+                };
+                
+                let should_upgrade = match &last_version {
+                    Some(lv) => lv != &current_version,
+                    None => false, // First time enable, no upgrade needed
+                };
+                
+                if should_upgrade {
+                    let old_ver = last_version.unwrap_or_default();
+                    if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        state.hook_manager.trigger(
+                            hook_names::PLUGIN_UPGRADE,
+                            serde_json::json!({
+                                "plugin_id": plugin_id,
+                                "old_version": old_ver,
+                                "new_version": current_version
+                            })
+                        );
+                    })) {
+                        tracing::error!("plugin_upgrade hook panicked for plugin '{}': {:?}", plugin_id, e);
+                    }
+                }
+                
+                // Always update last_version to current version on enable
+                let mgr = state.plugin_manager.read().await;
+                if let Err(e) = mgr.update_last_version(&plugin_id, &current_version).await {
+                    tracing::error!("Failed to update last_version for plugin '{}': {}", plugin_id, e);
+                }
+            }
+        }
+
         state.hook_manager.trigger(
             hook_names::PLUGIN_ACTIVATE,
             serde_json::json!({ "plugin_id": id })
@@ -830,5 +887,154 @@ pub async fn delete_plugin_data(
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(ApiError::not_found("Data not found"))
+    }
+}
+
+/// Plugin action request body
+#[derive(Debug, Deserialize)]
+pub struct PluginActionRequest {
+    #[serde(flatten)]
+    pub params: HashMap<String, serde_json::Value>,
+}
+
+/// Plugin action response
+#[derive(Debug, Serialize)]
+pub struct PluginActionResponse {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// POST /api/v1/admin/plugins/:id/action/:action - Trigger a plugin action
+///
+/// Generic plugin action endpoint. Triggers the `plugin_action` hook with
+/// the action name and parameters. Any WASM plugin that declares `plugin_action`
+/// in its hooks.backend can handle custom actions.
+///
+/// This is a general-purpose mechanism — not specific to any single plugin.
+async fn plugin_action(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+    Path((plugin_id, action)): Path<(String, String)>,
+    Json(body): Json<PluginActionRequest>,
+) -> Result<Json<PluginActionResponse>, ApiError> {
+    use crate::plugin::hook_names;
+
+    // Verify plugin exists and is enabled
+    {
+        let manager = state.plugin_manager.read().await;
+        let plugin = manager.get(&plugin_id)
+            .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", plugin_id)))?;
+        if !plugin.enabled {
+            return Err(ApiError::new("BAD_REQUEST", "Plugin is not enabled"));
+        }
+    }
+
+    // Build hook data with action name, plugin_id, and user params
+    let mut hook_data = serde_json::json!({
+        "plugin_id": plugin_id,
+        "action": action,
+    });
+    if let serde_json::Value::Object(ref mut map) = hook_data {
+        for (k, v) in &body.params {
+            map.insert(k.clone(), v.clone());
+        }
+    }
+
+    // Trigger the plugin_action hook
+    let result = state.hook_manager.trigger(hook_names::PLUGIN_ACTION, hook_data);
+
+    // The hook system injects plugin settings into hook data (including secrets).
+    // Strip ALL plugin settings keys and internal metadata from the response
+    // to prevent leaking sensitive data like API keys.
+    let data = if let serde_json::Value::Object(mut map) = result {
+        // Remove internal fields
+        map.remove("plugin_id");
+        map.remove("action");
+        // Remove all plugin settings keys
+        {
+            let manager = state.plugin_manager.read().await;
+            if let Some(plugin) = manager.get(&plugin_id) {
+                for key in plugin.settings.keys() {
+                    map.remove(key);
+                }
+            }
+        }
+        if map.is_empty() { None } else { Some(serde_json::Value::Object(map)) }
+    } else {
+        None
+    };
+
+    Ok(Json(PluginActionResponse {
+        success: true,
+        data,
+        error: None,
+    }))
+}
+
+/// Handle custom plugin API requests.
+/// Route: ANY /api/v1/plugins/{plugin_id}/api/{*path}
+///
+/// Forwards the request to the plugin's `handle_request` WASM function.
+/// The plugin must declare `"api": true` in plugin.json.
+pub async fn plugin_api_handler(
+    State(state): State<AppState>,
+    method: axum::http::Method,
+    Path((plugin_id, path)): Path<(String, String)>,
+    body: axum::body::Bytes,
+) -> Result<Response<Body>, ApiError> {
+    // Verify plugin exists, is enabled, and has api: true
+    let (wasm_path, permissions) = {
+        let manager = state.plugin_manager.read().await;
+        let plugin = manager.get(&plugin_id)
+            .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", plugin_id)))?;
+        if !plugin.enabled {
+            return Err(ApiError::new("BAD_REQUEST", "Plugin is not enabled"));
+        }
+        if !plugin.metadata.api {
+            return Err(ApiError::not_found("Plugin does not expose API routes"));
+        }
+        let wasm_path = plugin.path.join("backend.wasm");
+        if !wasm_path.exists() {
+            return Err(ApiError::not_found("Plugin has no backend WASM module"));
+        }
+        let abs_path = std::fs::canonicalize(&wasm_path)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| wasm_path.to_string_lossy().to_string());
+        (abs_path, plugin.metadata.permissions.clone())
+    };
+
+    // Build request data for the WASM function
+    let body_str = String::from_utf8_lossy(&body).to_string();
+    let request_data = serde_json::json!({
+        "method": method.as_str(),
+        "path": path,
+        "body": body_str,
+    });
+
+    // Execute in subprocess (blocking, run on spawn_blocking to not block tokio)
+    let pool = state.pool.clone();
+    let pid = plugin_id.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        crate::plugin::wasm_bridge::execute_plugin_api_request(
+            &wasm_path, &pid, &permissions, &request_data, &pool,
+        )
+    })
+    .await
+    .map_err(|e| ApiError::internal_error(format!("Task join error: {}", e)))?;
+
+    match result {
+        Some((status, content_type, body)) => {
+            Response::builder()
+                .status(status)
+                .header(header::CONTENT_TYPE, content_type)
+                .body(Body::from(body))
+                .map_err(|e| ApiError::internal_error(e.to_string()))
+        }
+        None => Err(ApiError::internal_error(
+            "Plugin API handler returned no response",
+        )),
     }
 }

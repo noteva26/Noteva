@@ -120,6 +120,10 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .route("/plugins/assets/plugins.css", axum::routing::get(plugins::get_plugins_css_public))
         .route("/plugins/enabled", axum::routing::get(plugins::get_enabled_plugins_public))
         .route("/plugins/proxy", axum::routing::post(proxy::proxy_request))
+        // Plugin data (public, read-only for frontend)
+        .route("/plugins/:id/data/:key", axum::routing::get(plugins::get_plugin_data))
+        // Plugin custom API routes (public, proxied to WASM)
+        .route("/plugins/:id/api/*path", axum::routing::any(plugins::plugin_api_handler))
         // Comment routes
         .route("/comments/:article_id", axum::routing::get(comments::get_comments))
         .route("/comments", axum::routing::post(comments::create_comment))

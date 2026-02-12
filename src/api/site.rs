@@ -15,6 +15,7 @@ use crate::api::middleware::AppState;
 /// Response for public site info
 #[derive(Debug, Serialize)]
 pub struct SiteInfoResponse {
+    pub version: String,
     pub site_name: String,
     pub site_description: String,
     pub site_subtitle: String,
@@ -82,6 +83,7 @@ async fn get_site_info(
         .unwrap_or_else(|| "/posts/{slug}".to_string());
 
     Json(SiteInfoResponse {
+        version: env!("CARGO_PKG_VERSION").to_string(),
         site_name: settings.site_name,
         site_description: settings.site_description,
         site_subtitle: settings.site_subtitle,

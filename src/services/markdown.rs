@@ -20,6 +20,7 @@ use std::sync::Arc;
 use syntect::highlighting::ThemeSet;
 use syntect::html::highlighted_html_for_string;
 use syntect::parsing::SyntaxSet;
+use regex::Regex;
 
 use crate::plugin::{ShortcodeManager, ShortcodeContext, HookManager, hook_names};
 use crate::services::emoji;
@@ -31,6 +32,17 @@ pub struct RenderOptions {
     pub shortcode_context: ShortcodeContext,
     /// Whether to process shortcodes (default: true)
     pub process_shortcodes: bool,
+}
+
+/// A single entry in the table of contents.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TocEntry {
+    /// Heading level (1-6)
+    pub level: u32,
+    /// Plain text content of the heading
+    pub text: String,
+    /// URL-friendly anchor id (e.g. "hello-world")
+    pub id: String,
 }
 
 /// A thread-safe Markdown renderer with syntax highlighting support.
@@ -176,8 +188,12 @@ impl MarkdownRenderer {
         options.insert(Options::ENABLE_STRIKETHROUGH);
         options.insert(Options::ENABLE_TASKLISTS);
         options.insert(Options::ENABLE_SMART_PUNCTUATION);
+        options.insert(Options::ENABLE_FOOTNOTES);
 
-        let parser = Parser::new_ext(content, options);
+        // Pre-process: protect math expressions from markdown parsing
+        let (content, math_placeholders) = Self::extract_math_expressions(content);
+
+        let parser = Parser::new_ext(&content, options);
 
         // Process events, handling code blocks specially for syntax highlighting
         let events = self.process_events(parser);
@@ -185,6 +201,9 @@ impl MarkdownRenderer {
         // Render to HTML
         let mut html_output = String::new();
         html::push_html(&mut html_output, events.into_iter());
+
+        // Post-process: restore math expressions as KaTeX-ready elements
+        let html_output = Self::restore_math_expressions(&html_output, &math_placeholders);
 
         // Trigger markdown_after_parse hook
         let hook_data = self.trigger_hook(
@@ -201,6 +220,68 @@ impl MarkdownRenderer {
         
         // Process emoji (shortcodes and Unicode)
         emoji::process_all_emoji(&html_after_hook)
+    }
+
+    /// Extract a table of contents from markdown content.
+    ///
+    /// Parses the markdown and collects all headings with their level, text,
+    /// and a generated anchor id. This can be used to build a TOC sidebar.
+    pub fn extract_toc(&self, markdown: &str) -> Vec<TocEntry> {
+        let mut options = Options::empty();
+        options.insert(Options::ENABLE_TABLES);
+        options.insert(Options::ENABLE_STRIKETHROUGH);
+        options.insert(Options::ENABLE_TASKLISTS);
+        options.insert(Options::ENABLE_FOOTNOTES);
+
+        let parser = Parser::new_ext(markdown, options);
+
+        let mut toc = Vec::new();
+        let mut in_heading = false;
+        let mut heading_level: u32 = 0;
+        let mut heading_text = String::new();
+
+        for event in parser {
+            match event {
+                Event::Start(Tag::Heading { level, .. }) => {
+                    in_heading = true;
+                    heading_level = level as u32;
+                    heading_text.clear();
+                }
+                Event::Text(text) if in_heading => {
+                    heading_text.push_str(&text);
+                }
+                Event::Code(code) if in_heading => {
+                    heading_text.push_str(&code);
+                }
+                Event::End(TagEnd::Heading(_)) => {
+                    in_heading = false;
+                    let text = heading_text.trim().to_string();
+                    if !text.is_empty() {
+                        let id = Self::heading_to_id(&text);
+                        toc.push(TocEntry { level: heading_level, text, id });
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        toc
+    }
+
+    /// Convert heading text to a URL-friendly anchor id.
+    fn heading_to_id(text: &str) -> String {
+        text.chars()
+            .map(|c| {
+                if c.is_alphanumeric() { c.to_ascii_lowercase() }
+                else if c == ' ' || c == '-' || c == '_' { '-' }
+                else if c > '\x7f' { c } // keep CJK characters
+                else { '-' }
+            })
+            .collect::<String>()
+            .split('-')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("-")
     }
 
     /// Renders Markdown text to HTML with shortcode processing.
@@ -306,8 +387,13 @@ impl MarkdownRenderer {
                 Event::End(TagEnd::CodeBlock) => {
                     in_code_block = false;
 
-                    // Generate highlighted HTML or plain code block
-                    let highlighted = if let Some(ref lang) = code_lang {
+                    // Mermaid: output as <div class="mermaid"> instead of code block
+                    let highlighted = if code_lang.as_deref() == Some("mermaid") {
+                        format!(
+                            "<div class=\"mermaid\">{}</div>",
+                            html_escape(&code_content)
+                        )
+                    } else if let Some(ref lang) = code_lang {
                         self.highlight_code(&code_content, lang)
                     } else {
                         self.plain_code_block(&code_content)
@@ -376,6 +462,99 @@ impl MarkdownRenderer {
             html_escape(lang),
             html_escape(code)
         )
+    }
+
+    /// Extract math expressions ($..$ and $$..$$) and replace with placeholders
+    /// to prevent pulldown-cmark from mangling them.
+    fn extract_math_expressions(content: &str) -> (String, Vec<(String, bool)>) {
+        let mut placeholders: Vec<(String, bool)> = Vec::new();
+
+        // First, protect code blocks and inline code from math extraction
+        // Replace them with temporary markers, extract math, then restore
+        let code_block_re = Regex::new(r"(?s)```.*?```").unwrap();
+        let inline_code_re = Regex::new(r"`[^`]+`").unwrap();
+
+        let mut code_markers: Vec<(String, String)> = Vec::new();
+        let mut protected = content.to_string();
+
+        // Protect fenced code blocks
+        for m in code_block_re.find_iter(content) {
+            let marker = format!("\x01CODEBLOCK_{}\x01", code_markers.len());
+            code_markers.push((marker.clone(), m.as_str().to_string()));
+            protected = protected.replacen(m.as_str(), &marker, 1);
+        }
+        // Protect inline code
+        let snapshot = protected.clone();
+        for m in inline_code_re.find_iter(&snapshot) {
+            let marker = format!("\x01INLINECODE_{}\x01", code_markers.len());
+            code_markers.push((marker.clone(), m.as_str().to_string()));
+            protected = protected.replacen(m.as_str(), &marker, 1);
+        }
+
+        let mut result = protected;
+
+        // Block math: $$...$$
+        let block_re = Regex::new(r"\$\$([\s\S]+?)\$\$").unwrap();
+        let mut offset: i64 = 0;
+        let snapshot = result.clone();
+        let captures: Vec<_> = block_re.captures_iter(&snapshot).collect();
+        for cap in &captures {
+            let m = cap.get(0).unwrap();
+            let expr = cap.get(1).unwrap().as_str().to_string();
+            let idx = placeholders.len();
+            let placeholder = format!("\x00MATH_BLOCK_{}\x00", idx);
+            placeholders.push((expr, true));
+            let start = (m.start() as i64 + offset) as usize;
+            let end = (m.end() as i64 + offset) as usize;
+            let old_len = end - start;
+            result.replace_range(start..end, &placeholder);
+            offset += placeholder.len() as i64 - old_len as i64;
+        }
+
+        // Inline math: $..$ (single line, not inside code)
+        let inline_re = Regex::new(r"\$([^\$\n]+?)\$").unwrap();
+        let snapshot = result.clone();
+        offset = 0;
+        let captures: Vec<_> = inline_re.captures_iter(&snapshot).collect();
+        for cap in &captures {
+            let m = cap.get(0).unwrap();
+            let expr = cap.get(1).unwrap().as_str().to_string();
+            let idx = placeholders.len();
+            let placeholder = format!("\x00MATH_INLINE_{}\x00", idx);
+            placeholders.push((expr, false));
+            let start = (m.start() as i64 + offset) as usize;
+            let end = (m.end() as i64 + offset) as usize;
+            let old_len = end - start;
+            result.replace_range(start..end, &placeholder);
+            offset += placeholder.len() as i64 - old_len as i64;
+        }
+
+        // Restore code blocks and inline code
+        for (marker, original) in code_markers.iter().rev() {
+            result = result.replace(marker, original);
+        }
+
+        (result, placeholders)
+    }
+
+    /// Restore math placeholders with KaTeX-ready HTML elements.
+    fn restore_math_expressions(html: &str, placeholders: &[(String, bool)]) -> String {
+        let mut result = html.to_string();
+        for (idx, (expr, is_block)) in placeholders.iter().enumerate() {
+            let tag = if *is_block { "MATH_BLOCK" } else { "MATH_INLINE" };
+            let placeholder = format!("\x00{}_{}\x00", tag, idx);
+            // The placeholder may have been HTML-escaped by pulldown-cmark
+            let escaped_placeholder = placeholder
+                .replace('\x00', "&#0;");
+            let replacement = if *is_block {
+                format!("<div class=\"math-block\">{}</div>", html_escape(expr))
+            } else {
+                format!("<span class=\"math-inline\">{}</span>", html_escape(expr))
+            };
+            result = result.replace(&placeholder, &replacement);
+            result = result.replace(&escaped_placeholder, &replacement);
+        }
+        result
     }
 }
 
@@ -709,5 +888,51 @@ Some **bold** text."#;
         // Shortcode should not be processed
         assert!(html.contains("[test]"));
         assert!(!html.contains("PROCESSED"));
+    }
+
+    #[test]
+    fn test_render_footnotes() {
+        let renderer = MarkdownRenderer::new();
+        let markdown = "This has a footnote[^1].\n\n[^1]: Footnote content here.";
+        let html = renderer.render(markdown);
+        // pulldown-cmark generates footnote references and definitions
+        assert!(html.contains("footnote"));
+    }
+
+    #[test]
+    fn test_render_mermaid_block() {
+        let renderer = MarkdownRenderer::new();
+        let markdown = "```mermaid\ngraph TD;\n  A-->B;\n```";
+        let html = renderer.render(markdown);
+        assert!(html.contains("<div class=\"mermaid\">"));
+        assert!(html.contains("A--&gt;B;"));
+        // Should NOT be a <pre><code> block
+        assert!(!html.contains("<pre><code"));
+    }
+
+    #[test]
+    fn test_render_inline_math() {
+        let renderer = MarkdownRenderer::new();
+        let markdown = "The formula $E=mc^2$ is famous.";
+        let html = renderer.render(markdown);
+        assert!(html.contains("<span class=\"math-inline\">"));
+        assert!(html.contains("E=mc^2"));
+    }
+
+    #[test]
+    fn test_render_block_math() {
+        let renderer = MarkdownRenderer::new();
+        let markdown = "Here is a formula:\n\n$$\n\\sum_{i=1}^n i = \\frac{n(n+1)}{2}\n$$\n\nDone.";
+        let html = renderer.render(markdown);
+        assert!(html.contains("<div class=\"math-block\">"));
+    }
+
+    #[test]
+    fn test_math_does_not_affect_code_blocks() {
+        let renderer = MarkdownRenderer::new();
+        let markdown = "```\n$not math$\n```";
+        let html = renderer.render(markdown);
+        // Inside code block, $ should not be treated as math
+        assert!(!html.contains("math-inline"));
     }
 }

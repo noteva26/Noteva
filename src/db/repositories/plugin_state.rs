@@ -16,6 +16,8 @@ pub struct PluginState {
     pub plugin_id: String,
     pub enabled: bool,
     pub settings: HashMap<String, serde_json::Value>,
+    /// Last known plugin version (for upgrade detection)
+    pub last_version: Option<String>,
 }
 
 /// Plugin state repository trait
@@ -32,6 +34,9 @@ pub trait PluginStateRepository: Send + Sync {
     
     /// Delete plugin state
     async fn delete(&self, plugin_id: &str) -> Result<bool>;
+
+    /// Update last_version for a plugin
+    async fn update_last_version(&self, plugin_id: &str, version: &str) -> Result<()>;
 }
 
 /// SQLx-based plugin state repository
@@ -86,13 +91,23 @@ impl PluginStateRepository for SqlxPluginStateRepository {
             Ok(false)
         }
     }
+
+    async fn update_last_version(&self, plugin_id: &str, version: &str) -> Result<()> {
+        if let Some(pool) = self.pool.as_sqlite() {
+            update_last_version_sqlite(pool, plugin_id, version).await
+        } else if let Some(pool) = self.pool.as_mysql() {
+            update_last_version_mysql(pool, plugin_id, version).await
+        } else {
+            Ok(())
+        }
+    }
 }
 
 // SQLite implementations
 
 async fn get_sqlite(pool: &SqlitePool, plugin_id: &str) -> Result<Option<PluginState>> {
     let row = sqlx::query(
-        "SELECT plugin_id, enabled, settings FROM plugin_states WHERE plugin_id = ?"
+        "SELECT plugin_id, enabled, settings, last_version FROM plugin_states WHERE plugin_id = ?"
     )
     .bind(plugin_id)
     .fetch_optional(pool)
@@ -107,13 +122,14 @@ async fn get_sqlite(pool: &SqlitePool, plugin_id: &str) -> Result<Option<PluginS
             plugin_id: r.get("plugin_id"),
             enabled: r.get::<i32, _>("enabled") != 0,
             settings,
+            last_version: r.try_get::<Option<String>, _>("last_version").unwrap_or(None),
         }
     }))
 }
 
 async fn get_all_sqlite(pool: &SqlitePool) -> Result<Vec<PluginState>> {
     let rows = sqlx::query(
-        "SELECT plugin_id, enabled, settings FROM plugin_states"
+        "SELECT plugin_id, enabled, settings, last_version FROM plugin_states"
     )
     .fetch_all(pool)
     .await?;
@@ -127,6 +143,7 @@ async fn get_all_sqlite(pool: &SqlitePool) -> Result<Vec<PluginState>> {
             plugin_id: r.get("plugin_id"),
             enabled: r.get::<i32, _>("enabled") != 0,
             settings,
+            last_version: r.try_get::<Option<String>, _>("last_version").unwrap_or(None),
         }
     }).collect())
 }
@@ -135,16 +152,18 @@ async fn save_sqlite(pool: &SqlitePool, state: &PluginState) -> Result<()> {
     let settings_json = serde_json::to_string(&state.settings)?;
     
     sqlx::query(
-        r#"INSERT INTO plugin_states (plugin_id, enabled, settings, updated_at)
-           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        r#"INSERT INTO plugin_states (plugin_id, enabled, settings, last_version, updated_at)
+           VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
            ON CONFLICT(plugin_id) DO UPDATE SET
                enabled = excluded.enabled,
                settings = excluded.settings,
+               last_version = COALESCE(excluded.last_version, plugin_states.last_version),
                updated_at = CURRENT_TIMESTAMP"#
     )
     .bind(&state.plugin_id)
     .bind(if state.enabled { 1 } else { 0 })
     .bind(&settings_json)
+    .bind(&state.last_version)
     .execute(pool)
     .await?;
     
@@ -160,11 +179,20 @@ async fn delete_sqlite(pool: &SqlitePool, plugin_id: &str) -> Result<bool> {
     Ok(result.rows_affected() > 0)
 }
 
+async fn update_last_version_sqlite(pool: &SqlitePool, plugin_id: &str, version: &str) -> Result<()> {
+    sqlx::query("UPDATE plugin_states SET last_version = ?, updated_at = CURRENT_TIMESTAMP WHERE plugin_id = ?")
+        .bind(version)
+        .bind(plugin_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 // MySQL implementations
 
 async fn get_mysql(pool: &MySqlPool, plugin_id: &str) -> Result<Option<PluginState>> {
     let row = sqlx::query(
-        "SELECT plugin_id, enabled, settings FROM plugin_states WHERE plugin_id = ?"
+        "SELECT plugin_id, enabled, settings, last_version FROM plugin_states WHERE plugin_id = ?"
     )
     .bind(plugin_id)
     .fetch_optional(pool)
@@ -179,13 +207,14 @@ async fn get_mysql(pool: &MySqlPool, plugin_id: &str) -> Result<Option<PluginSta
             plugin_id: r.get("plugin_id"),
             enabled: r.get::<i8, _>("enabled") != 0,
             settings,
+            last_version: r.try_get::<Option<String>, _>("last_version").unwrap_or(None),
         }
     }))
 }
 
 async fn get_all_mysql(pool: &MySqlPool) -> Result<Vec<PluginState>> {
     let rows = sqlx::query(
-        "SELECT plugin_id, enabled, settings FROM plugin_states"
+        "SELECT plugin_id, enabled, settings, last_version FROM plugin_states"
     )
     .fetch_all(pool)
     .await?;
@@ -199,6 +228,7 @@ async fn get_all_mysql(pool: &MySqlPool) -> Result<Vec<PluginState>> {
             plugin_id: r.get("plugin_id"),
             enabled: r.get::<i8, _>("enabled") != 0,
             settings,
+            last_version: r.try_get::<Option<String>, _>("last_version").unwrap_or(None),
         }
     }).collect())
 }
@@ -207,16 +237,18 @@ async fn save_mysql(pool: &MySqlPool, state: &PluginState) -> Result<()> {
     let settings_json = serde_json::to_string(&state.settings)?;
     
     sqlx::query(
-        r#"INSERT INTO plugin_states (plugin_id, enabled, settings, updated_at)
-           VALUES (?, ?, ?, NOW())
+        r#"INSERT INTO plugin_states (plugin_id, enabled, settings, last_version, updated_at)
+           VALUES (?, ?, ?, ?, NOW())
            ON DUPLICATE KEY UPDATE
                enabled = VALUES(enabled),
                settings = VALUES(settings),
+               last_version = COALESCE(VALUES(last_version), last_version),
                updated_at = NOW()"#
     )
     .bind(&state.plugin_id)
     .bind(if state.enabled { 1 } else { 0 })
     .bind(&settings_json)
+    .bind(&state.last_version)
     .execute(pool)
     .await?;
     
@@ -230,4 +262,13 @@ async fn delete_mysql(pool: &MySqlPool, plugin_id: &str) -> Result<bool> {
         .await?;
     
     Ok(result.rows_affected() > 0)
+}
+
+async fn update_last_version_mysql(pool: &MySqlPool, plugin_id: &str, version: &str) -> Result<()> {
+    sqlx::query("UPDATE plugin_states SET last_version = ?, updated_at = NOW() WHERE plugin_id = ?")
+        .bind(version)
+        .bind(plugin_id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }

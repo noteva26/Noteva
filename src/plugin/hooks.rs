@@ -5,7 +5,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use serde_json::Value;
-use tracing::debug;
+use tracing::{debug, warn};
+
+use super::hook_registry::{HookRegistry, HookType};
 
 /// Hook callback type
 pub type HookCallback = Arc<dyn Fn(&mut Value) -> Option<Value> + Send + Sync>;
@@ -29,19 +31,22 @@ struct HookHandler {
 pub struct HookManager {
     /// Registered hooks (hook_name -> handlers)
     hooks: RwLock<HashMap<String, Vec<HookHandler>>>,
+    /// Hook registry — single source of truth for hook definitions
+    registry: HookRegistry,
 }
 
 impl Default for HookManager {
     fn default() -> Self {
-        Self::new()
+        Self::new(HookRegistry::load_embedded())
     }
 }
 
 impl HookManager {
-    /// Create a new hook manager
-    pub fn new() -> Self {
+    /// Create a new hook manager with the given registry
+    pub fn new(registry: HookRegistry) -> Self {
         Self {
             hooks: RwLock::new(HashMap::new()),
+            registry,
         }
     }
     
@@ -73,10 +78,36 @@ impl HookManager {
         }
     }
     
-    /// Trigger a hook and return modified data
-    pub fn trigger(&self, name: &str, mut data: Value) -> Value {
+    /// Trigger a hook — automatically dispatches to filter or action based on registry type.
+    /// Unknown hooks are treated as actions with a warning.
+    pub fn trigger(&self, name: &str, data: Value) -> Value {
+        match self.registry.get_type(name) {
+            Some(HookType::Filter) => self.trigger_filter(name, data),
+            Some(HookType::Action) => {
+                self.trigger_action(name, data.clone());
+                data
+            }
+            None => {
+                warn!("Hook '{}' not found in registry, treating as action", name);
+                self.trigger_action(name, data.clone());
+                data
+            }
+        }
+    }
+
+    /// Filter trigger: chain handler return values so each replaces the data for the next.
+    pub fn trigger_filter(&self, name: &str, mut data: Value) -> Value {
+        // Warn if the registry says this is actually an action
+        if let Some(HookType::Action) = self.registry.get_type(name) {
+            warn!(
+                "trigger_filter called on action hook '{}', falling back to action semantics",
+                name
+            );
+            self.trigger_action(name, data.clone());
+            return data;
+        }
+
         let hooks = self.hooks.read().unwrap();
-        
         if let Some(handlers) = hooks.get(name) {
             for handler in handlers {
                 if let Some(result) = (handler.callback)(&mut data) {
@@ -84,14 +115,36 @@ impl HookManager {
                 }
             }
         }
-        
         data
+    }
+
+    /// Action trigger: run all handlers but ignore their return values.
+    pub fn trigger_action(&self, name: &str, mut data: Value) {
+        // Warn if the registry says this is actually a filter
+        if let Some(HookType::Filter) = self.registry.get_type(name) {
+            warn!(
+                "trigger_action called on filter hook '{}', executing as action (return values ignored)",
+                name
+            );
+        }
+
+        let hooks = self.hooks.read().unwrap();
+        if let Some(handlers) = hooks.get(name) {
+            for handler in handlers {
+                let _ = (handler.callback)(&mut data);
+            }
+        }
     }
     
     /// Check if a hook has any handlers
     pub fn has_handlers(&self, name: &str) -> bool {
         let hooks = self.hooks.read().unwrap();
         hooks.get(name).map_or(false, |h| !h.is_empty())
+    }
+
+    /// Get a reference to the hook registry
+    pub fn registry(&self) -> &HookRegistry {
+        &self.registry
     }
 }
 
@@ -137,6 +190,9 @@ pub mod hook_names {
     pub const THEME_SWITCH: &str = "theme_switch";         // src/theme/mod.rs
     pub const PLUGIN_ACTIVATE: &str = "plugin_activate";   // src/api/plugins.rs
     pub const PLUGIN_DEACTIVATE: &str = "plugin_deactivate"; // src/api/plugins.rs
+    pub const PLUGIN_ACTION: &str = "plugin_action";         // src/api/plugins.rs
+    pub const PLUGIN_DESTROY: &str = "plugin_destroy";       // src/api/plugins.rs
+    pub const PLUGIN_UPGRADE: &str = "plugin_upgrade";       // src/api/plugins.rs
     
     // Content filter hooks - triggered in services
     pub const ARTICLE_CONTENT_FILTER: &str = "article_content_filter";     // src/services/article.rs
@@ -157,21 +213,30 @@ mod tests {
     use super::*;
     use serde_json::json;
     
+    /// Helper: create a minimal HookRegistry for tests
+    fn test_registry() -> HookRegistry {
+        HookRegistry::load_embedded()
+    }
+    
     #[test]
     fn test_hook_registration_and_trigger() {
-        let manager = HookManager::new();
+        let manager = HookManager::new(test_registry());
         
-        // Register a hook that modifies data
-        manager.register("test_hook", |data| {
-            if let Some(obj) = data.as_object_mut() {
+        // Use a known filter hook so trigger() applies filter semantics
+        let hook = "article_before_create";
+        
+        // Register a hook that returns modified data
+        manager.register(hook, |data| {
+            let mut cloned = data.clone();
+            if let Some(obj) = cloned.as_object_mut() {
                 obj.insert("modified".to_string(), json!(true));
             }
-            None
+            Some(cloned)
         }, PRIORITY_DEFAULT, None);
         
         // Trigger the hook
         let input = json!({"original": true});
-        let output = manager.trigger("test_hook", input);
+        let output = manager.trigger(hook, input);
         
         assert_eq!(output["original"], json!(true));
         assert_eq!(output["modified"], json!(true));
@@ -179,33 +244,46 @@ mod tests {
     
     #[test]
     fn test_hook_priority() {
-        let manager = HookManager::new();
+        let manager = HookManager::new(test_registry());
+        
+        // Use a known filter hook
+        let hook = "article_before_create";
         
         // Register hooks with different priorities
-        manager.register("priority_test", |data| {
-            if let Some(arr) = data.as_array_mut() {
+        manager.register(hook, |data| {
+            let mut cloned = data.clone();
+            if let Some(arr) = cloned.as_array_mut() {
                 arr.push(json!("late"));
             }
-            None
+            Some(cloned)
         }, PRIORITY_LATE, None);
         
-        manager.register("priority_test", |data| {
-            if let Some(arr) = data.as_array_mut() {
+        manager.register(hook, |data| {
+            let mut cloned = data.clone();
+            if let Some(arr) = cloned.as_array_mut() {
                 arr.push(json!("early"));
             }
-            None
+            Some(cloned)
         }, PRIORITY_EARLY, None);
         
-        manager.register("priority_test", |data| {
-            if let Some(arr) = data.as_array_mut() {
+        manager.register(hook, |data| {
+            let mut cloned = data.clone();
+            if let Some(arr) = cloned.as_array_mut() {
                 arr.push(json!("default"));
             }
-            None
+            Some(cloned)
         }, PRIORITY_DEFAULT, None);
         
-        let output = manager.trigger("priority_test", json!([]));
+        let output = manager.trigger(hook, json!([]));
         
         // Should be in order: early, default, late
         assert_eq!(output, json!(["early", "default", "late"]));
+    }
+
+    #[test]
+    fn test_registry_accessor() {
+        let manager = HookManager::new(test_registry());
+        // The registry should contain hooks from hook-registry.json
+        assert!(manager.registry().contains("article_before_create"));
     }
 }

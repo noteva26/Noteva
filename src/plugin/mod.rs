@@ -8,6 +8,8 @@
 
 pub mod loader;
 pub mod hooks;
+pub mod hook_registry;
+pub mod doc_gen;
 pub mod shortcode;
 pub mod wasm_bridge;
 
@@ -54,6 +56,8 @@ pub enum Permission {
     FileSystemRead,
     /// File system write access
     FileSystemWrite,
+    /// Plugin data storage access
+    Storage,
 }
 
 impl Permission {
@@ -69,6 +73,7 @@ impl Permission {
             "network" => Some(Permission::Network),
             "fs_read" | "fs-read" | "filesystem_read" => Some(Permission::FileSystemRead),
             "fs_write" | "fs-write" | "filesystem_write" => Some(Permission::FileSystemWrite),
+            "storage" => Some(Permission::Storage),
             _ => None,
         }
     }
@@ -85,6 +90,7 @@ impl Permission {
             Permission::Network => "network",
             Permission::FileSystemRead => "fs_read",
             Permission::FileSystemWrite => "fs_write",
+            Permission::Storage => "storage",
         }
     }
 }
@@ -289,7 +295,85 @@ impl PluginRuntime {
             .map_err(|e| PluginError::WasmError(e.to_string()))?;
         store.epoch_deadline_trap();
 
-        let linker = Linker::new(&self.engine);
+        let mut linker = Linker::new(&self.engine);
+        
+        // Register stub host functions so WASM modules that declare imports
+        // can be instantiated for metadata tracking. Actual execution happens
+        // in the wasm-worker subprocess which registers real implementations.
+        let _ = linker.func_wrap(
+            "env", "host_http_request",
+            |_: Caller<'_, ()>,
+             _: i32, _: i32, _: i32, _: i32,
+             _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "env", "host_storage_get",
+            |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "env", "host_storage_set",
+            |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "env", "host_storage_delete",
+            |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "env", "host_log",
+            |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| {},
+        );
+        let _ = linker.func_wrap(
+            "env", "host_query_articles",
+            |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "env", "host_get_article",
+            |_: Caller<'_, ()>, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "env", "host_get_comments",
+            |_: Caller<'_, ()>, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "env", "host_update_article_meta",
+            |_: Caller<'_, ()>, _: i32, _: i32, _: i32| -> i32 { 0 },
+        );
+
+        // WASI stubs — plugins compiled with wasm32-wasip1 import these.
+        // Only stubs are needed here; real execution happens in wasm-worker.
+        let _ = linker.func_wrap(
+            "wasi_snapshot_preview1", "fd_write",
+            |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "wasi_snapshot_preview1", "fd_read",
+            |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "wasi_snapshot_preview1", "fd_close",
+            |_: Caller<'_, ()>, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "wasi_snapshot_preview1", "fd_seek",
+            |_: Caller<'_, ()>, _: i32, _: i64, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "wasi_snapshot_preview1", "fd_fdstat_get",
+            |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "wasi_snapshot_preview1", "proc_exit",
+            |_: Caller<'_, ()>, _: i32| {},
+        );
+        let _ = linker.func_wrap(
+            "wasi_snapshot_preview1", "environ_sizes_get",
+            |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "wasi_snapshot_preview1", "environ_get",
+            |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
+        );
+        
         let instance = linker.instantiate(&mut store, &module)
             .map_err(|e| PluginError::WasmError(format!("Failed to instantiate WASM module: {}", e)))?;
 

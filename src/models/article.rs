@@ -56,6 +56,13 @@ pub struct Article {
     /// Pin order (lower = higher priority)
     #[serde(default)]
     pub pin_order: i32,
+    /// Plugin-managed metadata (JSON object, keyed by plugin_id)
+    #[serde(default = "default_meta")]
+    pub meta: serde_json::Value,
+}
+
+fn default_meta() -> serde_json::Value {
+    serde_json::json!({})
 }
 
 impl Article {
@@ -94,6 +101,7 @@ impl Article {
             thumbnail: None,
             is_pinned: false,
             pin_order: 0,
+            meta: serde_json::json!({}),
         }
     }
 }

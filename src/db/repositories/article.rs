@@ -72,6 +72,9 @@ pub trait ArticleRepository: Send + Sync {
 
     /// Count search results
     async fn count_search(&self, keyword: &str, published_only: bool) -> Result<i64>;
+
+    /// Update article meta JSON (merge plugin_id namespace)
+    async fn update_meta(&self, article_id: i64, plugin_id: &str, data: &serde_json::Value) -> Result<()>;
 }
 
 /// SQLx-based article repository implementation
@@ -269,6 +272,41 @@ impl ArticleRepository for SqlxArticleRepository {
             }
         }
     }
+
+    async fn update_meta(&self, article_id: i64, plugin_id: &str, data: &serde_json::Value) -> Result<()> {
+        // Read current meta, merge plugin namespace, write back
+        let article = self.get_by_id(article_id).await?
+            .ok_or_else(|| anyhow::anyhow!("Article not found: {}", article_id))?;
+
+        let mut meta = article.meta.clone();
+        if !meta.is_object() {
+            meta = serde_json::json!({});
+        }
+        meta.as_object_mut().unwrap().insert(plugin_id.to_string(), data.clone());
+
+        let meta_str = meta.to_string();
+        match self.pool.driver() {
+            DatabaseDriver::Sqlite => {
+                sqlx::query("UPDATE articles SET meta = ?, updated_at = ? WHERE id = ?")
+                    .bind(&meta_str)
+                    .bind(Utc::now())
+                    .bind(article_id)
+                    .execute(self.pool.as_sqlite().unwrap())
+                    .await
+                    .context("Failed to update article meta")?;
+            }
+            DatabaseDriver::Mysql => {
+                sqlx::query("UPDATE articles SET meta = ?, updated_at = ? WHERE id = ?")
+                    .bind(&meta_str)
+                    .bind(Utc::now())
+                    .bind(article_id)
+                    .execute(self.pool.as_mysql().unwrap())
+                    .await
+                    .context("Failed to update article meta")?;
+            }
+        }
+        Ok(())
+    }
 }
 
 
@@ -329,6 +367,7 @@ async fn create_article_sqlite(pool: &SqlitePool, input: &CreateArticleInput) ->
         thumbnail: None,
         is_pinned: false,
         pin_order: 0,
+        meta: serde_json::json!({}),
     })
 }
 
@@ -620,6 +659,10 @@ fn row_to_article_sqlite(row: &sqlx::sqlite::SqliteRow) -> Result<Article> {
         thumbnail: row.try_get("thumbnail").ok(),
         is_pinned: row.try_get("is_pinned").unwrap_or(false),
         pin_order: row.try_get("pin_order").unwrap_or(0),
+        meta: row.try_get::<String, _>("meta")
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(serde_json::json!({})),
     })
 }
 
@@ -738,6 +781,7 @@ async fn create_article_mysql(pool: &MySqlPool, input: &CreateArticleInput) -> R
         thumbnail: None,
         is_pinned: false,
         pin_order: 0,
+        meta: serde_json::json!({}),
     })
 }
 
@@ -1029,6 +1073,10 @@ fn row_to_article_mysql(row: &sqlx::mysql::MySqlRow) -> Result<Article> {
         thumbnail: row.try_get("thumbnail").ok(),
         is_pinned: row.try_get("is_pinned").unwrap_or(false),
         pin_order: row.try_get("pin_order").unwrap_or(0),
+        meta: row.try_get::<String, _>("meta")
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(serde_json::json!({})),
     })
 }
 

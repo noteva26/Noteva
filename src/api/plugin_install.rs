@@ -110,6 +110,7 @@ pub async fn upload_plugin(
                 plugin_id: plugin_name.clone(),
                 enabled: false,
                 settings: std::collections::HashMap::new(),
+                last_version: None,
             };
             
             if let Err(e) = manager.ensure_state_exists(&initial_state).await {
@@ -335,6 +336,7 @@ async fn install_official_plugin(
                 plugin_id: plugin_id.to_string(),
                 enabled: false,
                 settings: std::collections::HashMap::new(),
+                last_version: None,
             };
             
             if let Err(e) = manager.ensure_state_exists(&initial_state).await {
@@ -417,6 +419,7 @@ async fn install_third_party_plugin(
                 plugin_id: plugin_id.to_string(),
                 enabled: false,
                 settings: std::collections::HashMap::new(),
+                last_version: None,
             };
             
             if let Err(e) = manager.ensure_state_exists(&initial_state).await {
@@ -538,6 +541,7 @@ pub async fn install_github_plugin(
                 plugin_id: plugin_name.clone(),
                 enabled: false,
                 settings: std::collections::HashMap::new(),
+                last_version: None,
             };
             
             if let Err(e) = manager.ensure_state_exists(&initial_state).await {

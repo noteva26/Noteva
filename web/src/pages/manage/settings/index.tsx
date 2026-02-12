@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+﻿﻿import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { adminApi, UpdateCheckResponse, authApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/store/auth";
@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2, Link } from "lucide-react";
+import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2, Link, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import ReactMarkdown from "react-markdown";
@@ -65,6 +65,8 @@ export default function SettingsPage() {
   // Update check state
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [performingUpdate, setPerformingUpdate] = useState(false);
+  const [updateRestarting, setUpdateRestarting] = useState(false);
   // 榛樿寮€鍚?Beta 妫€鏌ワ紝鍥犱负褰撳墠鐗堟湰鏄?beta
   const [checkBeta, setCheckBeta] = useState(true);
 
@@ -191,6 +193,24 @@ export default function SettingsPage() {
       toast.error(t("settings.checkUpdateFailed"));
     } finally {
       setCheckingUpdate(false);
+    }
+  };
+
+  const handlePerformUpdate = async () => {
+    if (!updateInfo?.latest_version) return;
+    const version = updateInfo.latest_version;
+    if (!window.confirm(t("settings.confirmUpdate").replace("{version}", version))) return;
+    
+    setPerformingUpdate(true);
+    try {
+      await adminApi.performUpdate(version, updateInfo.is_beta);
+      toast.success(t("settings.updateSuccess"));
+      setUpdateRestarting(true);
+    } catch (error: any) {
+      const msg = error?.response?.data?.error?.message || t("settings.updateFailed");
+      toast.error(msg);
+    } finally {
+      setPerformingUpdate(false);
     }
   };
 
@@ -537,7 +557,7 @@ export default function SettingsPage() {
                     <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                       <div className="flex items-start gap-3">
                         <Download className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5" />
-                        <div className="space-y-2">
+                        <div className="space-y-2 flex-1">
                           <p className="font-medium text-green-800 dark:text-green-200">
                             {t("settings.newVersionAvailable")}
                           </p>
@@ -551,17 +571,31 @@ export default function SettingsPage() {
                               <ReactMarkdown>{updateInfo.release_notes}</ReactMarkdown>
                             </div>
                           )}
-                          {updateInfo.release_url && (
-                            <a
-                              href={updateInfo.release_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 mt-2 text-sm text-green-700 dark:text-green-300 hover:underline"
+                          <div className="flex items-center gap-3 mt-3">
+                            <Button
+                              onClick={handlePerformUpdate}
+                              disabled={performingUpdate || updateRestarting}
+                              size="sm"
                             >
-                              <Download className="h-4 w-4" />
-                              {t("settings.downloadUpdate")}
-                            </a>
-                          )}
+                              {performingUpdate ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <RotateCw className="h-4 w-4 mr-2" />
+                              )}
+                              {performingUpdate ? t("settings.updating") : t("settings.performUpdate")}
+                            </Button>
+                            {updateInfo.release_url && (
+                              <a
+                                href={updateInfo.release_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 text-sm text-green-700 dark:text-green-300 hover:underline"
+                              >
+                                <Download className="h-4 w-4" />
+                                {t("settings.downloadUpdate")}
+                              </a>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -580,6 +614,16 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Restarting notice */}
+              {updateRestarting && (
+                <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="h-5 w-5 text-amber-600 dark:text-amber-400 animate-spin" />
+                    <p className="text-amber-800 dark:text-amber-200">{t("settings.updateRestarting")}</p>
+                  </div>
                 </div>
               )}
 

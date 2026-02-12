@@ -166,6 +166,9 @@ pub struct PluginMetadata {
     /// Whether plugin needs database tables
     #[serde(default)]
     pub database: bool,
+    /// Whether plugin exposes custom API routes
+    #[serde(default)]
+    pub api: bool,
 }
 
 /// Plugin requirements
@@ -374,6 +377,7 @@ impl PluginManager {
                     plugin_id: plugin_id.clone(),
                     enabled: state.enabled,
                     settings: state.settings,
+                    last_version: None,
                 };
                 
                 if let Err(e) = self.repo.save(&db_state).await {
@@ -486,6 +490,7 @@ impl PluginManager {
                 plugin_id: id.to_string(),
                 enabled: true,
                 settings: plugin.settings.clone(),
+                last_version: None,
             };
             self.repo.save(&state).await?;
             
@@ -513,6 +518,7 @@ impl PluginManager {
                 plugin_id: id.to_string(),
                 enabled: false,
                 settings: plugin.settings.clone(),
+                last_version: None,
             };
             self.repo.save(&state).await?;
             
@@ -533,6 +539,7 @@ impl PluginManager {
                 plugin_id: id.to_string(),
                 enabled: plugin.enabled,
                 settings,
+                last_version: None,
             };
             self.repo.save(&state).await?;
             
@@ -567,6 +574,17 @@ impl PluginManager {
     pub async fn reload(&mut self) -> Result<()> {
         self.plugins.clear();
         self.scan_plugins().await
+    }
+
+    /// Get the last known version for a plugin from the database
+    pub async fn get_last_version(&self, plugin_id: &str) -> Result<Option<String>> {
+        let state = self.repo.get(plugin_id).await?;
+        Ok(state.and_then(|s| s.last_version))
+    }
+
+    /// Update the last known version for a plugin in the database
+    pub async fn update_last_version(&self, plugin_id: &str, version: &str) -> Result<()> {
+        self.repo.update_last_version(plugin_id, version).await
     }
     
     /// Get combined frontend JS for all enabled plugins

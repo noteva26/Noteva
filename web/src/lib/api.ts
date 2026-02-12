@@ -176,6 +176,9 @@ export const adminApi = {
   checkUpdate: (beta: boolean = false) =>
     api.get<UpdateCheckResponse>("/admin/update-check", { params: { beta } }),
   
+  performUpdate: (version: string, beta: boolean = false) =>
+    api.post<PerformUpdateResponse>("/admin/update-perform", { version, beta }),
+  
   // Login logs (security)
   getLoginLogs: (params?: { page?: number; per_page?: number; username?: string; ip_address?: string; success?: boolean }) =>
     api.get<LoginLogsResponse>("/admin/login-logs", { params }),
@@ -538,6 +541,11 @@ export interface UpdateCheckResponse {
   release_date: string | null;
   is_beta: boolean;
   error: string | null;
+}
+
+export interface PerformUpdateResponse {
+  success: boolean;
+  message: string;
 }
 
 // Theme installation types

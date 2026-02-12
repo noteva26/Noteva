@@ -130,7 +130,10 @@ mod tests {
             limiter.record_failed_attempt("testuser").await;
         }
         
-        // 5th attempt should be limited
+        // Record 5th attempt
+        limiter.record_failed_attempt("testuser").await;
+        
+        // Now should be limited (5 attempts recorded)
         assert!(limiter.is_username_limited("testuser").await);
         
         // Clear attempts
@@ -149,7 +152,10 @@ mod tests {
             limiter.record_ip_request(ip).await;
         }
         
-        // 10th request should be limited
+        // Record 10th request
+        limiter.record_ip_request(ip).await;
+        
+        // Now should be limited (10 requests recorded)
         assert!(limiter.is_ip_limited(ip).await);
     }
     

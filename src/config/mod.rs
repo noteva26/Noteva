@@ -399,16 +399,20 @@ fn format_yaml_error(e: &serde_yaml::Error) -> String {
     }
 }
 
+// Shared mutex for all config tests that modify environment variables.
+// Both `tests` and `property_tests` modules use this to prevent race conditions.
+#[cfg(test)]
+static CONFIG_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
-    use std::sync::Mutex;
     use tempfile::NamedTempFile;
 
-    // Mutex to serialize tests that modify environment variables
-    // This prevents race conditions when tests run in parallel
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+    fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+        super::CONFIG_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     #[test]
     fn test_load_missing_file_returns_defaults() {
@@ -507,7 +511,7 @@ theme:
 
     #[test]
     fn test_env_override_server_config() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = lock_env();
         
         // Clean up any leftover env vars first
         std::env::remove_var("NOTEVA_SERVER_HOST");
@@ -539,7 +543,7 @@ theme:
 
     #[test]
     fn test_env_override_database_config() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = lock_env();
         
         // Clean up any leftover env vars first
         std::env::remove_var("NOTEVA_SERVER_HOST");
@@ -570,7 +574,7 @@ theme:
 
     #[test]
     fn test_env_override_cache_config() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = lock_env();
         
         // Clean up any leftover env vars first
         std::env::remove_var("NOTEVA_SERVER_HOST");
@@ -604,7 +608,7 @@ theme:
 
     #[test]
     fn test_env_override_theme_config() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = lock_env();
         
         // Clean up any leftover env vars first
         std::env::remove_var("NOTEVA_SERVER_HOST");
@@ -635,7 +639,7 @@ theme:
 
     #[test]
     fn test_env_override_invalid_port_ignored() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = lock_env();
         
         // Clean up any leftover env vars first
         std::env::remove_var("NOTEVA_SERVER_HOST");
@@ -664,7 +668,7 @@ theme:
 
     #[test]
     fn test_env_override_invalid_driver_ignored() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = lock_env();
         
         // Clean up any leftover env vars first
         std::env::remove_var("NOTEVA_SERVER_HOST");
@@ -705,12 +709,11 @@ mod property_tests {
     use super::*;
     use proptest::prelude::*;
     use std::io::Write;
-    use std::sync::Mutex;
     use tempfile::NamedTempFile;
 
-    // Mutex to serialize tests that modify environment variables
-    // This prevents race conditions when tests run in parallel
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+    fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+        super::CONFIG_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     // ============================================================================
     // Strategies for generating test data
@@ -1057,7 +1060,7 @@ mod property_tests {
         /// the file value.
         #[test]
         fn property_26_env_override_server((env_key, env_value) in env_server_value_strategy()) {
-            let _guard = ENV_MUTEX.lock().unwrap();
+            let _guard = lock_env();
             
             // Clean up any leftover env vars first
             std::env::remove_var("NOTEVA_SERVER_HOST");
@@ -1100,7 +1103,7 @@ mod property_tests {
         /// **Validates: Requirements 11.5**
         #[test]
         fn property_26_env_override_database((env_key, env_value) in env_database_value_strategy()) {
-            let _guard = ENV_MUTEX.lock().unwrap();
+            let _guard = lock_env();
             
             // Clean up any leftover env vars first
             std::env::remove_var("NOTEVA_SERVER_HOST");
@@ -1147,7 +1150,7 @@ mod property_tests {
         /// **Validates: Requirements 11.5**
         #[test]
         fn property_26_env_override_cache((env_key, env_value) in env_cache_value_strategy()) {
-            let _guard = ENV_MUTEX.lock().unwrap();
+            let _guard = lock_env();
             
             // Clean up any leftover env vars first
             std::env::remove_var("NOTEVA_SERVER_HOST");
@@ -1195,7 +1198,7 @@ mod property_tests {
         /// **Validates: Requirements 11.5**
         #[test]
         fn property_26_env_override_theme((env_key, env_value) in env_theme_value_strategy()) {
-            let _guard = ENV_MUTEX.lock().unwrap();
+            let _guard = lock_env();
             
             // Clean up any leftover env vars first
             std::env::remove_var("NOTEVA_SERVER_HOST");
@@ -1307,7 +1310,7 @@ mod property_tests {
             file_port in 1000u16..2000,
             env_port in 3000u16..4000,
         ) {
-            let _guard = ENV_MUTEX.lock().unwrap();
+            let _guard = lock_env();
             
             // Clean up any leftover env vars first
             std::env::remove_var("NOTEVA_SERVER_HOST");

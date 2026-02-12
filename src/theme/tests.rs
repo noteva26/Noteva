@@ -10,9 +10,10 @@ fn create_test_theme(themes_dir: &Path, theme_name: &str) -> PathBuf {
     let theme_path = themes_dir.join(theme_name);
     fs::create_dir_all(&theme_path).unwrap();
 
-    // Create theme.toml
+    // Create theme.toml with [theme] section (required by ThemeMetadata struct)
     let theme_toml = format!(
-        r#"name = "{}"
+        r#"[theme]
+name = "{}"
 display_name = "{} Theme"
 description = "A test theme"
 version = "1.0.0"
@@ -267,8 +268,8 @@ fn test_theme_without_toml() {
     // Should still work with default metadata
     let info = engine.get_theme_info("minimal").unwrap();
     assert_eq!(info.name, "minimal");
-    // Version defaults to 1.0.0
-    assert_eq!(info.version, "1.0.0");
+    // When a theme has no toml/json and is the default theme, version comes from CARGO_PKG_VERSION
+    assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
 }
 
 

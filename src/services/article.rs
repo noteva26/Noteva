@@ -252,6 +252,7 @@ impl ArticleService {
                 "id": article.id,
                 "title": article.title,
                 "slug": article.slug,
+                "content": article.content,
                 "author_id": article.author_id,
                 "category_id": article.category_id,
                 "status": format!("{:?}", article.status),
@@ -696,6 +697,11 @@ impl ArticleService {
     /// Satisfies requirement 1.6: WHEN 文章包含 Markdown 内容 THEN Article_Manager SHALL 将其解析�?HTML 进行渲染
     pub fn render_markdown(&self, content: &str) -> String {
         self.markdown_renderer.render(content)
+    }
+
+    /// Extract table of contents from markdown content.
+    pub fn extract_toc(&self, content: &str) -> Vec<crate::services::markdown::TocEntry> {
+        self.markdown_renderer.extract_toc(content)
     }
 
     /// Render markdown content to HTML with shortcode processing

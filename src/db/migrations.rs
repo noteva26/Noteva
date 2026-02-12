@@ -627,6 +627,28 @@ pub const MIGRATIONS: &[Migration] = &[
             CREATE INDEX idx_plugin_data_plugin_id ON plugin_data(plugin_id);
         "#,
     },
+    // Migration 22: Add last_version column to plugin_states for lifecycle hook support
+    Migration {
+        version: 22,
+        name: "add_plugin_states_last_version",
+        up_sqlite: r#"
+            ALTER TABLE plugin_states ADD COLUMN last_version TEXT;
+        "#,
+        up_mysql: r#"
+            ALTER TABLE plugin_states ADD COLUMN last_version TEXT;
+        "#,
+    },
+    // Migration 23: Add meta JSON column to articles for plugin-managed metadata
+    Migration {
+        version: 23,
+        name: "add_articles_meta",
+        up_sqlite: r#"
+            ALTER TABLE articles ADD COLUMN meta TEXT NOT NULL DEFAULT '{}';
+        "#,
+        up_mysql: r#"
+            ALTER TABLE articles ADD COLUMN meta JSON NOT NULL DEFAULT ('{}');
+        "#,
+    },
 ];
 
 /// Run all pending migrations
@@ -1265,7 +1287,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_total_migrations() {
-        assert_eq!(total_migrations(), 18);
+        assert_eq!(total_migrations(), 23);
     }
 
     #[test]

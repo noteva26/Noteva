@@ -276,6 +276,10 @@ pub async fn get_article(
     let mut response: ArticleResponse = article.into();
     response = response.with_category(category).with_tags(tags);
     
+    // Extract table of contents from markdown content
+    let toc = state.article_service.extract_toc(&response.content);
+    response = response.with_toc(toc);
+    
     // Trigger article_before_display hook (can modify article data)
     let hook_data = serde_json::json!({
         "article": &response,
@@ -339,7 +343,13 @@ pub async fn get_article_by_id(
         .unwrap_or_default();
 
     let response: ArticleResponse = article.into();
-    Ok(Json(response.with_category(category).with_tags(tags)))
+    let response = response.with_category(category).with_tags(tags);
+    
+    // Extract table of contents
+    let toc = state.article_service.extract_toc(&response.content);
+    let response = response.with_toc(toc);
+    
+    Ok(Json(response))
 }
 
 /// POST /api/v1/articles - Create new article
@@ -553,6 +563,10 @@ pub async fn resolve_article(
     
     let response: ArticleResponse = article.into();
     let response = response.with_category(category).with_tags(tags);
+    
+    // Extract table of contents
+    let toc = state.article_service.extract_toc(&response.content);
+    let response = response.with_toc(toc);
     
     Ok(Json(ResolveArticleResponse {
         article: response,

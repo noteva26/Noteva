@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::services::markdown::TocEntry;
+
 // ============================================================================
 // Article Response Types
 // ============================================================================
@@ -35,6 +37,10 @@ pub struct ArticleResponse {
     pub category: Option<CategoryInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<TagInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toc: Option<Vec<TocEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Value>,
 }
 
 /// Simplified article response for list views
@@ -115,6 +121,12 @@ impl From<crate::models::Article> for ArticleResponse {
             pin_order: article.pin_order,
             category: None,
             tags: None,
+            toc: None,
+            meta: if article.meta.as_object().map_or(true, |m| m.is_empty()) {
+                None
+            } else {
+                Some(article.meta)
+            },
         }
     }
 }
@@ -154,6 +166,14 @@ impl ArticleResponse {
                 })
                 .collect(),
         );
+        self
+    }
+
+    /// Add table of contents to response
+    pub fn with_toc(mut self, toc: Vec<TocEntry>) -> Self {
+        if !toc.is_empty() {
+            self.toc = Some(toc);
+        }
         self
     }
 }

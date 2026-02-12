@@ -18,7 +18,7 @@ use noteva::{
             SettingsRepository,
         },
     },
-    plugin::{PluginManager, HookManager, ShortcodeManager, shortcode::builtins},
+    plugin::{PluginManager, HookManager, ShortcodeManager, shortcode::builtins, hook_registry::HookRegistry},
     services::{
         article::ArticleService,
         category::CategoryService,
@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
         tracing::warn!("Failed to initialize plugins: {}", e);
     }
     
-    let hook_manager = Arc::new(HookManager::new());
+    let hook_manager = Arc::new(HookManager::new(HookRegistry::load_embedded()));
     
     let mut shortcode_manager = ShortcodeManager::new();
     builtins::register_builtins(&mut shortcode_manager);
@@ -148,6 +148,7 @@ async fn main() -> Result<()> {
                 noteva::plugin::Permission::ReadComments,
                 noteva::plugin::Permission::WriteComments,
                 noteva::plugin::Permission::Network,
+                noteva::plugin::Permission::Storage,
             ]);
             tracing::info!("WASM plugin runtime initialized");
             Arc::new(tokio::sync::RwLock::new(runtime))
@@ -170,6 +171,7 @@ async fn main() -> Result<()> {
         &wasm_runtime,
         &hook_manager,
         &wasm_registry,
+        &pool,
     ).await;
 
     // Build application state

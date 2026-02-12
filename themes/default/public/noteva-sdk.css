@@ -560,3 +560,102 @@
     color: #9ca3af;
   }
 }
+
+
+/* ============================================================================
+ * 脚注样式
+ * ============================================================================ */
+
+/* 脚注引用（正文中的上标数字） */
+.footnote-reference {
+  font-size: 0.75em;
+  vertical-align: super;
+  line-height: 0;
+}
+
+.footnote-reference a {
+  color: #3b82f6;
+  text-decoration: none;
+  padding: 0 2px;
+}
+
+.footnote-reference a:hover {
+  text-decoration: underline;
+}
+
+/* 脚注定义区域 */
+.footnote-definition {
+  font-size: 0.875em;
+  color: #6b7280;
+  padding: 8px 0 8px 24px;
+  position: relative;
+  border-top: 1px solid #e5e7eb;
+  margin-top: 8px;
+}
+
+.footnote-definition:first-of-type {
+  margin-top: 32px;
+}
+
+.footnote-definition-label {
+  position: absolute;
+  left: 0;
+  font-size: 0.75em;
+  color: #3b82f6;
+  font-weight: 600;
+}
+
+.footnote-definition p {
+  margin: 0;
+  display: inline;
+}
+
+/* 深色模式脚注 */
+.dark .footnote-reference a {
+  color: #60a5fa;
+}
+
+.dark .footnote-definition {
+  color: #9ca3af;
+  border-top-color: #374151;
+}
+
+.dark .footnote-definition-label {
+  color: #60a5fa;
+}
+
+/* ============================================================================
+ * 数学公式样式（KaTeX 加载前的基础样式）
+ * ============================================================================ */
+
+.math-inline {
+  font-family: 'KaTeX_Math', 'Times New Roman', serif;
+  padding: 0 2px;
+}
+
+.math-block {
+  display: block;
+  text-align: center;
+  margin: 16px 0;
+  padding: 16px;
+  overflow-x: auto;
+  font-family: 'KaTeX_Math', 'Times New Roman', serif;
+}
+
+/* ============================================================================
+ * Mermaid 图表样式
+ * ============================================================================ */
+
+.mermaid {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.dark .mermaid {
+  background: #1f2937;
+}

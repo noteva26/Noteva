@@ -421,7 +421,8 @@ mod tests {
             .expect("Failed to run migrations");
 
         let repo = SqlxTagRepository::boxed(pool.clone());
-        let service = TagService::new(repo);
+        let cache = Arc::new(Cache::Memory(crate::cache::MemoryCache::new()));
+        let service = TagService::new(repo, cache);
 
         (pool, service)
     }
@@ -820,7 +821,8 @@ mod tests {
             .expect("Failed to run migrations");
 
         let repo = SqlxTagRepository::boxed(pool.clone());
-        let service = TagService::new(repo);
+        let cache = Arc::new(Cache::Memory(crate::cache::MemoryCache::new()));
+        let service = TagService::new(repo, cache);
 
         (pool, service)
     }
