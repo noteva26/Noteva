@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::db::repositories::{PluginState, PluginStateRepository, SqlxPluginStateRepository};
 use crate::db::DynDatabasePool;
@@ -361,7 +361,7 @@ impl PluginManager {
         // Scan for plugins
         self.scan_plugins().await?;
         
-        info!("Loaded {} plugins", self.plugins.len());
+        debug!("Loaded {} plugins", self.plugins.len());
         Ok(())
     }
     
@@ -414,7 +414,7 @@ impl PluginManager {
             if path.is_dir() {
                 match self.load_plugin(&path, &states_map) {
                     Ok(plugin) => {
-                        info!("Loaded plugin: {} v{}", plugin.metadata.name, plugin.metadata.version);
+                        debug!("Loaded plugin: {} v{}", plugin.metadata.name, plugin.metadata.version);
                         self.plugins.insert(plugin.metadata.id.clone(), plugin);
                     }
                     Err(e) => {

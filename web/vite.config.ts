@@ -13,6 +13,22 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Vendor: React core
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          // UI libs
+          'vendor-ui': ['motion', 'sonner', 'lucide-react'],
+          // Charts (heavy)
+          'vendor-charts': ['recharts'],
+          // Markdown rendering
+          'vendor-markdown': ['react-markdown', 'react-syntax-highlighter'],
+          // DnD kit
+          'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/modifiers', '@dnd-kit/utilities'],
+        },
+      },
+    },
   },
   server: {
     proxy: {

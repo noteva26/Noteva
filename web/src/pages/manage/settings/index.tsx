@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2, Link, RotateCw } from "lucide-react";
+import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2, Link, RotateCw, Code } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import ReactMarkdown from "react-markdown";
@@ -36,6 +36,7 @@ export default function SettingsPage() {
   const [savingSite, setSavingSite] = useState(false);
   const [savingComment, setSavingComment] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [savingCustomCode, setSavingCustomCode] = useState(false);
 
   const [siteForm, setSiteForm] = useState({
     siteName: "",
@@ -62,6 +63,11 @@ export default function SettingsPage() {
     confirmPassword: "",
   });
 
+  const [customCodeForm, setCustomCodeForm] = useState({
+    customCss: "",
+    customJs: "",
+  });
+
   // Update check state
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -84,6 +90,10 @@ export default function SettingsPage() {
         setCommentForm({
           commentModeration: data.comment_moderation === "true",
           moderationKeywords: data.moderation_keywords || "",
+        });
+        setCustomCodeForm({
+          customCss: String(data.custom_css || ""),
+          customJs: String(data.custom_js || ""),
         });
         // Load profile from user
         if (user) {
@@ -144,7 +154,14 @@ export default function SettingsPage() {
       return;
     }
     // TODO: Implement password change API
-    toast.info(t("settings.passwordUpdated"));
+    try {
+      await authApi.changePassword(passwordForm.currentPassword, passwordForm.newPassword);
+      toast.success(t("settings.passwordUpdated"));
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    } catch (error: any) {
+      const msg = error?.response?.data?.error?.message || t("settings.saveFailed");
+      toast.error(msg);
+    }
   };
 
   const handleSaveCommentSettings = async () => {
@@ -159,6 +176,21 @@ export default function SettingsPage() {
       toast.error(t("settings.saveFailed"));
     } finally {
       setSavingComment(false);
+    }
+  };
+
+  const handleSaveCustomCode = async () => {
+    setSavingCustomCode(true);
+    try {
+      await adminApi.updateSettings({
+        custom_css: customCodeForm.customCss,
+        custom_js: customCodeForm.customJs,
+      });
+      toast.success(t("settings.saveSuccess"));
+    } catch (error) {
+      toast.error(t("settings.saveFailed"));
+    } finally {
+      setSavingCustomCode(false);
     }
   };
 
@@ -249,6 +281,10 @@ export default function SettingsPage() {
             <Download className="h-4 w-4" />
             {t("settings.update")}
           </TabsTrigger>
+          <TabsTrigger value="customCode" className="gap-2">
+            <Code className="h-4 w-4" />
+            {t("settings.customCode")}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="space-y-4">
@@ -304,9 +340,13 @@ export default function SettingsPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="siteFooter">{t("settings.siteFooter")}</Label>
-                    <Input
+                    <p className="text-sm text-muted-foreground">
+                      {t("settings.siteFooterDesc")}
+                    </p>
+                    <textarea
                       id="siteFooter"
-                      placeholder=""
+                      className="w-full min-h-[80px] p-3 rounded-md border bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder={t("settings.siteFooterPlaceholder")}
                       value={siteForm.siteFooter}
                       onChange={(e) => setSiteForm((f) => ({ ...f, siteFooter: e.target.value }))}
                     />
@@ -636,6 +676,58 @@ export default function SettingsPage() {
                   <li>{t("settings.updateStep3")}</li>
                 </ol>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="customCode" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("settings.customCodeSettings")}</CardTitle>
+              <CardDescription>{t("settings.customCodeDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {loading ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-40 w-full" />
+                  <Skeleton className="h-40 w-full" />
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="customCss">{t("settings.customCss")}</Label>
+                    <p className="text-sm text-muted-foreground">
+                      {t("settings.customCssDesc")}
+                    </p>
+                    <textarea
+                      id="customCss"
+                      className="w-full min-h-[200px] p-3 rounded-md border bg-muted/50 font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder={t("settings.customCssPlaceholder")}
+                      value={customCodeForm.customCss}
+                      onChange={(e) => setCustomCodeForm((f) => ({ ...f, customCss: e.target.value }))}
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="customJs">{t("settings.customJs")}</Label>
+                    <p className="text-sm text-muted-foreground">
+                      {t("settings.customJsDesc")}
+                    </p>
+                    <textarea
+                      id="customJs"
+                      className="w-full min-h-[200px] p-3 rounded-md border bg-muted/50 font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder={t("settings.customJsPlaceholder")}
+                      value={customCodeForm.customJs}
+                      onChange={(e) => setCustomCodeForm((f) => ({ ...f, customJs: e.target.value }))}
+                      spellCheck={false}
+                    />
+                  </div>
+                  <Button onClick={handleSaveCustomCode} disabled={savingCustomCode}>
+                    {savingCustomCode && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    {t("settings.saveSettings")}
+                  </Button>
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

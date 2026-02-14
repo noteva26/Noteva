@@ -1953,7 +1953,7 @@ dependencies = [
 
 [[package]]
 name = "noteva"
-version = "0.1.3-beta"
+version = "0.1.4-beta"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1963,6 +1963,7 @@ dependencies = [
  "chrono",
  "flate2",
  "futures",
+ "hmac",
  "lettre",
  "md5",
  "moka",
@@ -1976,6 +1977,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "sqlx",
  "syntect",
  "sysinfo",

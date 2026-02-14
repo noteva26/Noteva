@@ -381,7 +381,17 @@ pnpm dev
 - [x] SEO optimization (Rust backend meta tag injection)
 - [x] Frontend migrated from Next.js to Vite
 
-### v0.1.2-beta (Current)
+### v0.1.4-beta (Current)
+- [x] Independent store platform (plugin/theme marketplace)
+- [x] S3/COS image upload plugin (WASM)
+- [x] Unified online install strategy (Release-first + validated repo fallback)
+- [x] Plugin settings secret field masking
+- [x] Frontend-backend API alignment
+- [x] Performance optimizations (WASM precompile cache, subprocess pooling, code splitting)
+- [x] Custom CSS/JS injection
+- [x] Footer enhancement
+
+### v0.1.2-beta
 - [x] Prose theme (three-column layout, AnZhiYu-inspired visuals)
 - [x] Theme list fix & metadata loading optimization
 - [x] Plugin compatibility fixes (video embed, friend links, profile)
@@ -389,9 +399,9 @@ pnpm dev
 - [ ] Code cleanup & documentation updates
 - [ ] Stability improvements
 
-### v0.1.3-beta (Planned)
-- [ ] Admin panel plugin integration
-- [ ] Editor extension API
+### v0.1.3-beta
+- [x] Admin panel plugin integration
+- [x] Editor extension API
 - [ ] More editor features
 
 ### v0.1.4-beta (Planned)

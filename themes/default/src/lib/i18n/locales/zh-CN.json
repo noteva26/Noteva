@@ -131,6 +131,11 @@
   "settings": {
     "appearance": "外观设置"
   },
+  "pagination": {
+    "prev": "上一页",
+    "next": "下一页",
+    "page": "第 {current} / {total} 页"
+  },
   "user": {
     "userBanned": "该账号已被封禁，无法登录"
   }

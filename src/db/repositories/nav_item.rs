@@ -2,7 +2,7 @@
 
 use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
-use crate::models::{NavItem, NavItemTree, NavItemType};
+use crate::models::{NavItem, NavItemTree};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use sqlx::{MySqlPool, Row, SqlitePool};

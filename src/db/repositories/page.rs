@@ -2,7 +2,7 @@
 
 use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
-use crate::models::{Page, PageStatus};
+use crate::models::Page;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;

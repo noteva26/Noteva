@@ -142,10 +142,14 @@ export default function NewArticlePage() {
       
       toast.success(status === "published" ? t("article.publishSuccess") : t("article.saveSuccess"));
       
-      // Redirect to edit page for the new article
+      // Redirect to article list after publish, edit page after draft save
       setTimeout(() => {
-        navigate(`/manage/articles/${response.data.id}`);
-      }, 500);
+        if (status === "published") {
+          navigate("/manage/articles");
+        } else {
+          navigate(`/manage/articles/${response.data.id}`);
+        }
+      }, 1000);
     } catch (error) {
       toast.error(t("article.saveFailed"));
     } finally {
@@ -264,7 +268,7 @@ export default function NewArticlePage() {
             <Eye className="h-4 w-4 mr-2" />
             {preview ? t("common.edit") : t("article.preview")}
           </Button>
-          <Button variant="outline" onClick={() => handleSubmit("draft")} disabled={saving}>
+          <Button variant="outline" onClick={() => handleSubmit("draft")} disabled={saving || !form.title.trim() || !form.content.trim()}>
             {saving ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : saveSuccess ? (
@@ -274,8 +278,12 @@ export default function NewArticlePage() {
             )}
             {t("article.saveDraft")}
           </Button>
-          <Button onClick={() => handleSubmit("published")} disabled={saving}>
-            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          <Button onClick={() => handleSubmit("published")} disabled={saving || !form.title.trim() || !form.content.trim()}>
+            {saving ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : saveSuccess ? (
+              <Check className="h-4 w-4 mr-2" />
+            ) : null}
             {t("article.publish")}
           </Button>
         </div>

@@ -200,39 +200,6 @@ impl ThemeEngine {
         Ok(())
     }
 
-    /// Recursively add templates from a directory with relative names
-    fn add_templates_from_dir(&self, tera: &mut Tera, base_path: &Path, current_path: &Path) -> Result<()> {
-        if !current_path.exists() {
-            return Ok(());
-        }
-
-        for entry in fs::read_dir(current_path)? {
-            let entry = entry?;
-            let path = entry.path();
-            
-            if path.is_dir() {
-                self.add_templates_from_dir(tera, base_path, &path)?;
-            } else if path.extension().map_or(false, |ext| ext == "html") {
-                // Get relative path from theme root
-                let relative_path = path.strip_prefix(base_path)
-                    .map_err(|_| ThemeError::TemplateError("Failed to get relative path".to_string()))?;
-                
-                // Convert to forward slashes for template name (cross-platform)
-                let template_name = relative_path
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                
-                let content = fs::read_to_string(&path)
-                    .with_context(|| format!("Failed to read template: {:?}", path))?;
-                
-                tera.add_raw_template(&template_name, &content)
-                    .map_err(|e| ThemeError::TemplateError(format!("Failed to add template {}: {}", template_name, e)))?;
-            }
-        }
-        
-        Ok(())
-    }
-
     /// Refresh the theme metadata cache
     fn refresh_theme_cache(&mut self) -> Result<()> {
         self.theme_cache.clear();

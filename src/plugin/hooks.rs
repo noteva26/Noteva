@@ -206,6 +206,9 @@ pub mod hook_names {
     
     // Navigation hooks - triggered in src/api/nav.rs
     pub const NAV_ITEMS_FILTER: &str = "nav_items_filter";                 // src/api/nav.rs
+    
+    // Upload hooks - triggered in src/api/upload.rs
+    pub const IMAGE_UPLOAD_FILTER: &str = "image_upload_filter";           // src/api/upload.rs
 }
 
 #[cfg(test)]

@@ -78,6 +78,9 @@ export const authApi = {
   
   updateProfile: (data: { display_name?: string | null; avatar?: string | null }) =>
     api.put<User>("/auth/profile", data),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.put<void>("/auth/password", { current_password: currentPassword, new_password: newPassword }),
 };
 
 // Articles API
@@ -154,6 +157,9 @@ export const adminApi = {
   
   installGitHubTheme: (downloadUrl: string) =>
     api.post<ThemeInstallResponse>("/admin/themes/github/install", { download_url: downloadUrl }),
+  
+  installThemeFromRepo: (repo: string) =>
+    api.post<ThemeInstallResponse>("/admin/themes/install-from-repo", { repo }),
   
   deleteTheme: (name: string) =>
     api.delete(`/admin/themes/${name}`),
@@ -393,16 +399,20 @@ export interface ThemeListResponse {
 }
 
 export interface StoreThemeInfo {
+  slug: string;
   name: string;
-  display_name: string;
   version: string;
   description: string | null;
   author: string | null;
-  url: string;
-  preview: string | null;
-  requires_noteva: string;
-  compatible: boolean;
-  compatibility_message: string | null;
+  github_url: string | null;
+  external_url: string | null;
+  license_type: string;
+  price_info: string | null;
+  download_source: string;
+  download_count: number;
+  avg_rating: number | null;
+  rating_count: number | null;
+  tags: string[];
   installed: boolean;
 }
 
@@ -470,16 +480,20 @@ export interface PluginListResponse {
 }
 
 export interface StorePluginInfo {
-  id: string;
+  slug: string;
   name: string;
   version: string;
   description: string;
   author: string;
-  homepage: string;
-  license: string | null;
-  requires_noteva: string;
-  compatible: boolean;
-  compatibility_message: string | null;
+  github_url: string | null;
+  external_url: string | null;
+  license_type: string;
+  price_info: string | null;
+  download_source: string;
+  download_count: number;
+  avg_rating: number | null;
+  rating_count: number | null;
+  tags: string[];
   installed: boolean;
 }
 
@@ -504,6 +518,7 @@ export interface PluginSettingsField {
   label: string;
   default?: unknown;
   description?: string;
+  secret?: boolean;
   options?: { value: string; label: string }[];
   min?: number;
   max?: number;

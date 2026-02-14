@@ -133,6 +133,7 @@ fn infer_category(name: &str) -> String {
         "plugin" => "plugin".to_string(),
         "seo" | "admin" => "frontend".to_string(),
         "nav" => "navigation".to_string(),
+        "image" => "upload".to_string(),
         other => other.to_string(),
     }
 }

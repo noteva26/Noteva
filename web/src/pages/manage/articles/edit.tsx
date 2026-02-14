@@ -332,14 +332,17 @@ export default function EditArticlePage() {
             <Eye className="h-4 w-4 mr-2" />
             {preview ? t("common.edit") : t("article.preview")}
           </Button>
-          <Button variant="outline" onClick={() => handleSubmit("draft")} disabled={saving}>
+          <Button variant="outline" onClick={() => handleSubmit("draft")} disabled={saving || !hasUnsavedChanges}>
             {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saveSuccess ? <Check className="h-4 w-4 mr-2 text-green-500" /> : <Save className="h-4 w-4 mr-2" />}
             {t("article.saveDraft")}
-            {hasUnsavedChanges && <span className="ml-1 text-amber-500">•</span>}
           </Button>
-          <Button onClick={() => handleSubmit("published")} disabled={saving}>
-            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {t("article.publish")}
+          <Button onClick={() => handleSubmit("published")} disabled={saving || !hasUnsavedChanges}>
+            {saving ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : saveSuccess ? (
+              <Check className="h-4 w-4 mr-2" />
+            ) : null}
+            {form.status === "published" ? t("article.update") : t("article.publish")}
           </Button>
         </div>
       </div>

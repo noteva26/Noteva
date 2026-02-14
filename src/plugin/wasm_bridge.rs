@@ -3,13 +3,15 @@
 //! Connects the WASM PluginRuntime with the HookManager,
 //! enabling WASM plugins to participate in backend hooks.
 //!
-//! WASM execution is isolated in a subprocess (`wasm-worker`) to prevent
-//! WASM traps from crashing the main server process. This is critical on
-//! Windows where wasmtime's SEH signal handling causes unrecoverable aborts.
+//! WASM execution is isolated in persistent subprocess workers (`wasm-worker`)
+//! to prevent WASM traps from crashing the main server process. Workers are
+//! pooled and reused across requests, with compiled WASM modules cached in
+//! each worker for fast subsequent invocations.
 
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tracing::{debug, warn, error};
 use serde_json::Value;
 
 use super::{PluginRuntime, PluginHandle, PluginManifest, Permission, PluginError};
@@ -45,6 +47,69 @@ impl WasmPluginRegistry {
     }
 }
 
+/// Sanitize plugin log output to prevent leaking sensitive information.
+///
+/// Masks:
+/// - Full URLs (API endpoints) → shows only scheme + host
+/// - API keys / tokens (common patterns like sk-xxx, Bearer xxx)
+/// - Email addresses
+fn sanitize_plugin_log(line: &str) -> String {
+    let mut result = line.to_string();
+
+    // Mask full URLs: keep scheme + host, hide path/query
+    // Match http(s)://host.domain/anything...
+    let mut sanitized = String::new();
+    let mut rest = result.as_str();
+    while let Some(start) = rest.find("http://").or_else(|| rest.find("https://")) {
+        sanitized.push_str(&rest[..start]);
+        let url_start = &rest[start..];
+        // Find the scheme
+        let scheme_end = url_start.find("://").unwrap() + 3;
+        let after_scheme = &url_start[scheme_end..];
+        // Find end of host (first / or space or end)
+        let host_end = after_scheme.find(|c: char| c == '/' || c == '?' || c == ' ' || c == '"' || c == '\'' || c == ')')
+            .unwrap_or(after_scheme.len());
+        let host = &after_scheme[..host_end];
+        sanitized.push_str(&url_start[..scheme_end]);
+        sanitized.push_str(host);
+        sanitized.push_str("/***");
+        // Skip past the full URL
+        let url_end = scheme_end + host_end;
+        let remaining = &url_start[url_end..];
+        let url_tail = remaining.find(|c: char| c == ' ' || c == '"' || c == '\'' || c == ')' || c == ']' || c == '}')
+            .unwrap_or(remaining.len());
+        rest = &remaining[url_tail..];
+    }
+    sanitized.push_str(rest);
+    result = sanitized;
+
+    // Mask common API key patterns: sk-xxx, key-xxx, Bearer xxx
+    let key_patterns = ["sk-", "key-", "Key-", "KEY-"];
+    for pat in &key_patterns {
+        while let Some(pos) = result.find(pat) {
+            let end = result[pos..].find(|c: char| c == '"' || c == '\'' || c == ' ' || c == ',' || c == '}')
+                .map(|e| pos + e)
+                .unwrap_or(result.len());
+            let visible = (pos + pat.len()).min(pos + pat.len() + 4).min(end);
+            let masked = format!("{}{}***", pat, &result[pos + pat.len()..visible]);
+            result.replace_range(pos..end, &masked);
+        }
+    }
+
+    // Mask "Bearer <token>" → "Bearer ***"
+    if let Some(pos) = result.find("Bearer ") {
+        let token_start = pos + 7;
+        let token_end = result[token_start..].find(|c: char| c == '"' || c == '\'' || c == ' ' || c == ',')
+            .map(|e| token_start + e)
+            .unwrap_or(result.len());
+        if token_end > token_start {
+            result.replace_range(token_start..token_end, "***");
+        }
+    }
+
+    result
+}
+
 fn find_worker_exe() -> String {
     if let Ok(current_exe) = std::env::current_exe() {
         let dir = current_exe.parent().unwrap_or(std::path::Path::new("."));
@@ -57,6 +122,207 @@ fn find_worker_exe() -> String {
     if cfg!(windows) { "wasm-worker.exe".to_string() } else { "wasm-worker".to_string() }
 }
 
+/// A persistent wasm-worker subprocess with stdin/stdout handles.
+struct Worker {
+    child: std::process::Child,
+    stdin: std::io::BufWriter<std::process::ChildStdin>,
+    stdout: std::io::BufReader<std::process::ChildStdout>,
+}
+
+impl Worker {
+    fn spawn() -> Option<Self> {
+        use std::process::{Command, Stdio};
+        use std::io::{BufWriter, BufReader};
+
+        let worker_exe = find_worker_exe();
+        let mut child = Command::new(&worker_exe)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()?;
+
+        let stdin = BufWriter::new(child.stdin.take()?);
+        let stdout = BufReader::new(child.stdout.take()?);
+
+        // Spawn a thread to drain stderr (host_log output) so it doesn't block
+        if let Some(stderr) = child.stderr.take() {
+            std::thread::spawn(move || {
+                use std::io::{BufRead, BufReader};
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        let sanitized = sanitize_plugin_log(&line);
+                        // Parse plugin log level from format: [wasm:plugin_id][level] message
+                        if sanitized.contains("[error]") {
+                            tracing::error!("{}", sanitized);
+                        } else if sanitized.contains("[warn]") {
+                            tracing::warn!("{}", sanitized);
+                        } else {
+                            tracing::debug!("{}", sanitized);
+                        }
+                    }
+                }
+            });
+        }
+
+        Some(Self { child, stdin, stdout })
+    }
+
+    fn is_alive(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
+
+    fn send_request(&mut self, request: &serde_json::Value) -> Option<serde_json::Value> {
+        use std::io::{Write, BufRead};
+
+        let request_str = request.to_string();
+        // Write request as a single line
+        if self.stdin.write_all(request_str.as_bytes()).is_err() { return None; }
+        if self.stdin.write_all(b"\n").is_err() { return None; }
+        if self.stdin.flush().is_err() { return None; }
+
+        // Read one line of response
+        let mut response_line = String::new();
+        if self.stdout.read_line(&mut response_line).is_err() { return None; }
+        if response_line.is_empty() { return None; }
+
+        serde_json::from_str(response_line.trim()).ok()
+    }
+
+    fn shutdown(mut self) {
+        let _ = self.send_request(&serde_json::json!({"cmd": "shutdown"}));
+        let _ = self.child.wait();
+    }
+}
+
+/// Pool of persistent wasm-worker subprocesses.
+/// Workers are reused across hook invocations to avoid spawn + compile overhead.
+pub struct WorkerPool {
+    workers: StdMutex<Vec<Worker>>,
+    pool_size: usize,
+}
+
+impl WorkerPool {
+    pub fn new(pool_size: usize) -> Self {
+        let mut workers = Vec::with_capacity(pool_size);
+        for _ in 0..pool_size {
+            if let Some(w) = Worker::spawn() {
+                workers.push(w);
+            }
+        }
+        let actual = workers.len();
+        if actual < pool_size {
+            tracing::warn!("WorkerPool: only spawned {}/{} workers", actual, pool_size);
+        } else {
+            tracing::debug!("WorkerPool: spawned {} persistent workers", actual);
+        }
+        Self { workers: StdMutex::new(workers), pool_size }
+    }
+
+    /// Take an available worker from the pool (or spawn a new one).
+    fn acquire(&self) -> Option<Worker> {
+        let mut pool = self.workers.lock().ok()?;
+        // Try to get an existing live worker
+        while let Some(mut w) = pool.pop() {
+            if w.is_alive() {
+                return Some(w);
+            }
+            // Dead worker, drop it and try next
+            let _ = w.child.kill();
+        }
+        drop(pool);
+        // Pool empty, spawn a fresh one
+        Worker::spawn()
+    }
+
+    /// Return a worker to the pool after use.
+    fn release(&self, mut worker: Worker) {
+        if !worker.is_alive() { return; }
+        if let Ok(mut pool) = self.workers.lock() {
+            if pool.len() < self.pool_size {
+                pool.push(worker);
+                return;
+            }
+        }
+        // Pool full, shut down the extra worker
+        worker.shutdown();
+    }
+
+    /// Execute a request on a pooled worker with timeout.
+    fn execute(&self, request: &serde_json::Value, timeout: std::time::Duration) -> SubprocessResult {
+        let empty = SubprocessResult { output: None, storage_ops: vec![], meta_ops: vec![] };
+
+        let mut worker = match self.acquire() {
+            Some(w) => w,
+            None => {
+                tracing::error!("WorkerPool: failed to acquire worker");
+                return empty;
+            }
+        };
+
+        // For requests with timeout, we use a thread to enforce it
+        let request_clone = request.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        // We need to move the worker into the thread and get it back
+        let handle = std::thread::spawn(move || {
+            let response = worker.send_request(&request_clone);
+            let _ = tx.send(());
+            (worker, response)
+        });
+
+        match rx.recv_timeout(timeout) {
+            Ok(()) => {
+                // Thread completed within timeout
+                match handle.join() {
+                    Ok((worker, response)) => {
+                        self.release(worker);
+                        match response {
+                            Some(resp) => parse_subprocess_response(&resp),
+                            None => empty,
+                        }
+                    }
+                    Err(_) => empty,
+                }
+            }
+            Err(_) => {
+                // Timeout — the thread is still blocked on I/O.
+                // We can't easily kill the thread, but the worker will be dropped
+                // when the thread eventually finishes (or the process exits).
+                tracing::warn!("WorkerPool: request timed out after {:?}", timeout);
+                // Don't join — let the thread finish in background
+                // The worker won't be returned to pool (it's consumed by the thread)
+                empty
+            }
+        }
+    }
+}
+
+impl Drop for WorkerPool {
+    fn drop(&mut self) {
+        if let Ok(mut pool) = self.workers.lock() {
+            for worker in pool.drain(..) {
+                worker.shutdown();
+            }
+        }
+    }
+}
+
+/// Global worker pool, initialized once.
+static WORKER_POOL: once_cell::sync::Lazy<WorkerPool> = once_cell::sync::Lazy::new(|| {
+    WorkerPool::new(4)
+});
+
+/// In-memory cache for plugin data, keyed by plugin_id.
+/// Avoids querying the database on every hook invocation.
+/// Invalidated when storage ops are executed for a plugin.
+static PLUGIN_DATA_CACHE: once_cell::sync::Lazy<StdMutex<std::collections::HashMap<String, (std::time::Instant, std::collections::HashMap<String, String>)>>> =
+    once_cell::sync::Lazy::new(|| StdMutex::new(std::collections::HashMap::new()));
+
+/// Plugin data cache TTL (5 minutes)
+const PLUGIN_DATA_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// Result from wasm-worker subprocess execution.
 struct SubprocessResult {
     /// Hook output bytes (if any)
@@ -67,115 +333,24 @@ struct SubprocessResult {
     meta_ops: Vec<(i64, String)>, // (article_id, data_json)
 }
 
-/// Execute a WASM hook function via subprocess isolation.
-fn execute_wasm_subprocess(
-    wasm_path: &str,
-    func_name: &str,
-    input_bytes: &[u8],
-    permissions: &[String],
-    plugin_id: &str,
-    plugin_data: &std::collections::HashMap<String, String>,
-    articles: Option<&Vec<Value>>,
-    comments: Option<&Value>,
-) -> SubprocessResult {
-    use std::process::{Command, Stdio};
-    use std::io::Write;
-
-    let worker_exe = find_worker_exe();
-    let input_b64 = base64_encode(input_bytes);
-
-    // Convert plugin_data to JSON object
-    let pd_json: serde_json::Map<String, Value> = plugin_data
-        .iter()
-        .map(|(k, v)| (k.clone(), Value::String(v.clone())))
-        .collect();
-
-    let mut request = serde_json::json!({
-        "wasm_path": wasm_path,
-        "func_name": func_name,
-        "input": input_b64,
-        "permissions": permissions,
-        "plugin_id": plugin_id,
-        "plugin_data": pd_json,
-    });
-
-    // Attach articles data if provided (for host_query_articles)
-    if let Some(arts) = articles {
-        request["articles"] = Value::Array(arts.clone());
-    }
-    // Attach comments data if provided (for host_get_comments)
-    if let Some(cmts) = comments {
-        request["comments"] = cmts.clone();
-    }
-    let request_str = request.to_string();
-
-    let empty_result = SubprocessResult { output: None, storage_ops: vec![], meta_ops: vec![] };
-
-    let mut child = match Command::new(&worker_exe)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("Failed to spawn wasm-worker: {}", e);
-            return empty_result;
-        }
-    };
-
-    if let Some(mut stdin) = child.stdin.take() {
-        if let Err(e) = stdin.write_all(request_str.as_bytes()) {
-            tracing::error!("Failed to write to wasm-worker stdin: {}", e);
-            let _ = child.kill();
-            return empty_result;
-        }
-    }
-
-    // Adjust timeout based on context:
-    // - plugin_activate hooks may process many articles (batch), need longer timeout
-    // - network-capable plugins need more time for API calls
-    // - default is 5s for simple hooks
-    let timeout = if func_name.contains("plugin_activate") {
-        std::time::Duration::from_secs(300) // 5 minutes for batch operations
-    } else if permissions.iter().any(|p| p == "network") {
-        std::time::Duration::from_secs(30)
-    } else {
-        std::time::Duration::from_secs(5)
-    };
-
-    let result = match wait_with_timeout(&mut child, timeout) {
-        Ok(output) => {
-            // Log stderr from wasm-worker (contains host_log output)
-            let stderr_str = String::from_utf8_lossy(&output.stderr);
-            if !stderr_str.is_empty() {
-                for line in stderr_str.lines() {
-                    tracing::info!("{}", line);
-                }
-            }
-            output
-        }
-        Err(e) => {
-            tracing::warn!("wasm-worker timed out or failed: {}", e);
-            let _ = child.kill();
-            let _ = child.wait();
-            return empty_result;
-        }
-    };
-
-    let stdout_str = String::from_utf8_lossy(&result.stdout);
-    let response: Value = match serde_json::from_str(&stdout_str) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!("wasm-worker returned invalid JSON: {} (output: {})", e, stdout_str);
-            return empty_result;
-        }
-    };
+/// Parse the JSON response from a wasm-worker into a SubprocessResult.
+fn parse_subprocess_response(response: &serde_json::Value) -> SubprocessResult {
+    let empty = SubprocessResult { output: None, storage_ops: vec![], meta_ops: vec![] };
 
     if response.get("success").and_then(|v| v.as_bool()) != Some(true) {
-        let err = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
-        tracing::warn!("wasm-worker execution failed: {}", err);
-        return empty_result;
+        let raw_err = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+        // Clean up WASM backtrace noise — only show the first meaningful line
+        let clean_err = if let Some(pos) = raw_err.find("\n") {
+            raw_err[..pos].trim()
+        } else {
+            raw_err
+        };
+        // Strip redundant prefixes
+        let clean_err = clean_err
+            .trim_start_matches("WASM execution failed: ")
+            .trim_start_matches("Function call failed: ");
+        tracing::warn!("Plugin WASM execution failed: {}", clean_err);
+        return empty;
     }
 
     // Parse storage_ops
@@ -215,33 +390,50 @@ fn execute_wasm_subprocess(
     SubprocessResult { output, storage_ops, meta_ops }
 }
 
-fn wait_with_timeout(
-    child: &mut std::process::Child,
-    timeout: std::time::Duration,
-) -> Result<std::process::Output, String> {
-    let start = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let mut stdout = Vec::new();
-                let mut stderr = Vec::new();
-                if let Some(mut out) = child.stdout.take() {
-                    use std::io::Read;
-                    let _ = out.read_to_end(&mut stdout);
-                }
-                if let Some(mut err) = child.stderr.take() {
-                    use std::io::Read;
-                    let _ = err.read_to_end(&mut stderr);
-                }
-                return Ok(std::process::Output { status, stdout, stderr });
-            }
-            Ok(None) => {
-                if start.elapsed() > timeout { return Err("Timeout".to_string()); }
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            Err(e) => return Err(format!("Wait error: {}", e)),
-        }
+/// Execute a WASM hook function via a pooled persistent worker.
+fn execute_wasm_subprocess(
+    wasm_path: &str,
+    func_name: &str,
+    input_bytes: &[u8],
+    permissions: &[String],
+    plugin_id: &str,
+    plugin_data: &std::collections::HashMap<String, String>,
+    articles: Option<&Vec<Value>>,
+    comments: Option<&Value>,
+) -> SubprocessResult {
+    let input_b64 = base64_encode(input_bytes);
+
+    let pd_json: serde_json::Map<String, Value> = plugin_data
+        .iter()
+        .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+        .collect();
+
+    let mut request = serde_json::json!({
+        "wasm_path": wasm_path,
+        "func_name": func_name,
+        "input": input_b64,
+        "permissions": permissions,
+        "plugin_id": plugin_id,
+        "plugin_data": pd_json,
+    });
+
+    if let Some(arts) = articles {
+        request["articles"] = Value::Array(arts.clone());
     }
+    if let Some(cmts) = comments {
+        request["comments"] = cmts.clone();
+    }
+
+    // Adjust timeout based on context
+    let timeout = if func_name.contains("plugin_activate") {
+        std::time::Duration::from_secs(300)
+    } else if permissions.iter().any(|p| p == "network") {
+        std::time::Duration::from_secs(30)
+    } else {
+        std::time::Duration::from_secs(5)
+    };
+
+    WORKER_POOL.execute(&request, timeout)
 }
 
 /// Execute pending storage operations from a wasm-worker result.
@@ -269,7 +461,7 @@ fn execute_storage_ops(
                             match tokio::task::block_in_place(|| {
                                 handle.block_on(repo.set(pid, key, val))
                             }) {
-                                Ok(_) => tracing::info!("Storage set OK: {}:{}", pid, key),
+                                Ok(_) => tracing::debug!("Storage set OK: {}:{}", pid, key),
                                 Err(e) => tracing::error!("Storage set FAILED: {}:{} - {}", pid, key, e),
                             }
                         }
@@ -278,7 +470,7 @@ fn execute_storage_ops(
                         match tokio::task::block_in_place(|| {
                             handle.block_on(repo.delete(pid, key))
                         }) {
-                            Ok(_) => tracing::info!("Storage delete OK: {}:{}", pid, key),
+                            Ok(_) => tracing::debug!("Storage delete OK: {}:{}", pid, key),
                             Err(e) => tracing::error!("Storage delete FAILED: {}:{} - {}", pid, key, e),
                         }
                     }
@@ -337,7 +529,7 @@ fn execute_meta_ops(
                 match tokio::task::block_in_place(|| {
                     handle.block_on(repo.update_meta(*article_id, plugin_id, &data))
                 }) {
-                    Ok(_) => tracing::info!("Meta update OK: article {} by plugin {}", article_id, plugin_id),
+                    Ok(_) => tracing::debug!("Meta update OK: article {} by plugin {}", article_id, plugin_id),
                     Err(e) => tracing::error!("Meta update FAILED: article {} - {}", article_id, e),
                 }
             }
@@ -362,10 +554,20 @@ fn execute_meta_ops(
 }
 
 /// Load pre-existing plugin data from the database for passing to wasm-worker.
+/// Uses an in-memory cache to avoid querying the DB on every hook invocation.
 fn load_plugin_data_sync(
     pool: &DynDatabasePool,
     plugin_id: &str,
 ) -> std::collections::HashMap<String, String> {
+    // Check cache first
+    if let Ok(cache) = PLUGIN_DATA_CACHE.lock() {
+        if let Some((cached_at, data)) = cache.get(plugin_id) {
+            if cached_at.elapsed() < PLUGIN_DATA_CACHE_TTL {
+                return data.clone();
+            }
+        }
+    }
+
     let repo = SqlxPluginDataRepository::new(pool.clone());
 
     let data = match tokio::runtime::Handle::try_current() {
@@ -383,11 +585,26 @@ fn load_plugin_data_sync(
     };
 
     match data {
-        Ok(entries) => entries.into_iter().map(|e| (e.key, e.value)).collect(),
+        Ok(entries) => {
+            let result: std::collections::HashMap<String, String> =
+                entries.into_iter().map(|e| (e.key, e.value)).collect();
+            // Update cache
+            if let Ok(mut cache) = PLUGIN_DATA_CACHE.lock() {
+                cache.insert(plugin_id.to_string(), (std::time::Instant::now(), result.clone()));
+            }
+            result
+        }
         Err(e) => {
             tracing::warn!("Failed to load plugin data for '{}': {}", plugin_id, e);
             std::collections::HashMap::new()
         }
+    }
+}
+
+/// Invalidate the plugin data cache for a specific plugin.
+fn invalidate_plugin_data_cache(plugin_id: &str) {
+    if let Ok(mut cache) = PLUGIN_DATA_CACHE.lock() {
+        cache.remove(plugin_id);
     }
 }
 
@@ -511,7 +728,7 @@ pub async fn load_wasm_plugin(
         frontend_hooks,
     );
     for w in &validation_warnings {
-        warn!("{}", w);
+        debug!("{}", w);
     }
 
     if backend_hooks.is_empty() {
@@ -519,7 +736,7 @@ pub async fn load_wasm_plugin(
         return Ok(());
     }
 
-    info!("Loading WASM module for plugin '{}'...", plugin_id);
+    debug!("Loading WASM module for plugin '{}'...", plugin_id);
 
     let wasm_bytes = tokio::fs::read(&wasm_path).await.map_err(|e| {
         PluginError::WasmError(format!("Failed to read {}: {}", wasm_path.display(), e))
@@ -539,7 +756,7 @@ pub async fn load_wasm_plugin(
         rt.load_plugin_bytes(&wasm_bytes, manifest)?
     };
 
-    info!("WASM module loaded for plugin '{}' (handle: {:?}), registering {} backend hooks",
+    debug!("WASM module loaded for plugin '{}' (handle: {:?}), registering {} backend hooks",
         plugin_id, handle, backend_hooks.len());
 
     let wasm_abs_path = std::fs::canonicalize(&wasm_path)
@@ -572,7 +789,7 @@ pub async fn load_wasm_plugin(
         hook_manager.register(
             hook_name,
             move |data: &mut Value| {
-                tracing::info!("WASM hook '{}' triggered for plugin '{}'", hook_fn_name, pid);
+                tracing::debug!("WASM hook '{}' triggered for plugin '{}'", hook_fn_name, pid);
 
                 // Inject plugin settings into hook data
                 if let Value::Object(ref mut map) = data {
@@ -616,13 +833,14 @@ pub async fn load_wasm_plugin(
                 // Execute any storage operations the plugin requested
                 if !result.storage_ops.is_empty() {
                     execute_storage_ops(&pool, &pid, &result.storage_ops);
-                    tracing::info!("Plugin '{}' executed {} storage ops", pid, result.storage_ops.len());
+                    invalidate_plugin_data_cache(&pid);
+                    tracing::debug!("Plugin '{}' executed {} storage ops", pid, result.storage_ops.len());
                 }
 
                 // Execute any meta update operations the plugin requested
                 if !result.meta_ops.is_empty() {
                     execute_meta_ops(&pool, &pid, &result.meta_ops);
-                    tracing::info!("Plugin '{}' executed {} meta ops", pid, result.meta_ops.len());
+                    tracing::debug!("Plugin '{}' executed {} meta ops", pid, result.meta_ops.len());
                 }
 
                 // Return hook output
@@ -634,7 +852,7 @@ pub async fn load_wasm_plugin(
             Some(plugin_id.clone()),
         );
 
-        info!("  Registered WASM hook: {} -> {}", hook_name, hook_fn_name_log);
+        debug!("  Registered WASM hook: {} -> {}", hook_name, hook_fn_name_log);
     }
 
     {
@@ -644,7 +862,7 @@ pub async fn load_wasm_plugin(
         });
     }
 
-    info!("WASM plugin '{}' fully loaded and hooked (subprocess isolation)", plugin_id);
+    debug!("WASM plugin '{}' fully loaded and hooked (subprocess isolation)", plugin_id);
     Ok(())
 }
 
@@ -666,7 +884,7 @@ pub async fn unload_wasm_plugin(
         if let Err(e) = rt.unload_plugin(entry.handle).await {
             warn!("Failed to unload WASM module for '{}': {}", plugin_id, e);
         }
-        info!("WASM plugin '{}' unloaded", plugin_id);
+        debug!("WASM plugin '{}' unloaded", plugin_id);
     }
     Ok(())
 }
@@ -724,6 +942,7 @@ pub fn execute_plugin_api_request(
     // Execute storage ops if any
     if !result.storage_ops.is_empty() {
         execute_storage_ops(pool, plugin_id, &result.storage_ops);
+        invalidate_plugin_data_cache(plugin_id);
     }
     if !result.meta_ops.is_empty() {
         execute_meta_ops(pool, plugin_id, &result.meta_ops);

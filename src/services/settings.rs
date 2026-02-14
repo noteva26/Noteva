@@ -7,9 +7,14 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use thiserror::Error;
+use tokio::sync::RwLock;
 
 use crate::db::repositories::{SettingsRepository, SqlxSettingsRepository};
+
+/// Settings cache TTL (10 minutes - settings rarely change, invalidated on write)
+const SETTINGS_CACHE_TTL: Duration = Duration::from_secs(600);
 
 /// Known setting keys
 pub mod keys {
@@ -76,21 +81,42 @@ pub enum SettingsServiceError {
 /// Settings service for managing site configuration
 pub struct SettingsService {
     repo: Arc<dyn SettingsRepository>,
+    /// Cached site settings with timestamp
+    site_settings_cache: RwLock<Option<(Instant, SiteSettings)>>,
+    /// Cached all settings with timestamp
+    all_settings_cache: RwLock<Option<(Instant, HashMap<String, String>)>>,
 }
 
 impl SettingsService {
     /// Create a new settings service
     pub fn new(repo: Arc<dyn SettingsRepository>) -> Self {
-        Self { repo }
+        Self {
+            repo,
+            site_settings_cache: RwLock::new(None),
+            all_settings_cache: RwLock::new(None),
+        }
     }
     
     /// Create from SQLx repository
     pub fn from_sqlx(repo: SqlxSettingsRepository) -> Self {
         Self::new(Arc::new(repo))
     }
+
+    /// Invalidate all settings caches
+    async fn invalidate_cache(&self) {
+        *self.site_settings_cache.write().await = None;
+        *self.all_settings_cache.write().await = None;
+    }
     
-    /// Get all site settings
+    /// Get all site settings (cached)
     pub async fn get_site_settings(&self) -> Result<SiteSettings, SettingsServiceError> {
+        // Check cache
+        if let Some((cached_at, settings)) = self.site_settings_cache.read().await.as_ref() {
+            if cached_at.elapsed() < SETTINGS_CACHE_TTL {
+                return Ok(settings.clone());
+            }
+        }
+
         let keys = &[
             keys::SITE_NAME,
             keys::SITE_DESCRIPTION,
@@ -105,7 +131,7 @@ impl SettingsService {
         
         let defaults = SiteSettings::default();
         
-        Ok(SiteSettings {
+        let result = SiteSettings {
             site_name: settings.get(keys::SITE_NAME)
                 .cloned()
                 .unwrap_or(defaults.site_name),
@@ -124,7 +150,12 @@ impl SettingsService {
             posts_per_page: settings.get(keys::POSTS_PER_PAGE)
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(defaults.posts_per_page),
-        })
+        };
+
+        // Update cache
+        *self.site_settings_cache.write().await = Some((Instant::now(), result.clone()));
+
+        Ok(result)
     }
     
     /// Update site settings
@@ -140,6 +171,7 @@ impl SettingsService {
         self.repo.set_many(&map).await
             .map_err(|e| SettingsServiceError::SaveError(e.to_string()))?;
         
+        self.invalidate_cache().await;
         Ok(())
     }
     
@@ -150,10 +182,11 @@ impl SettingsService {
         Ok(setting.map(|s| s.value))
     }
     
-    /// Set a single setting value
+    /// Set a single setting value (invalidates cache)
     pub async fn set(&self, key: &str, value: &str) -> Result<(), SettingsServiceError> {
         self.repo.set(key, value).await
             .map_err(|e| SettingsServiceError::SaveError(e.to_string()))?;
+        self.invalidate_cache().await;
         Ok(())
     }
     
@@ -162,11 +195,23 @@ impl SettingsService {
         self.set(key, value).await
     }
     
-    /// Get all settings as a HashMap
+    /// Get all settings as a HashMap (cached)
     pub async fn get_all_settings(&self) -> Result<HashMap<String, String>, SettingsServiceError> {
+        // Check cache
+        if let Some((cached_at, settings)) = self.all_settings_cache.read().await.as_ref() {
+            if cached_at.elapsed() < SETTINGS_CACHE_TTL {
+                return Ok(settings.clone());
+            }
+        }
+
         let settings = self.repo.get_all().await
             .map_err(|e| SettingsServiceError::LoadError(e.to_string()))?;
-        Ok(settings.into_iter().map(|s| (s.key, s.value)).collect())
+        let result: HashMap<String, String> = settings.into_iter().map(|s| (s.key, s.value)).collect();
+
+        // Update cache
+        *self.all_settings_cache.write().await = Some((Instant::now(), result.clone()));
+
+        Ok(result)
     }
 }
 

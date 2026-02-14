@@ -1,6 +1,6 @@
 {
   "name": "noteva-admin",
-  "version": "0.1.2-beta",
+  "version": "0.1.4-beta",
   "private": true,
   "type": "module",
   "scripts": {

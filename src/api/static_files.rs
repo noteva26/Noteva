@@ -310,6 +310,11 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
     let site_footer = settings_repo.get("site_footer").await.ok().flatten()
         .map(|s| s.value).unwrap_or_default();
     
+    let custom_css = settings_repo.get("custom_css").await.ok().flatten()
+        .map(|s| s.value).unwrap_or_default();
+    let custom_js = settings_repo.get("custom_js").await.ok().flatten()
+        .map(|s| s.value).unwrap_or_default();
+    
     // Build config JSON
     let config_json = serde_json::json!({
         "site_name": site_name,
@@ -369,17 +374,24 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
         (None, meta, String::new())
     };
     
-    // Build head injection: meta tags + config + SDK + plugins
+    // Build head injection: meta tags + config + SDK + plugins + custom CSS
+    let custom_css_tag = if custom_css.is_empty() {
+        String::new()
+    } else {
+        format!("\n<style id=\"noteva-custom-css\">{}</style>", custom_css)
+    };
+    
     let head_injection = format!(
         r#"{}
 <script>window.__SITE_CONFIG__={};</script>
 <link rel="stylesheet" href="/noteva-sdk.css?v={}">
 <script src="/noteva-sdk.js?v={}"></script>
 <link rel="stylesheet" href="/api/v1/plugins/assets/plugins.css?v={}">
-<script src="/api/v1/plugins/assets/plugins.js?v={}"></script>"#,
+<script src="/api/v1/plugins/assets/plugins.js?v={}"></script>{}"#,
         meta_tags,
         serde_json::to_string(&config_json).unwrap_or_else(|_| "{}".to_string()),
-        version, version, version, version
+        version, version, version, version,
+        custom_css_tag
     );
     
     let mut result = html.to_string();
@@ -403,6 +415,14 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
         if let Some(pos) = result.find(r#"<div id="root">"#) {
             let insert_pos = pos + r#"<div id="root">"#.len();
             result.insert_str(insert_pos, &body_content);
+        }
+    }
+    
+    // Inject custom JS before </body>
+    if !custom_js.is_empty() {
+        let custom_js_tag = format!(r#"<script id="noteva-custom-js">{}</script>"#, custom_js);
+        if let Some(pos) = result.find("</body>") {
+            result.insert_str(pos, &custom_js_tag);
         }
     }
     

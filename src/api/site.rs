@@ -24,6 +24,8 @@ pub struct SiteInfoResponse {
     pub email_verification_enabled: String,
     pub permalink_structure: String,
     pub demo_mode: bool,
+    pub custom_css: String,
+    pub custom_js: String,
 }
 
 /// Request for rendering markdown content
@@ -82,6 +84,23 @@ async fn get_site_info(
         .flatten()
         .unwrap_or_else(|| "/posts/{slug}".to_string());
 
+    // Get custom CSS/JS
+    let custom_css = state
+        .settings_service
+        .get("custom_css")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    let custom_js = state
+        .settings_service
+        .get("custom_js")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
     Json(SiteInfoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         site_name: settings.site_name,
@@ -92,6 +111,8 @@ async fn get_site_info(
         email_verification_enabled,
         permalink_structure,
         demo_mode: crate::api::middleware::is_demo_mode(),
+        custom_css,
+        custom_js,
     })
 }
 

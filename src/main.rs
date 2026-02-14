@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "noteva=info,tower_http=debug".into()),
+                .unwrap_or_else(|_| "noteva=info,tower_http=warn".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
 
     // Load configuration
     let config = Config::load(Path::new("config.yml"))?;
-    tracing::info!("Configuration loaded");
+    tracing::debug!("Configuration loaded");
 
     // Initialize database
     let pool = db::create_pool(&config.database).await?;
@@ -56,11 +56,11 @@ async fn main() -> Result<()> {
 
     // Run migrations
     db::migrations::run_migrations(&pool).await?;
-    tracing::info!("Database migrations completed");
+    tracing::debug!("Database migrations completed");
 
     // Initialize cache
     let cache = create_cache(&config.cache).await?;
-    tracing::info!("Cache initialized");
+    tracing::debug!("Cache initialized");
 
     // Initialize plugin system (before services, so shortcodes are available)
     let mut plugin_manager = PluginManager::new(Path::new("plugins"), Path::new("data"), pool.clone());
@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
     let mut shortcode_manager = ShortcodeManager::new();
     builtins::register_builtins(&mut shortcode_manager);
     let shortcode_manager_arc = Arc::new(shortcode_manager);
-    tracing::info!("Plugin system initialized");
+    tracing::debug!("Plugin system initialized");
 
     // Create markdown renderer with shortcode and hook support
     let markdown_renderer = MarkdownRenderer::with_managers(
@@ -120,7 +120,7 @@ async fn main() -> Result<()> {
 
     // Initialize default navigation items
     nav_service.init_defaults().await?;
-    tracing::info!("Navigation initialized");
+    tracing::debug!("Navigation initialized");
 
     // Initialize theme engine - read active theme from database
     let active_theme = {
@@ -134,7 +134,7 @@ async fn main() -> Result<()> {
             .unwrap_or_else(|| config.theme.active.clone())
     };
     let theme_engine = ThemeEngine::new(&config.theme.path, &active_theme)?;
-    tracing::info!("Theme engine initialized: {}", active_theme);
+    tracing::debug!("Theme engine initialized: {}", active_theme);
 
     // Initialize WASM plugin runtime
     let wasm_runtime = match noteva::plugin::PluginRuntime::new() {
@@ -150,7 +150,7 @@ async fn main() -> Result<()> {
                 noteva::plugin::Permission::Network,
                 noteva::plugin::Permission::Storage,
             ]);
-            tracing::info!("WASM plugin runtime initialized");
+            tracing::debug!("WASM plugin runtime initialized");
             Arc::new(tokio::sync::RwLock::new(runtime))
         }
         Err(e) => {
@@ -199,6 +199,7 @@ async fn main() -> Result<()> {
         rate_limiter: rate_limiter.clone(),
         wasm_runtime: wasm_runtime.clone(),
         wasm_registry: wasm_registry.clone(),
+        store_url: config.store_url.clone(),
     };
     
     // Start rate limiter cleanup task (runs every 5 minutes)

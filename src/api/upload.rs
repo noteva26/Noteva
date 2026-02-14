@@ -19,6 +19,8 @@ use uuid::Uuid;
 
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 use crate::config::UploadConfig;
+use crate::plugin::hook_names;
+use chrono::Utc;
 
 /// Response for successful upload
 #[derive(Debug, Serialize)]
@@ -107,7 +109,32 @@ async fn upload_image(
             )));
         }
 
-        // Generate unique filename
+        // Trigger image_upload_filter hook — plugins can intercept and upload to S3/COS
+        if state.hook_manager.has_handlers(hook_names::IMAGE_UPLOAD_FILTER) {
+            let ext = get_extension(&filename, &content_type);
+            let new_filename = format!("{}.{}", Uuid::new_v4(), ext);
+            let hook_data = serde_json::json!({
+                "filename": new_filename,
+                "original_filename": filename,
+                "content_type": content_type,
+                "size": data.len(),
+                "data_base64": simple_base64_encode(&data),
+                "timestamp": Utc::now().to_rfc3339(),
+            });
+            let result = state.hook_manager.trigger(hook_names::IMAGE_UPLOAD_FILTER, hook_data);
+            if let Some(true) = result.get("handled").and_then(|v| v.as_bool()) {
+                if let Some(url) = result.get("url").and_then(|v| v.as_str()) {
+                    return Ok(Json(UploadResponse {
+                        url: url.to_string(),
+                        filename: new_filename,
+                        size: data.len() as u64,
+                        content_type,
+                    }));
+                }
+            }
+        }
+
+        // Default: save locally
         let ext = get_extension(&filename, &content_type);
         let new_filename = format!("{}.{}", Uuid::new_v4(), ext);
         let file_path = config.path.join(&new_filename);
@@ -144,6 +171,7 @@ async fn upload_images(
 
     let mut files = Vec::new();
     let mut failed = Vec::new();
+    let has_upload_hook = state.hook_manager.has_handlers(hook_names::IMAGE_UPLOAD_FILTER);
 
     while let Some(field) = multipart
         .next_field()
@@ -186,12 +214,35 @@ async fn upload_images(
             continue;
         }
 
-        // Generate unique filename
         let ext = get_extension(&filename, &content_type);
         let new_filename = format!("{}.{}", Uuid::new_v4(), ext);
-        let file_path = config.path.join(&new_filename);
 
-        // Save file
+        // Try plugin upload hook first
+        if has_upload_hook {
+            let hook_data = serde_json::json!({
+                "filename": new_filename,
+                "original_filename": filename,
+                "content_type": content_type,
+                "size": data.len(),
+                "data_base64": simple_base64_encode(&data),
+                "timestamp": Utc::now().to_rfc3339(),
+            });
+            let result = state.hook_manager.trigger(hook_names::IMAGE_UPLOAD_FILTER, hook_data);
+            if let Some(true) = result.get("handled").and_then(|v| v.as_bool()) {
+                if let Some(url) = result.get("url").and_then(|v| v.as_str()) {
+                    files.push(UploadResponse {
+                        url: url.to_string(),
+                        filename: new_filename,
+                        size: data.len() as u64,
+                        content_type,
+                    });
+                    continue;
+                }
+            }
+        }
+
+        // Default: save locally
+        let file_path = config.path.join(&new_filename);
         match fs::write(&file_path, &data).await {
             Ok(_) => {
                 files.push(UploadResponse {
@@ -311,4 +362,29 @@ async fn upload_plugin_file(
     }
 
     Err(ApiError::validation_error("No file provided"))
+}
+
+/// Simple base64 encoder (no external dependency)
+fn simple_base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
+        result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(triple & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
 }

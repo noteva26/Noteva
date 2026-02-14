@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::{MySqlPool, Row, SqlitePool};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;

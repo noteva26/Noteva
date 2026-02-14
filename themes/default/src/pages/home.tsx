@@ -5,7 +5,8 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Folder, Eye, Heart, MessageSquare, Tag, Pin, FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Calendar, Folder, Eye, Heart, MessageSquare, Tag, Pin, FileText, ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
 import { getNoteva, getArticleUrl } from "@/hooks/useNoteva";
 
@@ -54,14 +55,18 @@ function getExcerpt(content: string, maxLength: number = 200): string {
   return text.slice(0, maxLength) + '...';
 }
 
+const PAGE_SIZE = 10;
+
 export default function HomePage() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [siteInfo, setSiteInfo] = useState<{ name: string; subtitle: string; description: string } | null>(null);
+  const [totalPages, setTotalPages] = useState(1);
   const { t } = useTranslation();
   const locale = useI18nStore((s) => s.locale);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") || "";
+  const currentPage = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
 
   useEffect(() => {
     const config = (window as any).__SITE_CONFIG__;
@@ -73,22 +78,29 @@ export default function HomePage() {
       });
       document.title = config.site_name || "Noteva";
     }
+  }, []);
 
+  useEffect(() => {
+    setLoading(true);
     const loadData = async () => {
       const Noteva = getNoteva();
       if (!Noteva) { setTimeout(loadData, 50); return; }
 
       try {
-        const info = await Noteva.site.getInfo();
-        setSiteInfo({
-          name: info.name || "Noteva",
-          subtitle: info.subtitle || "",
-          description: info.description || "",
-        });
-        document.title = info.name || "Noteva";
+        if (!siteInfo) {
+          const info = await Noteva.site.getInfo();
+          setSiteInfo({
+            name: info.name || "Noteva",
+            subtitle: info.subtitle || "",
+            description: info.description || "",
+          });
+          document.title = info.name || "Noteva";
+        }
 
-        const result = await Noteva.articles.list({ pageSize: 20 });
+        const result = await Noteva.articles.list({ page: currentPage, pageSize: PAGE_SIZE });
         setArticles(result.articles || []);
+        const total = result.total || 0;
+        setTotalPages(Math.max(1, Math.ceil(total / PAGE_SIZE)));
       } catch (err) {
         console.error("Failed to load data:", err);
         setArticles([]);
@@ -97,7 +109,18 @@ export default function HomePage() {
       }
     };
     loadData();
-  }, []);
+  }, [currentPage]);
+
+  const goToPage = (page: number) => {
+    const params = new URLSearchParams(searchParams);
+    if (page <= 1) {
+      params.delete("page");
+    } else {
+      params.set("page", String(page));
+    }
+    setSearchParams(params);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const getDateLocale = () => {
     switch (locale) {
@@ -242,6 +265,38 @@ export default function HomePage() {
               })
             )}
           </div>
+
+          {/* Pagination */}
+          {!loading && !searchQuery && totalPages > 1 && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              className="flex items-center justify-center gap-2 mt-8"
+            >
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => goToPage(currentPage - 1)}
+                disabled={currentPage <= 1}
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                {t("pagination.prev")}
+              </Button>
+              <span className="text-sm text-muted-foreground px-3">
+                {t("pagination.page").replace("{current}", String(currentPage)).replace("{total}", String(totalPages))}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => goToPage(currentPage + 1)}
+                disabled={currentPage >= totalPages}
+              >
+                {t("pagination.next")}
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </motion.div>
+          )}
         </div>
       </main>
       <SiteFooter />

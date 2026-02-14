@@ -187,7 +187,8 @@ pub struct ExecutionResult {
 struct LoadedPlugin {
     /// Plugin manifest
     manifest: PluginManifest,
-    /// Compiled WASM module
+    /// Compiled WASM module (kept for potential re-instantiation)
+    #[allow(dead_code)]
     module: Module,
     /// Resource limits for this plugin
     limits: ResourceLimits,
@@ -337,6 +338,14 @@ impl PluginRuntime {
         let _ = linker.func_wrap(
             "env", "host_update_article_meta",
             |_: Caller<'_, ()>, _: i32, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "env", "host_hmac_sha256",
+            |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "env", "host_sha256",
+            |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
         );
 
         // WASI stubs — plugins compiled with wasm32-wasip1 import these.

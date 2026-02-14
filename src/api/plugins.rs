@@ -20,6 +20,28 @@ use std::collections::HashMap;
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 use crate::plugin::loader::{check_version_requirement, NOTEVA_VERSION};
 
+/// Placeholder used to mask secret field values returned to the frontend.
+const SECRET_MASK: &str = "••••••••";
+
+/// Collect field IDs that have `"secret": true` in the settings schema.
+fn collect_secret_fields(schema: &serde_json::Value) -> Vec<String> {
+    let mut secrets = Vec::new();
+    if let Some(sections) = schema.get("sections").and_then(|s| s.as_array()) {
+        for section in sections {
+            if let Some(fields) = section.get("fields").and_then(|f| f.as_array()) {
+                for field in fields {
+                    if field.get("secret").and_then(|s| s.as_bool()).unwrap_or(false) {
+                        if let Some(id) = field.get("id").and_then(|i| i.as_str()) {
+                            secrets.push(id.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    secrets
+}
+
 /// Plugin info response
 #[derive(Debug, Serialize)]
 pub struct PluginResponse {
@@ -421,18 +443,32 @@ async fn get_plugin_settings(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let manager = state.plugin_manager.read().await;
-    
+
     let plugin = manager.get(&id)
         .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", id)))?;
-    
+
     let schema = plugin.get_settings_schema()
         .unwrap_or(serde_json::json!({}));
-    
+
+    // Mask secret fields in returned values
+    let mut masked_values = plugin.settings.clone();
+    let secret_fields = collect_secret_fields(&schema);
+    for field_id in &secret_fields {
+        if let Some(val) = masked_values.get(field_id) {
+            if let Some(s) = val.as_str() {
+                if !s.is_empty() {
+                    masked_values.insert(field_id.clone(), serde_json::Value::String(SECRET_MASK.to_string()));
+                }
+            }
+        }
+    }
+
     Ok(Json(serde_json::json!({
         "schema": schema,
-        "values": plugin.settings
+        "values": masked_values
     })))
 }
+
 
 /// POST /api/v1/plugins/:id/settings - Update plugin settings
 async fn update_plugin_settings(
@@ -443,11 +479,30 @@ async fn update_plugin_settings(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let mut manager = state.plugin_manager.write().await;
     
+    // Get current plugin to read schema and existing settings
+    let (secret_fields, old_settings) = {
+        let plugin = manager.get(&id)
+            .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", id)))?;
+        let schema = plugin.get_settings_schema().unwrap_or(serde_json::json!({}));
+        (collect_secret_fields(&schema), plugin.settings.clone())
+    };
+    
     // Convert body to HashMap
-    let settings: std::collections::HashMap<String, serde_json::Value> = body
+    let mut settings: std::collections::HashMap<String, serde_json::Value> = body
         .as_object()
         .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
         .unwrap_or_default();
+    
+    // For secret fields: if the value is the mask placeholder, restore the original value
+    for field_id in &secret_fields {
+        if let Some(val) = settings.get(field_id) {
+            if val.as_str() == Some(SECRET_MASK) {
+                if let Some(original) = old_settings.get(field_id) {
+                    settings.insert(field_id.clone(), original.clone());
+                }
+            }
+        }
+    }
     
     // Update settings (this also persists to database)
     manager.update_settings(&id, settings.clone()).await
@@ -512,19 +567,23 @@ pub async fn get_enabled_plugins_public(
     get_enabled_plugins(State(state)).await
 }
 
-/// Store plugin info from official repository
+/// Store plugin info
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StorePluginInfo {
-    pub id: String,
+    pub slug: String,
     pub name: String,
     pub version: String,
     pub description: String,
     pub author: String,
-    pub homepage: String,
-    pub license: Option<String>,
-    pub requires_noteva: String,
-    pub compatible: bool,
-    pub compatibility_message: Option<String>,
+    pub github_url: Option<String>,
+    pub external_url: Option<String>,
+    pub license_type: String,
+    pub price_info: Option<String>,
+    pub download_source: String,
+    pub download_count: i64,
+    pub avg_rating: Option<f64>,
+    pub rating_count: Option<i64>,
+    pub tags: Vec<String>,
     pub installed: bool,
 }
 
@@ -534,76 +593,63 @@ pub struct PluginStoreResponse {
     pub plugins: Vec<StorePluginInfo>,
 }
 
-/// GitHub tree item
+/// Store API item (matches store external API response)
 #[derive(Debug, Deserialize)]
-struct GitHubTreeItem {
-    path: String,
-    #[serde(rename = "type")]
-    item_type: String,
+#[allow(dead_code)]
+struct StoreApiItem {
+    slug: String,
+    name: String,
+    description: String,
+    #[serde(default)]
+    cover_image: String,
+    author: String,
+    version: String,
+    github_url: Option<String>,
+    external_url: Option<String>,
+    license_type: String,
+    price_info: Option<String>,
+    download_source: String,
+    download_count: i64,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    updated_at: String,
 }
 
-/// GitHub tree response
 #[derive(Debug, Deserialize)]
-struct GitHubTreeResponse {
-    tree: Vec<GitHubTreeItem>,
+#[allow(dead_code)]
+struct StoreApiListResponse {
+    items: Vec<StoreApiItem>,
+    total: i64,
+    page: i64,
+    per_page: i64,
 }
 
-/// GET /api/v1/plugins/store - Get plugin store from official repository
+/// GET /api/v1/plugins/store - Get plugin store from Noteva Store API
 async fn get_plugin_store(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
 ) -> Result<Json<PluginStoreResponse>, ApiError> {
-    const STORE_REPO: &str = "noteva26/noteva-plugins";
-    const STORE_PATH: &str = "store";
-    
-    let client = reqwest::Client::new();
-    
-    // Get the tree of store directory
-    let tree_url = format!(
-        "https://api.github.com/repos/{}/git/trees/main?recursive=1",
-        STORE_REPO
-    );
-    
-    let tree_response = client
-        .get(&tree_url)
-        .header("User-Agent", "Noteva")
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .await
+    let store_url = state.store_url.as_deref().unwrap_or("https://store.noteva.com");
+
+    let client = reqwest::Client::builder()
+        .user_agent("Noteva")
+        .timeout(std::time::Duration::from_secs(15))
+        .no_proxy()
+        .build()
+        .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
+
+    let url = format!("{}/api/v1/store/plugins?per_page=100", store_url);
+    let response = client.get(&url).send().await
         .map_err(|e| ApiError::internal_error(format!("Failed to fetch store: {}", e)))?;
-    
-    if !tree_response.status().is_success() {
+
+    if !response.status().is_success() {
         return Ok(Json(PluginStoreResponse { plugins: vec![] }));
     }
-    
-    let tree: GitHubTreeResponse = tree_response
-        .json()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to parse tree: {}", e)))?;
-    
-    // Find all plugin.json files in root directory (official plugins) and store/ (third-party plugins)
-    let plugin_paths: Vec<String> = tree.tree
-        .iter()
-        .filter(|item| {
-            if item.item_type != "blob" || !item.path.ends_with("/plugin.json") {
-                return false;
-            }
-            
-            // Include root-level plugins (e.g., "hide-until-reply/plugin.json")
-            // and store plugins (e.g., "store/some-plugin/plugin.json")
-            let parts: Vec<&str> = item.path.split('/').collect();
-            if parts.len() == 2 {
-                // Root level: plugin-name/plugin.json
-                return true;
-            } else if parts.len() == 3 && parts[0] == STORE_PATH {
-                // Store level: store/plugin-name/plugin.json
-                return true;
-            }
-            false
-        })
-        .map(|item| item.path.clone())
-        .collect();
-    
+
+    let store_data: StoreApiListResponse = response.json().await
+        .map_err(|e| ApiError::internal_error(format!("Failed to parse store response: {}", e)))?;
+
     // Get installed plugins
     let manager = state.plugin_manager.read().await;
     let installed_ids: std::collections::HashSet<String> = manager
@@ -611,212 +657,102 @@ async fn get_plugin_store(
         .iter()
         .map(|p| p.metadata.id.clone())
         .collect();
-    
-    let mut plugins = Vec::new();
-    
-    // Fetch each plugin.json
-    for path in plugin_paths {
-        let raw_url = format!(
-            "https://raw.githubusercontent.com/{}/main/{}",
-            STORE_REPO, path
-        );
-        
-        if let Ok(response) = client
-            .get(&raw_url)
-            .header("User-Agent", "Noteva")
-            .send()
-            .await
-        {
-            if let Ok(plugin_json) = response.json::<serde_json::Value>().await {
-                let id = plugin_json.get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                
-                if id.is_empty() {
-                    continue;
-                }
-                
-                let requires_noteva = plugin_json.get("requires")
-                    .and_then(|r| r.get("noteva"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                
-                let version_check = check_version_requirement(&requires_noteva, NOTEVA_VERSION);
-                
-                plugins.push(StorePluginInfo {
-                    id: id.clone(),
-                    name: plugin_json.get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(&id)
-                        .to_string(),
-                    version: plugin_json.get("version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("1.0.0")
-                        .to_string(),
-                    description: plugin_json.get("description")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    author: plugin_json.get("author")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    homepage: plugin_json.get("homepage")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    license: plugin_json.get("license")
-                        .and_then(|v| v.as_str())
-                        .map(String::from),
-                    requires_noteva,
-                    compatible: version_check.compatible,
-                    compatibility_message: version_check.message,
-                    installed: installed_ids.contains(&id),
-                });
-            }
+
+    let plugins: Vec<StorePluginInfo> = store_data.items.into_iter().map(|item| {
+        StorePluginInfo {
+            installed: installed_ids.contains(&item.slug),
+            slug: item.slug,
+            name: item.name,
+            version: item.version,
+            description: item.description,
+            author: item.author,
+            github_url: item.github_url,
+            external_url: item.external_url,
+            license_type: item.license_type,
+            price_info: item.price_info,
+            download_source: item.download_source,
+            download_count: item.download_count,
+            avg_rating: None,
+            rating_count: None,
+            tags: item.tags,
         }
-    }
-    
+    }).collect();
+
     Ok(Json(PluginStoreResponse { plugins }))
 }
 
+/// Store check-updates request/response
+#[derive(Debug, Serialize)]
+struct StoreInstalledItem {
+    slug: String,
+    version: String,
+}
 
-/// GET /api/v1/plugins/updates - Check for plugin updates
+#[derive(Debug, Serialize)]
+struct StoreCheckUpdatesRequest {
+    items: Vec<StoreInstalledItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StoreUpdateInfo {
+    slug: String,
+    current_version: String,
+    latest_version: String,
+}
+
+/// GET /api/v1/plugins/updates - Check for plugin updates via Store API
 async fn check_plugin_updates(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
 ) -> Result<Json<PluginUpdatesResponse>, ApiError> {
-    const STORE_REPO: &str = "noteva26/noteva-plugins";
-    const STORE_PATH: &str = "store";
-    
-    let client = reqwest::Client::new();
-    
-    // Get the tree of store directory
-    let tree_url = format!(
-        "https://api.github.com/repos/{}/git/trees/main?recursive=1",
-        STORE_REPO
-    );
-    
-    let tree_response = client
-        .get(&tree_url)
-        .header("User-Agent", "Noteva")
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to fetch store: {}", e)))?;
-    
-    if !tree_response.status().is_success() {
-        return Ok(Json(PluginUpdatesResponse { updates: vec![] }));
-    }
-    
-    let tree: GitHubTreeResponse = tree_response
-        .json()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to parse tree: {}", e)))?;
-    
-    // Find all plugin.json files
-    let plugin_paths: Vec<String> = tree.tree
-        .iter()
-        .filter(|item| {
-            if item.item_type != "blob" || !item.path.ends_with("/plugin.json") {
-                return false;
-            }
-            
-            let parts: Vec<&str> = item.path.split('/').collect();
-            if parts.len() == 2 {
-                return true;
-            } else if parts.len() == 3 && parts[0] == STORE_PATH {
-                return true;
-            }
-            false
-        })
-        .map(|item| item.path.clone())
-        .collect();
-    
+    let store_url = match state.store_url.as_deref() {
+        Some(url) => url.to_string(),
+        None => "https://store.noteva.com".to_string(),
+    };
+
     // Get installed plugins
     let manager = state.plugin_manager.read().await;
-    let installed_plugins: std::collections::HashMap<String, String> = manager
+    let installed: Vec<StoreInstalledItem> = manager
         .get_all()
         .iter()
-        .map(|p| (p.metadata.id.clone(), p.metadata.version.clone()))
+        .map(|p| StoreInstalledItem {
+            slug: p.metadata.id.clone(),
+            version: p.metadata.version.clone(),
+        })
         .collect();
-    
-    let mut updates = Vec::new();
-    
-    // Check each installed plugin for updates
-    for path in plugin_paths {
-        let raw_url = format!(
-            "https://raw.githubusercontent.com/{}/main/{}",
-            STORE_REPO, path
-        );
-        
-        if let Ok(response) = client
-            .get(&raw_url)
-            .header("User-Agent", "Noteva")
-            .send()
-            .await
-        {
-            if let Ok(plugin_json) = response.json::<serde_json::Value>().await {
-                let id = plugin_json.get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                
-                if id.is_empty() {
-                    continue;
-                }
-                
-                // Check if this plugin is installed
-                if let Some(current_version) = installed_plugins.get(&id) {
-                    let latest_version = plugin_json.get("version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("1.0.0")
-                        .to_string();
-                    
-                    // Compare versions
-                    let has_update = compare_versions(&latest_version, current_version);
-                    
-                    if has_update {
-                        updates.push(PluginUpdateInfo {
-                            id,
-                            current_version: current_version.clone(),
-                            latest_version,
-                            has_update: true,
-                        });
-                    }
-                }
-            }
-        }
-    }
-    
-    Ok(Json(PluginUpdatesResponse { updates }))
-}
 
-/// Compare two semantic versions (returns true if v1 > v2)
-fn compare_versions(v1: &str, v2: &str) -> bool {
-    let parse_version = |v: &str| -> Vec<u32> {
-        v.split('.')
-            .filter_map(|s| s.parse::<u32>().ok())
-            .collect()
-    };
-    
-    let ver1 = parse_version(v1);
-    let ver2 = parse_version(v2);
-    
-    for i in 0..ver1.len().max(ver2.len()) {
-        let n1 = ver1.get(i).copied().unwrap_or(0);
-        let n2 = ver2.get(i).copied().unwrap_or(0);
-        
-        if n1 > n2 {
-            return true;
-        } else if n1 < n2 {
-            return false;
-        }
+    if installed.is_empty() {
+        return Ok(Json(PluginUpdatesResponse { updates: vec![] }));
     }
-    
-    false
+
+    let client = reqwest::Client::builder()
+        .user_agent("Noteva")
+        .timeout(std::time::Duration::from_secs(15))
+        .no_proxy()
+        .build()
+        .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
+
+    let url = format!("{}/api/v1/store/check-updates", store_url);
+    let response = client.post(&url)
+        .json(&StoreCheckUpdatesRequest { items: installed })
+        .send().await
+        .map_err(|e| ApiError::internal_error(format!("Failed to check updates: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Ok(Json(PluginUpdatesResponse { updates: vec![] }));
+    }
+
+    let store_updates: Vec<StoreUpdateInfo> = response.json().await
+        .map_err(|e| ApiError::internal_error(format!("Failed to parse updates: {}", e)))?;
+
+    let updates = store_updates.into_iter().map(|u| PluginUpdateInfo {
+        id: u.slug,
+        current_version: u.current_version,
+        latest_version: u.latest_version,
+        has_update: true,
+    }).collect();
+
+    Ok(Json(PluginUpdatesResponse { updates }))
 }
 
 

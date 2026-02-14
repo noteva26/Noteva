@@ -129,6 +129,7 @@ pub async fn list_github_releases(
 ) -> Result<Json<Vec<GitHubReleaseInfo>>, ApiError> {
     let client = reqwest::Client::builder()
         .user_agent("Noteva-Theme-Installer")
+        .no_proxy()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
@@ -179,69 +180,77 @@ pub async fn install_github_theme(
 ) -> Result<Json<ThemeInstallResponse>, ApiError> {
     let client = reqwest::Client::builder()
         .user_agent("Noteva-Theme-Installer")
+        .no_proxy()
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
-    
-    let response = client.get(&body.download_url)
-        .send()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Download failed: {}", e)))?;
-    
-    if !response.status().is_success() {
-        return Err(ApiError::internal_error(format!("Download error: {}", response.status())));
-    }
-    
-    let data = response.bytes()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
-    
+
+    let data = download_bytes(&client, &body.download_url).await?;
     let temp_dir = TempDir::new()
         .map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
-    
+
     let theme_name = if body.download_url.ends_with(".tar.gz") || body.download_url.ends_with(".tgz") {
         extract_tar_gz(&data, temp_dir.path())?
     } else {
         extract_zip(&data, temp_dir.path())?
     };
-    
-    let themes_path = {
-        let engine = state.theme_engine.read()
-            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        engine.get_theme_path(&theme_name).parent().unwrap().to_path_buf()
-    };
-    
-    let dest_path = themes_path.join(&theme_name);
-    let src_path = temp_dir.path().join(&theme_name);
-    
-    if dest_path.exists() {
-        fs::remove_dir_all(&dest_path)
-            .map_err(|e| ApiError::internal_error(format!("Remove error: {}", e)))?;
+
+    install_theme_from_dir(temp_dir.path(), &theme_name, &state).await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ThemeInstallFromRepoRequest {
+    pub repo: String,
+}
+
+/// POST /api/v1/admin/themes/install-from-repo - Install theme from GitHub repo
+///
+/// Strategy: 1) Try GitHub Releases first (compiled artifacts)
+///           2) Fallback to repo branch download with validation
+pub async fn install_from_repo(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+    Json(body): Json<ThemeInstallFromRepoRequest>,
+) -> Result<Json<ThemeInstallResponse>, ApiError> {
+    let repo = extract_repo(&body.repo)
+        .ok_or_else(|| ApiError::validation_error("Invalid GitHub URL or repo format"))?;
+
+    let client = reqwest::Client::builder()
+        .user_agent("Noteva-Theme-Installer")
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
+
+    // 1) Try GitHub Releases
+    if let Some(asset_url) = fetch_latest_release_asset(&client, &repo).await {
+        let data = download_bytes(&client, &asset_url).await?;
+        let temp_dir = TempDir::new()
+            .map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
+
+        let extracted_name = if asset_url.ends_with(".tar.gz") || asset_url.ends_with(".tgz") {
+            extract_tar_gz(&data, temp_dir.path())?
+        } else {
+            extract_zip(&data, temp_dir.path())?
+        };
+
+        return install_theme_from_dir(temp_dir.path(), &extracted_name, &state).await;
     }
-    
-    copy_dir_all(&src_path, &dest_path)
-        .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
-    
-    {
-        let mut engine = state.theme_engine.write()
-            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        let _ = engine.reload_templates();
+
+    // 2) Fallback: download repo ZIP, validate first
+    if !validate_repo_for_theme(&client, &repo).await {
+        return Err(ApiError::validation_error(
+            "仓库中没有可用的主题文件。需要 theme.json，且主题必须是编译好的（非源代码）"
+        ));
     }
-    
-    // Get theme display name for user-friendly message
-    let display_name = {
-        let engine = state.theme_engine.read()
-            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        engine.get_theme_info(&theme_name)
-            .map(|info| info.display_name.clone())
-            .unwrap_or_else(|| theme_name.clone())
-    };
-    
-    Ok(Json(ThemeInstallResponse {
-        success: true,
-        theme_name: theme_name.clone(),
-        message: format!("主题「{}」安装成功", display_name),
-    }))
+
+    let zip_url = format!("https://github.com/{}/archive/refs/heads/main.zip", repo);
+    let data = download_bytes(&client, &zip_url).await?;
+    let temp_dir = TempDir::new()
+        .map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
+    let extracted_name = extract_zip(&data, temp_dir.path())?;
+
+    install_theme_from_dir(temp_dir.path(), &extracted_name, &state).await
 }
 
 /// DELETE /api/v1/admin/themes/:name - Delete a theme
@@ -397,6 +406,8 @@ fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
 
 
 /// POST /api/v1/admin/themes/:name/update - Update theme to latest version
+///
+/// Strategy: same as install_from_repo — Release first, repo fallback with validation
 pub async fn update_theme(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
@@ -405,143 +416,235 @@ pub async fn update_theme(
     if name == "default" {
         return Err(ApiError::validation_error("Cannot update default theme (it's embedded)"));
     }
-    
-    // Read current theme.json to get url
+
     let theme_path = {
         let engine = state.theme_engine.read()
             .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
         engine.get_theme_path(&name)
     };
-    
+
     if !theme_path.exists() {
         return Err(ApiError::not_found(format!("Theme '{}' not found", name)));
     }
-    
+
     let theme_json_path = theme_path.join("theme.json");
     if !theme_json_path.exists() {
         return Err(ApiError::not_found("theme.json not found"));
     }
-    
+
     let content = fs::read_to_string(&theme_json_path)
         .map_err(|e| ApiError::internal_error(format!("Failed to read theme.json: {}", e)))?;
-    
     let json: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| ApiError::internal_error(format!("Failed to parse theme.json: {}", e)))?;
-    
-    let old_version = json.get("version")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
+
+    let old_version = json.get("version").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+    let url = json.get("url").and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::validation_error("Theme url not found in theme.json"))?
         .to_string();
-    
-    let url = json.get("url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::validation_error("Theme url not found"))?
-        .to_string();
-    
-    // Parse repo from URL
-    let repo = if url.contains("github.com") {
-        url.split("github.com/")
-            .nth(1)
-            .ok_or_else(|| ApiError::validation_error("Invalid GitHub URL"))?
-            .trim_end_matches('/')
-            .trim_end_matches(".git")
-            .to_string()
+
+    // Use install_from_repo logic
+    let body = ThemeInstallFromRepoRequest { repo: url };
+    let _result = install_from_repo(State(state.clone()), _user, Json(body)).await?;
+
+    // Read new version
+    let new_content = fs::read_to_string(&theme_json_path).unwrap_or_default();
+    let new_json: serde_json::Value = serde_json::from_str(&new_content).unwrap_or_default();
+    let new_version = new_json.get("version").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+    let display_name = new_json.get("display_name").and_then(|v| v.as_str()).unwrap_or(&name).to_string();
+
+    Ok(Json(ThemeInstallResponse {
+        success: true,
+        theme_name: name,
+        message: format!("主题「{}」已从 {} 更新到 {}", display_name, old_version, new_version),
+    }))
+}
+
+
+// ============================================================================
+// Shared helpers: GitHub Release, repo validation, install from dir
+// ============================================================================
+
+/// Extract "owner/repo" from a GitHub URL or "owner/repo" string
+fn extract_repo(input: &str) -> Option<String> {
+    let input = input.trim().trim_end_matches('/').trim_end_matches(".git");
+    if input.contains("github.com") {
+        let parts: Vec<&str> = input.split("github.com/").collect();
+        if parts.len() >= 2 {
+            let repo_part = parts[1].trim_start_matches('/');
+            let segments: Vec<&str> = repo_part.split('/').collect();
+            if segments.len() >= 2 && !segments[0].is_empty() && !segments[1].is_empty() {
+                return Some(format!("{}/{}", segments[0], segments[1]));
+            }
+        }
+        None
     } else {
-        url.clone()
-    };
-    
-    let client = reqwest::Client::builder()
-        .user_agent("Noteva-Theme-Installer")
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
-    
-    // Get latest release
-    let releases_url = format!("https://api.github.com/repos/{}/releases/latest", repo);
-    let response = client.get(&releases_url)
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to fetch releases: {}", e)))?;
-    
-    if !response.status().is_success() {
-        return Err(ApiError::internal_error("Failed to fetch latest release"));
+        let segments: Vec<&str> = input.split('/').collect();
+        if segments.len() == 2 && !segments[0].is_empty() && !segments[1].is_empty() {
+            Some(input.to_string())
+        } else {
+            None
+        }
     }
-    
-    let release: GitHubRelease = response.json()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to parse release: {}", e)))?;
-    
-    // Find first ZIP or TAR.GZ asset
-    let asset = release.assets.iter()
-        .find(|a| a.name.ends_with(".zip") || a.name.ends_with(".tar.gz") || a.name.ends_with(".tgz"))
-        .ok_or_else(|| ApiError::not_found("No suitable asset found in release"))?;
-    
-    // Download and install
-    let download_response = client.get(&asset.browser_download_url)
-        .send()
-        .await
+}
+
+/// Download bytes from a URL
+async fn download_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, ApiError> {
+    let response = client.get(url).send().await
         .map_err(|e| ApiError::internal_error(format!("Download failed: {}", e)))?;
-    
-    if !download_response.status().is_success() {
-        return Err(ApiError::internal_error(format!("Download error: {}", download_response.status())));
+    if !response.status().is_success() {
+        return Err(ApiError::internal_error(format!("Download error: HTTP {}", response.status())));
     }
-    
-    let data = download_response.bytes()
-        .await
+    let bytes = response.bytes().await
         .map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
-    
-    let temp_dir = TempDir::new()
-        .map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
-    
-    let extracted_name = if asset.name.ends_with(".tar.gz") || asset.name.ends_with(".tgz") {
-        extract_tar_gz(&data, temp_dir.path())?
-    } else {
-        extract_zip(&data, temp_dir.path())?
+    Ok(bytes.to_vec())
+}
+
+/// Fetch the latest GitHub Release asset URL (.zip preferred, then .tar.gz, then zipball)
+async fn fetch_latest_release_asset(client: &reqwest::Client, repo: &str) -> Option<String> {
+    let url = format!("https://api.github.com/repos/{}/releases/latest", repo);
+    let resp = client.get(&url)
+        .header("Accept", "application/vnd.github.v3+json")
+        .send().await.ok()?;
+
+    if !resp.status().is_success() { return None; }
+    let json: serde_json::Value = resp.json().await.ok()?;
+
+    if let Some(assets) = json.get("assets").and_then(|a| a.as_array()) {
+        // Prefer .zip
+        for asset in assets {
+            let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            if name.ends_with(".zip") {
+                if let Some(url) = asset.get("browser_download_url").and_then(|u| u.as_str()) {
+                    return Some(url.to_string());
+                }
+            }
+        }
+        // Then .tar.gz / .tgz
+        for asset in assets {
+            let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
+                if let Some(url) = asset.get("browser_download_url").and_then(|u| u.as_str()) {
+                    return Some(url.to_string());
+                }
+            }
+        }
+    }
+
+    // Fallback: zipball
+    json.get("zipball_url").and_then(|u| u.as_str()).map(|s| s.to_string())
+}
+
+/// Validate that a GitHub repo contains a ready-to-use theme (not just source code).
+/// - Must have theme.json at root or one level deep
+/// - If package.json exists (frontend source), must have compiled output (dist/ or build/)
+async fn validate_repo_for_theme(client: &reqwest::Client, repo: &str) -> bool {
+    let url = format!("https://api.github.com/repos/{}/git/trees/HEAD?recursive=1", repo);
+    let resp = match client.get(&url)
+        .header("Accept", "application/vnd.github.v3+json")
+        .send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => return false,
     };
-    
-    let themes_path = theme_path.parent().unwrap();
-    let dest_path = themes_path.join(&name);
-    let src_path = temp_dir.path().join(&extracted_name);
-    
-    // Remove old theme
+
+    let json: serde_json::Value = match resp.json().await {
+        Ok(j) => j,
+        Err(_) => return false,
+    };
+
+    let tree = match json.get("tree").and_then(|t| t.as_array()) {
+        Some(t) => t,
+        None => return false,
+    };
+
+    let paths: Vec<&str> = tree.iter()
+        .filter_map(|item| item.get("path").and_then(|p| p.as_str()))
+        .collect();
+
+    // Must have theme.json
+    let has_theme_json = paths.iter().any(|p| {
+        *p == "theme.json" || p.ends_with("/theme.json")
+    });
+    if !has_theme_json { return false; }
+
+    // If package.json exists (frontend source), must have compiled output
+    let has_package_json = paths.iter().any(|p| *p == "package.json");
+    if has_package_json {
+        let has_compiled = paths.iter().any(|p| {
+            p.starts_with("dist/") || p.starts_with("build/") ||
+            p.starts_with("assets/") || p.ends_with(".css") || p.ends_with(".html")
+        });
+        if !has_compiled { return false; }
+    }
+
+    true
+}
+
+/// Install theme from an extracted directory into themes/
+async fn install_theme_from_dir(
+    temp_dir: &Path,
+    extracted_name: &str,
+    state: &AppState,
+) -> Result<Json<ThemeInstallResponse>, ApiError> {
+    let src_path = temp_dir.join(extracted_name);
+
+    // Find theme.json — could be at root or one level deep
+    let theme_json_path = if src_path.join("theme.json").exists() {
+        src_path.join("theme.json")
+    } else {
+        // Search one level deep
+        let mut found = None;
+        if let Ok(entries) = fs::read_dir(&src_path) {
+            for entry in entries.flatten() {
+                if entry.path().is_dir() && entry.path().join("theme.json").exists() {
+                    found = Some(entry.path().join("theme.json"));
+                    break;
+                }
+            }
+        }
+        found.ok_or_else(|| ApiError::validation_error("theme.json not found in archive"))?
+    };
+
+    let content = fs::read_to_string(&theme_json_path)
+        .map_err(|e| ApiError::internal_error(format!("Read theme.json error: {}", e)))?;
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| ApiError::internal_error(format!("Parse theme.json error: {}", e)))?;
+
+    let theme_id = json.get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::validation_error("theme.json missing 'name' field"))?
+        .to_string();
+
+    let theme_src_dir = theme_json_path.parent().unwrap();
+
+    let themes_path = {
+        let engine = state.theme_engine.read()
+            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
+        engine.get_theme_path(&theme_id).parent().unwrap().to_path_buf()
+    };
+
+    let dest_path = themes_path.join(&theme_id);
     if dest_path.exists() {
         fs::remove_dir_all(&dest_path)
             .map_err(|e| ApiError::internal_error(format!("Remove error: {}", e)))?;
     }
-    
-    // Install new theme
-    copy_dir_all(&src_path, &dest_path)
+
+    copy_dir_all(theme_src_dir, &dest_path)
         .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
-    
-    // Reload templates
+
     {
         let mut engine = state.theme_engine.write()
             .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
         let _ = engine.reload_templates();
     }
-    
-    // Read new version and display name
-    let new_theme_json_path = dest_path.join("theme.json");
-    let new_content = fs::read_to_string(&new_theme_json_path)
-        .map_err(|e| ApiError::internal_error(format!("Failed to read updated theme.json: {}", e)))?;
-    
-    let new_json: serde_json::Value = serde_json::from_str(&new_content)
-        .map_err(|e| ApiError::internal_error(format!("Failed to parse updated theme.json: {}", e)))?;
-    
-    let new_version = new_json.get("version")
+
+    let display_name = json.get("display_name")
         .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
+        .unwrap_or(&theme_id)
         .to_string();
-    
-    let display_name = new_json.get("display_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&name)
-        .to_string();
-    
+
     Ok(Json(ThemeInstallResponse {
         success: true,
-        theme_name: name.clone(),
-        message: format!("主题「{}」已从 {} 更新到 {}", display_name, old_version, new_version),
+        theme_name: theme_id,
+        message: format!("主题「{}」安装成功", display_name),
     }))
 }

@@ -26,8 +26,11 @@ use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Default cache TTL for articles (1 hour)
+/// Default cache TTL for single articles (1 hour)
 const ARTICLE_CACHE_TTL_SECS: u64 = 3600;
+
+/// Cache TTL for article lists (10 minutes - lists should refresh faster)
+const ARTICLE_LIST_CACHE_TTL_SECS: u64 = 600;
 
 /// Cache key prefixes
 const CACHE_KEY_ARTICLE_BY_ID: &str = "article:id:";
@@ -385,8 +388,8 @@ impl ArticleService {
 
         let result = PagedResult::new(articles, total, params);
 
-        // Cache the result
-        let _ = self.cache.set(&cache_key, &result, self.cache_ttl).await;
+        // Cache the result (lists use shorter TTL for freshness)
+        let _ = self.cache.set(&cache_key, &result, Duration::from_secs(ARTICLE_LIST_CACHE_TTL_SECS)).await;
 
         Ok(result)
     }

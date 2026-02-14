@@ -84,7 +84,7 @@ impl SqliteDatabase {
         };
 
         let pool = SqlitePoolOptions::new()
-            .max_connections(5)
+            .max_connections(20)
             .connect(&connection_url)
             .await
             .with_context(|| format!("Failed to connect to SQLite database: {}", url))?;
@@ -155,7 +155,7 @@ impl MysqlDatabase {
         };
 
         let pool = MySqlPoolOptions::new()
-            .max_connections(10)
+            .max_connections(30)
             .connect(&connection_url)
             .await
             .with_context(|| format!("Failed to connect to MySQL database: {}", url))?;

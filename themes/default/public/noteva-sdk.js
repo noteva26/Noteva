@@ -1452,6 +1452,22 @@
       window.Noteva.version = siteInfo.version;
     }
     
+    // 注入自定义 CSS/JS（如果后端未注入）
+    if (siteInfo) {
+      if (siteInfo.custom_css && !document.getElementById('noteva-custom-css')) {
+        const style = document.createElement('style');
+        style.id = 'noteva-custom-css';
+        style.textContent = siteInfo.custom_css;
+        document.head.appendChild(style);
+      }
+      if (siteInfo.custom_js && !document.getElementById('noteva-custom-js')) {
+        const script = document.createElement('script');
+        script.id = 'noteva-custom-js';
+        script.textContent = siteInfo.custom_js;
+        document.body.appendChild(script);
+      }
+    }
+    
     // 加载主题配置
     await site.loadThemeConfig();
     
@@ -1593,7 +1609,7 @@
   // ============================================
   window.Noteva = {
     // 版本
-    version: '0.1.3-beta',
+    version: '0.1.4-beta',
     
     // 核心系统
     hooks,

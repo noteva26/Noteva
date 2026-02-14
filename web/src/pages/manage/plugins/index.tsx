@@ -303,17 +303,17 @@ export default function PluginsPage() {
   };
 
   const handleInstallFromStore = async (plugin: StorePluginInfo) => {
-    if (!plugin.compatible) {
-      toast.error(plugin.compatibility_message || t("plugin.incompatible"));
+    if (!plugin.github_url) {
+      toast.error("No GitHub URL available");
       return;
     }
     
-    setInstallingFromStore(plugin.id);
+    setInstallingFromStore(plugin.slug);
     try {
-      // Install from repo directly (no need for Release)
+      // Install from repo directly
       const { data } = await pluginsApi.installFromRepo({
-        repo: plugin.homepage,
-        pluginId: plugin.id
+        repo: plugin.github_url,
+        pluginId: plugin.slug
       });
       toast.success(data.message);
       fetchPlugins();
@@ -386,8 +386,15 @@ export default function PluginsPage() {
         return (
           <Input
             id={field.id}
+            type={field.secret ? "password" : "text"}
             value={value as string}
             onChange={(e) => updateValue(field.id, e.target.value)}
+            onFocus={(e) => {
+              if (field.secret && e.target.value === "••••••••") {
+                updateValue(field.id, "");
+              }
+            }}
+            placeholder={field.secret && (value as string) === "••••••••" ? "输入新值或保持不变" : undefined}
           />
         );
       case "textarea":
@@ -684,35 +691,33 @@ export default function PluginsPage() {
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {storePlugins.map((plugin) => (
-                    <Card key={plugin.id} className={!plugin.compatible ? "opacity-60" : ""}>
+                    <Card key={plugin.slug}>
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between">
                           <div className="space-y-1">
                             <CardTitle className="text-lg flex items-center gap-2">
                               <Puzzle className="h-4 w-4" />
                               {plugin.name}
-                              {!plugin.compatible && (
-                                <span title={plugin.compatibility_message || "Not compatible"}>
-                                  <AlertTriangle className="h-4 w-4 text-amber-500" />
-                                </span>
-                              )}
                             </CardTitle>
                             <CardDescription className="text-xs">
                               v{plugin.version} · {plugin.author}
-                              {plugin.requires_noteva && ` · ${t("plugin.requires") || "Requires"}: ${plugin.requires_noteva}`}
+                              {plugin.download_count > 0 && ` · ${plugin.download_count} downloads`}
                             </CardDescription>
                           </div>
                         </div>
-                        {!plugin.compatible && plugin.compatibility_message && (
-                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
-                            {plugin.compatibility_message}
-                          </p>
-                        )}
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <p className="text-sm text-muted-foreground">
                           {plugin.description || "No description"}
                         </p>
+                        
+                        {plugin.tags.length > 0 && (
+                          <div className="flex gap-1 flex-wrap">
+                            {plugin.tags.map((tag) => (
+                              <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
+                            ))}
+                          </div>
+                        )}
                         
                         <div className="flex items-center justify-between pt-2 border-t">
                           {plugin.installed ? (
@@ -721,9 +726,9 @@ export default function PluginsPage() {
                             <Button
                               size="sm"
                               onClick={() => handleInstallFromStore(plugin)}
-                              disabled={installingFromStore === plugin.id || !plugin.compatible}
+                              disabled={installingFromStore === plugin.slug}
                             >
-                              {installingFromStore === plugin.id ? (
+                              {installingFromStore === plugin.slug ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
                                 <Download className="h-4 w-4 mr-2" />
@@ -731,9 +736,9 @@ export default function PluginsPage() {
                               {t("plugin.install") || "Install"}
                             </Button>
                           )}
-                          {plugin.homepage && (
+                          {plugin.github_url && (
                             <a
-                              href={plugin.homepage}
+                              href={plugin.github_url}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-xs text-muted-foreground hover:text-foreground"

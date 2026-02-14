@@ -28,6 +28,9 @@ pub struct Config {
     /// Upload configuration
     #[serde(default)]
     pub upload: UploadConfig,
+    /// Noteva Store URL (e.g. "https://store.noteva.com")
+    #[serde(default)]
+    pub store_url: Option<String>,
 }
 
 impl Default for Config {
@@ -38,6 +41,7 @@ impl Default for Config {
             cache: CacheConfig::default(),
             theme: ThemeConfig::default(),
             upload: UploadConfig::default(),
+            store_url: None,
         }
     }
 }

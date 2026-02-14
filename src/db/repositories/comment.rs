@@ -7,7 +7,7 @@ use sqlx::{Row, SqlitePool, MySqlPool};
 
 use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
-use crate::models::{Comment, CommentStatus, CommentWithMeta, CreateCommentInput, Like, LikeTargetType};
+use crate::models::{Comment, CommentStatus, CommentWithMeta, CreateCommentInput, LikeTargetType};
 
 /// Comment repository trait
 #[async_trait]

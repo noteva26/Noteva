@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y \
 # Copy Rust source
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+COPY hook-registry.json ./hook-registry.json
 
 # Copy frontend build outputs from previous stage
 COPY --from=frontend-builder /app/web/dist ./web/dist

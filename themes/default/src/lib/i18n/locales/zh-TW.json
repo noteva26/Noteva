@@ -111,6 +111,11 @@
   "settings": {
     "appearance": "外觀設定"
   },
+  "pagination": {
+    "prev": "上一頁",
+    "next": "下一頁",
+    "page": "第 {current} / {total} 頁"
+  },
   "user": {
     "userBanned": "該帳號已被封禁，無法登入"
   },

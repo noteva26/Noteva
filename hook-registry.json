@@ -598,6 +598,25 @@
       "output_schema": null,
       "scope": "backend",
       "available_since": "0.1.5-beta"
+    },
+    {
+      "name": "image_upload_filter",
+      "type": "filter",
+      "description": "图片上传过滤器，插件可拦截上传并返回远程 URL（如 S3/COS）替代本地存储",
+      "trigger_point": "src/api/upload.rs",
+      "input_schema": {
+        "filename": "string",
+        "content_type": "string",
+        "size": "number",
+        "data_base64": "string"
+      },
+      "output_schema": {
+        "url": "string | null",
+        "filename": "string",
+        "handled": "boolean"
+      },
+      "scope": "backend",
+      "available_since": "0.1.4-beta"
     }
   ]
 }

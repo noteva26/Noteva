@@ -203,36 +203,14 @@ export default function ThemesPage() {
   };
 
   const handleInstallFromStore = async (theme: StoreThemeInfo) => {
-    if (!theme.compatible) {
-      toast.error(theme.compatibility_message || t("theme.incompatible"));
-      return;
-    }
-    
-    setInstallingFromStore(theme.name);
+    setInstallingFromStore(theme.slug);
     try {
-      // Parse repo from URL
-      const match = theme.url.match(/github\.com\/([^\/]+\/[^\/]+)/);
-      if (!match) {
-        toast.error("Invalid repository URL");
-        return;
-      }
-      const repo = match[1].replace(/\.git$/, "");
-      
-      // Get latest release
-      const { data: releases } = await adminApi.listGitHubReleases(repo);
-      if (!releases || releases.length === 0) {
-        toast.error(t("theme.noReleases") || "No releases found");
+      if (!theme.github_url) {
+        toast.error("No GitHub URL available");
         return;
       }
       
-      const latestRelease = releases[0];
-      if (!latestRelease.assets || latestRelease.assets.length === 0) {
-        toast.error(t("theme.noAssets") || "No assets found");
-        return;
-      }
-      
-      // Install first asset
-      const { data } = await adminApi.installGitHubTheme(latestRelease.assets[0].download_url);
+      const { data } = await adminApi.installThemeFromRepo(theme.github_url);
       toast.success(data.message);
       fetchThemes();
       fetchStore(); // Refresh store to update installed status
@@ -396,26 +374,9 @@ export default function ThemesPage() {
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {storeThemes.map((theme) => (
-                    <Card key={theme.name} className={!theme.compatible ? "opacity-60" : ""}>
+                    <Card key={theme.slug}>
                       <div className="relative h-36 bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
-                        {theme.preview ? (
-                          <img
-                            src={theme.preview}
-                            alt={theme.display_name}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <Palette className="h-12 w-12 text-muted-foreground/30" />
-                        )}
-                        {!theme.compatible && (
-                          <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-500 text-white px-2 py-1 rounded text-xs">
-                            <AlertTriangle className="h-3 w-3" />
-                            {t("theme.incompatible") || "Incompatible"}
-                          </div>
-                        )}
+                        <Palette className="h-12 w-12 text-muted-foreground/30" />
                         {theme.installed && (
                           <div className="absolute top-2 right-2 flex items-center gap-1 bg-primary text-primary-foreground px-2 py-1 rounded text-xs">
                             <Check className="h-3 w-3" />
@@ -426,14 +387,7 @@ export default function ThemesPage() {
                       <div className="p-4">
                         <div className="flex items-start justify-between mb-2">
                           <div>
-                            <h3 className="font-semibold text-lg flex items-center gap-2">
-                              {theme.display_name}
-                              {!theme.compatible && (
-                                <span title={theme.compatibility_message || "Not compatible"}>
-                                  <AlertTriangle className="h-4 w-4 text-amber-500" />
-                                </span>
-                              )}
-                            </h3>
+                            <h3 className="font-semibold text-lg">{theme.name}</h3>
                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                               <Tag className="h-3 w-3" />
                               <span>v{theme.version}</span>
@@ -444,17 +398,18 @@ export default function ThemesPage() {
                                   <span>{theme.author}</span>
                                 </>
                               )}
-                              {theme.requires_noteva && (
+                              {theme.download_count > 0 && (
                                 <>
                                   <span>·</span>
-                                  <span>{t("theme.requires") || "Requires"}: {theme.requires_noteva}</span>
+                                  <Download className="h-3 w-3" />
+                                  <span>{theme.download_count}</span>
                                 </>
                               )}
                             </div>
                           </div>
-                          {theme.url && (
+                          {theme.github_url && (
                             <a
-                              href={theme.url}
+                              href={theme.github_url}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-muted-foreground hover:text-foreground"
@@ -470,19 +425,21 @@ export default function ThemesPage() {
                           </p>
                         )}
                         
-                        {!theme.compatible && theme.compatibility_message && (
-                          <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
-                            {theme.compatibility_message}
-                          </p>
+                        {theme.tags.length > 0 && (
+                          <div className="flex gap-1 flex-wrap mb-2">
+                            {theme.tags.map((tag) => (
+                              <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
+                            ))}
+                          </div>
                         )}
                         
                         <Button
                           onClick={() => handleInstallFromStore(theme)}
-                          disabled={installingFromStore === theme.name || theme.installed || !theme.compatible}
+                          disabled={installingFromStore === theme.slug || theme.installed}
                           size="sm"
                           className="w-full"
                         >
-                          {installingFromStore === theme.name ? (
+                          {installingFromStore === theme.slug ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : theme.installed ? (
                             t("theme.installed") || "Installed"

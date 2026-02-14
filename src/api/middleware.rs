@@ -103,6 +103,7 @@ pub struct AppState {
     pub rate_limiter: Arc<crate::services::LoginRateLimiter>,
     pub wasm_runtime: Arc<tokio::sync::RwLock<crate::plugin::PluginRuntime>>,
     pub wasm_registry: Arc<tokio::sync::RwLock<crate::plugin::wasm_bridge::WasmPluginRegistry>>,
+    pub store_url: Option<String>,
 }
 
 /// Authenticated user extracted from request

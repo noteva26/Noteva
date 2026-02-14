@@ -229,17 +229,10 @@ pub fn router() -> Router<AppState> {
         // Site settings
         .route("/settings", get(get_settings))
         .route("/settings", put(update_settings))
-        // User management
-        .route("/users", get(list_users))
-        .route("/users/:id", get(get_user))
-        .route("/users/:id", put(update_user))
-        .route("/users/:id", delete(delete_user))
         // Comment moderation
         .route("/comments/pending", get(list_pending_comments))
         .route("/comments/:id/approve", post(approve_comment))
         .route("/comments/:id/reject", post(reject_comment))
-        // Email test
-        .route("/email/test", post(test_email))
         // Login logs (security)
         .route("/login-logs", get(list_login_logs))
 }
@@ -584,19 +577,23 @@ async fn switch_theme(
     }))
 }
 
-/// Store theme info from official repository
+/// Store theme info
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StoreThemeInfo {
+    pub slug: String,
     pub name: String,
-    pub display_name: String,
     pub version: String,
     pub description: Option<String>,
     pub author: Option<String>,
-    pub url: String,
-    pub preview: Option<String>,
-    pub requires_noteva: String,
-    pub compatible: bool,
-    pub compatibility_message: Option<String>,
+    pub github_url: Option<String>,
+    pub external_url: Option<String>,
+    pub license_type: String,
+    pub price_info: Option<String>,
+    pub download_source: String,
+    pub download_count: i64,
+    pub avg_rating: Option<f64>,
+    pub rating_count: Option<i64>,
+    pub tags: Vec<String>,
     pub installed: bool,
 }
 
@@ -606,305 +603,166 @@ pub struct ThemeStoreResponse {
     pub themes: Vec<StoreThemeInfo>,
 }
 
-/// GET /api/v1/admin/themes/store - Get theme store from official repository
+/// Store API item (matches store external API response)
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct StoreApiItem {
+    slug: String,
+    name: String,
+    description: String,
+    #[serde(default)]
+    cover_image: String,
+    author: String,
+    version: String,
+    github_url: Option<String>,
+    external_url: Option<String>,
+    license_type: String,
+    price_info: Option<String>,
+    download_source: String,
+    download_count: i64,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct StoreApiListResponse {
+    items: Vec<StoreApiItem>,
+    total: i64,
+    page: i64,
+    per_page: i64,
+}
+
+/// GET /api/v1/admin/themes/store - Get theme store from Noteva Store API
 #[axum::debug_handler]
 async fn get_theme_store(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
 ) -> Result<Json<ThemeStoreResponse>, ApiError> {
-    use crate::plugin::loader::{check_version_requirement, NOTEVA_VERSION};
-    
-    const STORE_REPO: &str = "noteva26/noteva-themes";
-    const STORE_PATH: &str = "store";
-    
-    let client = reqwest::Client::new();
-    
-    // Get the tree of store directory
-    let tree_url = format!(
-        "https://api.github.com/repos/{}/git/trees/main?recursive=1",
-        STORE_REPO
-    );
-    
-    let tree_response = client
-        .get(&tree_url)
-        .header("User-Agent", "Noteva")
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .await
+    let store_url = state.store_url.as_deref().unwrap_or("https://store.noteva.com");
+
+    let client = reqwest::Client::builder()
+        .user_agent("Noteva")
+        .timeout(std::time::Duration::from_secs(15))
+        .no_proxy()
+        .build()
+        .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
+
+    let url = format!("{}/api/v1/store/themes?per_page=100", store_url);
+    let response = client.get(&url).send().await
         .map_err(|e| ApiError::internal_error(format!("Failed to fetch store: {}", e)))?;
-    
-    if !tree_response.status().is_success() {
+
+    if !response.status().is_success() {
         return Ok(Json(ThemeStoreResponse { themes: vec![] }));
     }
-    
-    let tree_json: serde_json::Value = tree_response
-        .json()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to parse tree: {}", e)))?;
-    
-    // Find all theme.json files in root directory (official themes) and store/ (third-party themes)
-    let mut theme_paths = Vec::new();
-    if let Some(tree_array) = tree_json.get("tree").and_then(|v| v.as_array()) {
-        for item in tree_array {
-            if let (Some(path), Some(item_type)) = (
-                item.get("path").and_then(|v| v.as_str()),
-                item.get("type").and_then(|v| v.as_str()),
-            ) {
-                if item_type != "blob" || !path.ends_with("/theme.json") {
-                    continue;
-                }
-                
-                // Include root-level themes (e.g., "default/theme.json")
-                // and store themes (e.g., "store/some-theme/theme.json")
-                let parts: Vec<&str> = path.split('/').collect();
-                if parts.len() == 2 {
-                    // Root level: theme-name/theme.json
-                    theme_paths.push(path.to_string());
-                } else if parts.len() == 3 && parts[0] == STORE_PATH {
-                    // Store level: store/theme-name/theme.json
-                    theme_paths.push(path.to_string());
-                }
-            }
-        }
-    }
-    
+
+    let store_data: StoreApiListResponse = response.json().await
+        .map_err(|e| ApiError::internal_error(format!("Failed to parse store response: {}", e)))?;
+
     // Get installed themes
     let installed_names: std::collections::HashSet<String> = {
-        let theme_engine = state
-            .theme_engine
-            .read()
-            .map_err(|e| ApiError::internal_error(format!("Failed to acquire theme lock: {}", e)))?;
-        
-        let installed_themes = theme_engine.list_themes();
-        
-        installed_themes
-            .iter()
-            .map(|t| t.name.clone())
-            .collect()
+        let theme_engine = state.theme_engine.read()
+            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
+        theme_engine.list_themes().iter().map(|t| t.name.clone()).collect()
     };
-    
-    let mut themes = Vec::new();
-    
-    // Fetch each theme.json
-    for path in theme_paths {
-        let raw_url = format!(
-            "https://raw.githubusercontent.com/{}/main/{}",
-            STORE_REPO, path
-        );
-        
-        if let Ok(response) = client
-            .get(&raw_url)
-            .header("User-Agent", "Noteva")
-            .send()
-            .await
-        {
-            if let Ok(theme_json) = response.json::<serde_json::Value>().await {
-                let name = theme_json.get("short")
-                    .or_else(|| theme_json.get("name"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                
-                if name.is_empty() {
-                    continue;
-                }
-                
-                let requires_noteva = theme_json.get("requires")
-                    .and_then(|r| r.get("noteva"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                
-                let version_check = check_version_requirement(&requires_noteva, NOTEVA_VERSION);
-                
-                themes.push(StoreThemeInfo {
-                    name: name.clone(),
-                    display_name: theme_json.get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(&name)
-                        .to_string(),
-                    version: theme_json.get("version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("1.0.0")
-                        .to_string(),
-                    description: theme_json.get("description")
-                        .and_then(|v| v.as_str())
-                        .map(String::from),
-                    author: theme_json.get("author")
-                        .and_then(|v| v.as_str())
-                        .map(String::from),
-                    url: theme_json.get("url")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    preview: theme_json.get("preview")
-                        .and_then(|v| v.as_str())
-                        .map(String::from),
-                    requires_noteva,
-                    compatible: version_check.compatible,
-                    compatibility_message: version_check.message,
-                    installed: installed_names.contains(&name),
-                });
-            }
+
+    let themes: Vec<StoreThemeInfo> = store_data.items.into_iter().map(|item| {
+        StoreThemeInfo {
+            installed: installed_names.contains(&item.slug),
+            slug: item.slug,
+            name: item.name,
+            version: item.version,
+            description: Some(item.description),
+            author: Some(item.author),
+            github_url: item.github_url,
+            external_url: item.external_url,
+            license_type: item.license_type,
+            price_info: item.price_info,
+            download_source: item.download_source,
+            download_count: item.download_count,
+            avg_rating: None,
+            rating_count: None,
+            tags: item.tags,
         }
-    }
-    
+    }).collect();
+
     Ok(Json(ThemeStoreResponse { themes }))
 }
 
-/// GET /api/v1/admin/themes/updates - Check for theme updates
+/// Store check-updates types
+#[derive(Debug, Serialize)]
+struct StoreInstalledItem {
+    slug: String,
+    version: String,
+}
+
+#[derive(Debug, Serialize)]
+struct StoreCheckUpdatesRequest {
+    items: Vec<StoreInstalledItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StoreUpdateInfo {
+    slug: String,
+    current_version: String,
+    latest_version: String,
+}
+
+/// GET /api/v1/admin/themes/updates - Check for theme updates via Store API
 #[axum::debug_handler]
 async fn check_theme_updates(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
 ) -> Result<Json<ThemeUpdatesResponse>, ApiError> {
-    const STORE_REPO: &str = "noteva26/noteva-themes";
-    const STORE_PATH: &str = "store";
-    
-    let client = reqwest::Client::new();
-    
-    // Get the tree of store directory
-    let tree_url = format!(
-        "https://api.github.com/repos/{}/git/trees/main?recursive=1",
-        STORE_REPO
-    );
-    
-    let tree_response = client
-        .get(&tree_url)
-        .header("User-Agent", "Noteva")
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to fetch store: {}", e)))?;
-    
-    if !tree_response.status().is_success() {
+    let store_url = match state.store_url.as_deref() {
+        Some(url) => url.to_string(),
+        None => "https://store.noteva.com".to_string(),
+    };
+
+    // Get installed themes
+    let installed: Vec<StoreInstalledItem> = {
+        let theme_engine = state.theme_engine.read()
+            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
+        theme_engine.list_themes().iter().map(|t| StoreInstalledItem {
+            slug: t.name.clone(),
+            version: t.version.clone(),
+        }).collect()
+    };
+
+    if installed.is_empty() {
         return Ok(Json(ThemeUpdatesResponse { updates: vec![] }));
     }
-    
-    #[derive(Deserialize)]
-    struct GitHubTreeItem {
-        path: String,
-        #[serde(rename = "type")]
-        item_type: String,
-    }
-    
-    #[derive(Deserialize)]
-    struct GitHubTreeResponse {
-        tree: Vec<GitHubTreeItem>,
-    }
-    
-    let tree: GitHubTreeResponse = tree_response
-        .json()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to parse tree: {}", e)))?;
-    
-    // Find all theme.json files
-    let theme_paths: Vec<String> = tree.tree
-        .iter()
-        .filter(|item| {
-            if item.item_type != "blob" || !item.path.ends_with("/theme.json") {
-                return false;
-            }
-            
-            let parts: Vec<&str> = item.path.split('/').collect();
-            if parts.len() == 2 {
-                return true;
-            } else if parts.len() == 3 && parts[0] == STORE_PATH {
-                return true;
-            }
-            false
-        })
-        .map(|item| item.path.clone())
-        .collect();
-    
-    // Get installed themes
-    let installed_themes: std::collections::HashMap<String, String> = {
-        let theme_engine = state
-            .theme_engine
-            .read()
-            .map_err(|e| ApiError::internal_error(format!("Failed to acquire theme lock: {}", e)))?;
-        
-        theme_engine
-            .list_themes()
-            .iter()
-            .map(|t| (t.name.clone(), t.version.clone()))
-            .collect()
-    };
-    
-    let mut updates = Vec::new();
-    
-    // Check each installed theme for updates
-    for path in theme_paths {
-        let raw_url = format!(
-            "https://raw.githubusercontent.com/{}/main/{}",
-            STORE_REPO, path
-        );
-        
-        if let Ok(response) = client
-            .get(&raw_url)
-            .header("User-Agent", "Noteva")
-            .send()
-            .await
-        {
-            if let Ok(theme_json) = response.json::<serde_json::Value>().await {
-                let name = theme_json.get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                
-                if name.is_empty() {
-                    continue;
-                }
-                
-                // Check if this theme is installed
-                if let Some(current_version) = installed_themes.get(&name) {
-                    let latest_version = theme_json.get("version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("1.0.0")
-                        .to_string();
-                    
-                    // Compare versions
-                    let has_update = compare_versions(&latest_version, current_version);
-                    
-                    if has_update {
-                        updates.push(ThemeUpdateInfo {
-                            name,
-                            current_version: current_version.clone(),
-                            latest_version,
-                            has_update: true,
-                        });
-                    }
-                }
-            }
-        }
-    }
-    
-    Ok(Json(ThemeUpdatesResponse { updates }))
-}
 
-/// Compare two semantic versions (returns true if v1 > v2)
-fn compare_versions(v1: &str, v2: &str) -> bool {
-    let parse_version = |v: &str| -> Vec<u32> {
-        v.split('.')
-            .filter_map(|s| s.parse::<u32>().ok())
-            .collect()
-    };
-    
-    let ver1 = parse_version(v1);
-    let ver2 = parse_version(v2);
-    
-    for i in 0..ver1.len().max(ver2.len()) {
-        let n1 = ver1.get(i).copied().unwrap_or(0);
-        let n2 = ver2.get(i).copied().unwrap_or(0);
-        
-        if n1 > n2 {
-            return true;
-        } else if n1 < n2 {
-            return false;
-        }
+    let client = reqwest::Client::builder()
+        .user_agent("Noteva")
+        .timeout(std::time::Duration::from_secs(15))
+        .no_proxy()
+        .build()
+        .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
+
+    let url = format!("{}/api/v1/store/check-updates", store_url);
+    let response = client.post(&url)
+        .json(&StoreCheckUpdatesRequest { items: installed })
+        .send().await
+        .map_err(|e| ApiError::internal_error(format!("Failed to check updates: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Ok(Json(ThemeUpdatesResponse { updates: vec![] }));
     }
-    
-    false
+
+    let store_updates: Vec<StoreUpdateInfo> = response.json().await
+        .map_err(|e| ApiError::internal_error(format!("Failed to parse updates: {}", e)))?;
+
+    let updates = store_updates.into_iter().map(|u| ThemeUpdateInfo {
+        name: u.slug,
+        current_version: u.current_version,
+        latest_version: u.latest_version,
+        has_update: true,
+    }).collect();
+
+    Ok(Json(ThemeUpdatesResponse { updates }))
 }
 
 
@@ -1010,6 +868,7 @@ struct GitHubRelease {
     html_url: String,
     body: Option<String>,
     published_at: Option<String>,
+    #[allow(dead_code)]
     prerelease: bool,
     #[serde(default)]
     assets: Vec<GitHubAsset>,
@@ -1435,226 +1294,6 @@ async fn perform_update(
 }
 
 // ============================================================================
-// User Management API
-// ============================================================================
-
-/// Response for user list
-#[derive(Debug, Serialize)]
-pub struct UserListResponse {
-    pub users: Vec<UserAdminResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub per_page: i64,
-    pub total_pages: i64,
-}
-
-/// Response for a user in admin context
-#[derive(Debug, Serialize)]
-pub struct UserAdminResponse {
-    pub id: i64,
-    pub username: String,
-    pub email: String,
-    pub role: String,
-    pub status: String,
-    pub display_name: Option<String>,
-    pub avatar: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-impl From<crate::models::User> for UserAdminResponse {
-    fn from(user: crate::models::User) -> Self {
-        Self {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            role: user.role.to_string(),
-            status: user.status.to_string(),
-            display_name: user.display_name,
-            avatar: user.avatar,
-            created_at: user.created_at.to_rfc3339(),
-            updated_at: user.updated_at.to_rfc3339(),
-        }
-    }
-}
-
-/// Request for updating a user
-#[derive(Debug, Deserialize)]
-pub struct UpdateUserRequest {
-    pub username: Option<String>,
-    pub email: Option<String>,
-    pub role: Option<String>,
-    pub status: Option<String>,
-    pub display_name: Option<String>,
-}
-
-/// Query params for user list
-#[derive(Debug, Deserialize)]
-pub struct UserListQuery {
-    #[serde(default = "default_page_i64")]
-    pub page: i64,
-    #[serde(default = "default_per_page")]
-    pub per_page: i64,
-}
-
-/// GET /api/v1/admin/users - List all users
-pub async fn list_users(
-    State(state): State<AppState>,
-    _user: AuthenticatedUser,
-    axum::extract::Query(query): axum::extract::Query<UserListQuery>,
-) -> Result<Json<UserListResponse>, ApiError> {
-    let (users, total) = state
-        .user_repo
-        .list(query.page, query.per_page)
-        .await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?;
-
-    let total_pages = (total as f64 / query.per_page as f64).ceil() as i64;
-
-    Ok(Json(UserListResponse {
-        users: users.into_iter().map(|u| u.into()).collect(),
-        total,
-        page: query.page,
-        per_page: query.per_page,
-        total_pages,
-    }))
-}
-
-/// GET /api/v1/admin/users/:id - Get a user by ID
-pub async fn get_user(
-    State(state): State<AppState>,
-    _user: AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> Result<Json<UserAdminResponse>, ApiError> {
-    let user = state
-        .user_repo
-        .get_by_id(id)
-        .await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?
-        .ok_or_else(|| ApiError::not_found("User not found"))?;
-
-    Ok(Json(user.into()))
-}
-
-/// PUT /api/v1/admin/users/:id - Update a user
-pub async fn update_user(
-    State(state): State<AppState>,
-    current_user: AuthenticatedUser,
-    Path(id): Path<i64>,
-    Json(body): Json<UpdateUserRequest>,
-) -> Result<Json<UserAdminResponse>, ApiError> {
-    use std::str::FromStr;
-    use crate::models::{UserRole, UserStatus};
-
-    tracing::info!("Updating user {}: {:?}", id, body);
-
-    // Get existing user
-    let mut user = state
-        .user_repo
-        .get_by_id(id)
-        .await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?
-        .ok_or_else(|| ApiError::not_found("User not found"))?;
-
-    tracing::info!("Found user: {} ({})", user.username, user.email);
-
-    // Prevent self-demotion or self-ban for admins
-    if current_user.0.id == id {
-        if let Some(ref role) = body.role {
-            if role != "admin" {
-                return Err(ApiError::validation_error("Cannot change your own role"));
-            }
-        }
-        if let Some(ref status) = body.status {
-            if status == "banned" {
-                return Err(ApiError::validation_error("Cannot ban yourself"));
-            }
-        }
-    }
-
-    // Update fields
-    if let Some(username) = body.username {
-        // Check if username is taken by another user
-        if let Some(existing) = state.user_repo.get_by_username(&username).await
-            .map_err(|e| ApiError::internal_error(e.to_string()))? 
-        {
-            if existing.id != id {
-                return Err(ApiError::validation_error("Username already taken"));
-            }
-        }
-        user.username = username;
-    }
-
-    if let Some(email) = body.email {
-        // Check if email is taken by another user
-        if let Some(existing) = state.user_repo.get_by_email(&email).await
-            .map_err(|e| ApiError::internal_error(e.to_string()))? 
-        {
-            if existing.id != id {
-                return Err(ApiError::validation_error("Email already taken"));
-            }
-        }
-        user.email = email;
-    }
-
-    if let Some(role) = body.role {
-        user.role = UserRole::from_str(&role)
-            .map_err(|_| ApiError::validation_error("Invalid role"))?;
-    }
-
-    if let Some(status) = body.status {
-        user.status = UserStatus::from_str(&status)
-            .map_err(|_| ApiError::validation_error("Invalid status"))?;
-    }
-
-    if let Some(display_name) = body.display_name {
-        user.display_name = if display_name.is_empty() { None } else { Some(display_name) };
-    }
-
-    tracing::info!("Saving user: {} ({}) role={:?} status={:?}", user.username, user.email, user.role, user.status);
-
-    // Save changes
-    let updated = state
-        .user_repo
-        .update(&user)
-        .await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?;
-
-    tracing::info!("User updated successfully: {} ({})", updated.username, updated.email);
-
-    Ok(Json(updated.into()))
-}
-
-/// DELETE /api/v1/admin/users/:id - Delete a user
-pub async fn delete_user(
-    State(state): State<AppState>,
-    current_user: AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> Result<StatusCode, ApiError> {
-    // Prevent self-deletion
-    if current_user.0.id == id {
-        return Err(ApiError::validation_error("Cannot delete yourself"));
-    }
-
-    // Check if user exists
-    let _ = state
-        .user_repo
-        .get_by_id(id)
-        .await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?
-        .ok_or_else(|| ApiError::not_found("User not found"))?;
-
-    // Delete user
-    state
-        .user_repo
-        .delete(id)
-        .await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-// ============================================================================
 // Comment Moderation
 // ============================================================================
 
@@ -1763,35 +1402,6 @@ pub async fn reject_comment(
     }
 }
 
-
-// ============================================================================
-// Email Test
-// ============================================================================
-
-/// Request for testing email
-#[derive(Debug, Deserialize)]
-pub struct TestEmailRequest {
-    pub email: String,
-}
-
-/// POST /api/v1/admin/email/test - Send test email
-pub async fn test_email(
-    State(state): State<AppState>,
-    _user: AuthenticatedUser,
-    Json(body): Json<TestEmailRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    use crate::db::repositories::SqlxSettingsRepository;
-    use crate::services::EmailService;
-    use std::sync::Arc;
-
-    let settings_repo = Arc::new(SqlxSettingsRepository::new(state.pool.clone()));
-    let email_service = EmailService::new(settings_repo);
-
-    email_service.send_test_email(&body.email).await
-        .map_err(|e| ApiError::internal_error(format!("Failed to send test email: {}", e)))?;
-
-    Ok(Json(serde_json::json!({ "message": "Test email sent successfully" })))
-}
 
 // ============================================================================
 // Plugin Hot Reload
