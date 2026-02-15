@@ -113,6 +113,7 @@ pub struct ThemeResponse {
     pub requires_noteva: String,
     pub compatible: bool,
     pub compatibility_message: Option<String>,
+    pub has_settings: bool,
 }
 
 /// Response for theme list
@@ -501,6 +502,7 @@ async fn list_themes(
             requires_noteva: info.requires_noteva,
             compatible: info.compatible,
             compatibility_message: info.compatibility_message,
+            has_settings: info.has_settings,
         })
         .collect();
 
@@ -563,7 +565,8 @@ async fn switch_theme(
         active: true,
         requires_noteva: theme_info.as_ref().map(|i| i.requires_noteva.clone()).unwrap_or_default(),
         compatible: theme_info.as_ref().map(|i| i.compatible).unwrap_or(true),
-        compatibility_message: theme_info.and_then(|i| i.compatibility_message.clone()),
+        compatibility_message: theme_info.as_ref().and_then(|i| i.compatibility_message.clone()),
+        has_settings: theme_info.as_ref().map(|i| i.has_settings).unwrap_or(false),
     }))
 }
 
@@ -1270,10 +1273,44 @@ async fn perform_update(
     
     tracing::info!("Update to v{} complete, scheduling restart...", target_version);
     
-    // Schedule exit after response is sent
-    tokio::spawn(async {
+    // Schedule self-restart: spawn a shell script that waits for us to exit, then starts new binary
+    let exe_path = self_path.clone();
+    tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        tracing::info!("Exiting for update restart...");
+        tracing::info!("Setting up self-restart...");
+        
+        #[cfg(unix)]
+        {
+            use std::process::Command;
+            let exe_str = exe_path.to_string_lossy().to_string();
+            let dir = exe_path.parent().unwrap_or(std::path::Path::new(".")).to_string_lossy().to_string();
+            // nohup a shell that sleeps 3s (enough for old process to exit) then starts new binary
+            let script = format!(
+                "sleep 3 && cd '{}' && '{}' &",
+                dir, exe_str
+            );
+            let _ = Command::new("sh")
+                .arg("-c")
+                .arg(&format!("nohup sh -c \"{}\" > /dev/null 2>&1 &", script))
+                .spawn();
+        }
+        
+        #[cfg(windows)]
+        {
+            use std::process::Command;
+            let exe_str = exe_path.to_string_lossy().to_string();
+            let dir = exe_path.parent().unwrap_or(std::path::Path::new(".")).to_string_lossy().to_string();
+            let script = format!(
+                "timeout /t 3 /nobreak >nul && cd /d \"{}\" && start \"\" \"{}\"",
+                dir, exe_str
+            );
+            let _ = Command::new("cmd")
+                .args(["/C", &format!("start /b cmd /C \"{}\"", script)])
+                .spawn();
+        }
+        
+        tracing::info!("Restart scheduled, exiting...");
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         std::process::exit(0);
     });
     

@@ -3,7 +3,7 @@
 //! Provides endpoints for theme configuration and information.
 
 use axum::{
-    extract::State,
+    extract::{State, Path},
     response::Json,
 };
 use serde::{Deserialize, Serialize};
@@ -167,4 +167,91 @@ pub async fn get_theme_settings_public(
         .collect();
 
     Ok(Json(serde_json::json!(values)))
+}
+
+const SECRET_MASK: &str = "••••••••";
+
+fn collect_secret_fields(schema: &serde_json::Value) -> std::collections::HashSet<String> {
+    let mut fields = std::collections::HashSet::new();
+    if let Some(sections) = schema.get("sections").and_then(|s| s.as_array()) {
+        for section in sections {
+            if let Some(flds) = section.get("fields").and_then(|f| f.as_array()) {
+                for field in flds {
+                    if field.get("secret").and_then(|s| s.as_bool()).unwrap_or(false) {
+                        if let Some(id) = field.get("id").and_then(|i| i.as_str()) {
+                            fields.insert(id.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    fields
+}
+
+/// GET /api/v1/admin/themes/:name/settings - Get theme settings schema + values
+pub async fn get_theme_settings_admin(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let schema = {
+        let engine = state.theme_engine.read()
+            .map_err(|e| ApiError::internal_error(format!("Theme lock: {}", e)))?;
+        engine.get_settings_schema(&name).unwrap_or(serde_json::json!({}))
+    };
+
+    let secret_fields = collect_secret_fields(&schema);
+    let prefix = format!("theme_{}_", name);
+
+    let all = state.settings_service.get_all_settings().await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    let mut values: HashMap<String, serde_json::Value> = all.into_iter()
+        .filter_map(|(k, v)| {
+            k.strip_prefix(&prefix).map(|id| (id.to_string(), serde_json::Value::String(v)))
+        })
+        .collect();
+
+    for id in &secret_fields {
+        if let Some(v) = values.get(id) {
+            if v.as_str().map(|s| !s.is_empty()).unwrap_or(false) {
+                values.insert(id.clone(), serde_json::Value::String(SECRET_MASK.to_string()));
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "schema": schema, "values": values })))
+}
+
+/// PUT /api/v1/admin/themes/:name/settings - Save theme settings
+pub async fn update_theme_settings_admin(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let schema = {
+        let engine = state.theme_engine.read()
+            .map_err(|e| ApiError::internal_error(format!("Theme lock: {}", e)))?;
+        engine.get_settings_schema(&name).unwrap_or(serde_json::json!({}))
+    };
+
+    let secret_fields = collect_secret_fields(&schema);
+    let prefix = format!("theme_{}_", name);
+
+    if let Some(obj) = body.as_object() {
+        for (field_id, val) in obj {
+            let s = match val {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            // Skip masked secret fields (keep original)
+            if secret_fields.contains(field_id) && s == SECRET_MASK {
+                continue;
+            }
+            state.settings_service.set_setting(&format!("{}{}", prefix, field_id), &s).await
+                .map_err(|e| ApiError::internal_error(e.to_string()))?;
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "success": true })))
 }

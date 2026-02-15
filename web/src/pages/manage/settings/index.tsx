@@ -1,4 +1,4 @@
-﻿﻿import { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { adminApi, UpdateCheckResponse, authApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/store/auth";
@@ -10,6 +10,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -75,6 +85,7 @@ export default function SettingsPage() {
   const [updateRestarting, setUpdateRestarting] = useState(false);
   // 榛樿寮€鍚?Beta 妫€鏌ワ紝鍥犱负褰撳墠鐗堟湰鏄?beta
   const [checkBeta, setCheckBeta] = useState(true);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
 
   useEffect(() => {
     adminApi.getSettings()
@@ -228,14 +239,17 @@ export default function SettingsPage() {
     }
   };
 
-  const handlePerformUpdate = async () => {
+  const handlePerformUpdate = () => {
     if (!updateInfo?.latest_version) return;
-    const version = updateInfo.latest_version;
-    if (!window.confirm(t("settings.confirmUpdate").replace("{version}", version))) return;
-    
+    setUpdateDialogOpen(true);
+  };
+
+  const doPerformUpdate = async () => {
+    if (!updateInfo?.latest_version) return;
+    setUpdateDialogOpen(false);
     setPerformingUpdate(true);
     try {
-      await adminApi.performUpdate(version, updateInfo.is_beta);
+      await adminApi.performUpdate(updateInfo.latest_version, updateInfo.is_beta);
       toast.success(t("settings.updateSuccess"));
       setUpdateRestarting(true);
     } catch (error: any) {
@@ -733,6 +747,35 @@ export default function SettingsPage() {
         </TabsContent>
       </Tabs>
       </motion.div>
+
+      {/* Update Confirmation Dialog */}
+      <AlertDialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <RotateCw className="h-5 w-5 text-primary" />
+              {t("settings.systemUpdate")}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>{t("settings.confirmUpdate").replace("{version}", updateInfo?.latest_version || "")}</p>
+                {updateInfo?.is_beta && (
+                  <p className="text-amber-600 dark:text-amber-400 text-xs">
+                     Beta
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={doPerformUpdate}>
+              <RotateCw className="h-4 w-4 mr-2" />
+              {t("settings.performUpdate")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -65,6 +65,8 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .route("/admin/themes/github/install", axum::routing::post(theme_install::install_github_theme))
         .route("/admin/themes/install-from-repo", axum::routing::post(theme_install::install_from_repo))
         .route("/admin/themes/:name/update", axum::routing::post(theme_install::update_theme))
+        .route("/admin/themes/:name/settings", axum::routing::get(theme::get_theme_settings_admin))
+        .route("/admin/themes/:name/settings", axum::routing::put(theme::update_theme_settings_admin))
         .route("/admin/themes/:name", axum::routing::delete(theme_install::delete_theme))
         // Plugin installation routes
         .route("/admin/plugins/upload", axum::routing::post(plugin_install::upload_plugin))
