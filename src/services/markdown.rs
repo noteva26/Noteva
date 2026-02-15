@@ -405,6 +405,11 @@ impl MarkdownRenderer {
                 Event::Text(text) if in_code_block => {
                     code_content.push_str(&text);
                 }
+                // Convert soft breaks (single newline) to hard breaks (<br>)
+                // so users don't need double-newline for line breaks
+                Event::SoftBreak => {
+                    events.push(Event::HardBreak);
+                }
                 _ => {
                     events.push(event);
                 }

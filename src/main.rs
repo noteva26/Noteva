@@ -133,8 +133,15 @@ async fn main() -> Result<()> {
             .map(|s| s.value)
             .unwrap_or_else(|| config.theme.active.clone())
     };
-    let theme_engine = ThemeEngine::new(&config.theme.path, &active_theme)?;
-    tracing::debug!("Theme engine initialized: {}", active_theme);
+    let mut theme_engine = ThemeEngine::new(&config.theme.path, "default")?;
+    // If active theme is not default, switch to it
+    if active_theme != "default" {
+        let result = theme_engine.set_theme_with_fallback(&active_theme);
+        if result.used_fallback {
+            tracing::warn!("Active theme '{}' not available, using default", active_theme);
+        }
+    }
+    tracing::info!("Theme engine initialized, current: {}, default: {}", theme_engine.get_current_theme(), "default");
 
     // Initialize WASM plugin runtime
     let wasm_runtime = match noteva::plugin::PluginRuntime::new() {

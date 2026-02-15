@@ -506,5 +506,10 @@
     "failureReason": "失敗原因",
     "time": "時間",
     "showing": "顯示 {from} - {to} 條，共 {total} 條"
+  },
+  "editor": {
+    "plugins": "外掛",
+    "emoji": "表情",
+    "searchEmoji": "搜尋表情..."
   }
 }

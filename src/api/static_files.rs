@@ -43,12 +43,23 @@ pub async fn serve_static(
     
     // /themes/* -> serve theme static files (preview images, etc.)
     if path.starts_with("/themes/") {
-        return serve_theme_static(path).await;
+        return serve_theme_static(path, &state).await;
     }
     
     // /noteva-sdk.js and /noteva-sdk.css -> serve SDK files
     if path == "/noteva-sdk.js" || path == "/noteva-sdk.css" {
         return serve_sdk_file(path).await;
+    }
+    
+    // Root-level static files (e.g. /logo.png, /favicon.ico) -> try admin assets first
+    // These are public resources used by both admin panel and themes
+    {
+        let asset_path = path.trim_start_matches('/');
+        if asset_path.contains('.') && !asset_path.contains('/') {
+            if let Some(content) = AdminAssets::get(asset_path) {
+                return build_response(asset_path, &content.data);
+            }
+        }
     }
     
     // /manage/* -> admin assets
@@ -86,14 +97,19 @@ pub async fn serve_static(
 
 /// Serve theme static files (preview images, etc.) from disk
 /// Path format: /themes/{theme_name}/{file}
-async fn serve_theme_static(path: &str) -> Response {
+async fn serve_theme_static(path: &str, state: &AppState) -> Response {
     // path = /themes/default/preview.png
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     
-    // For default theme preview, try embedded assets first
-    if parts.len() >= 3 && parts[1] == "default" {
-        let file_name = parts[2..].join("/");
-        // Try to serve from embedded dist folder
+    if parts.len() < 3 {
+        return not_found();
+    }
+    
+    let theme_name = parts[1]; // e.g. "pixel" or "default"
+    let file_name = parts[2..].join("/");
+    
+    // For default theme, try embedded assets first
+    if theme_name == "default" {
         if let Some(content) = DefaultThemeAssets::get(&file_name) {
             let content_type = get_content_type(&file_name);
             return Response::builder()
@@ -105,21 +121,39 @@ async fn serve_theme_static(path: &str) -> Response {
         }
     }
     
-    // Fall back to disk for all themes
-    let file_path = PathBuf::from(".").join(path.trim_start_matches('/'));
+    // Resolve actual directory name via ThemeEngine (handles short name -> dir name mapping)
+    let actual_dir = if let Ok(engine) = state.theme_engine.read() {
+        let theme_path = engine.get_theme_path(theme_name);
+        theme_path
+    } else {
+        PathBuf::from("themes").join(theme_name)
+    };
     
-    match fs::read(&file_path).await {
-        Ok(contents) => {
-            let content_type = get_content_type(path);
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, content_type)
-                .header(header::CACHE_CONTROL, "public, max-age=3600")
-                .body(Body::from(contents))
-                .unwrap()
-        }
-        Err(_) => not_found(),
+    // Try serving from theme root directory (e.g. themes/Pixel Art/preview.png)
+    let file_path = actual_dir.join(&file_name);
+    if let Ok(contents) = fs::read(&file_path).await {
+        let content_type = get_content_type(&file_name);
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::CACHE_CONTROL, "public, max-age=3600")
+            .body(Body::from(contents))
+            .unwrap();
     }
+    
+    // Also try from dist/ subdirectory
+    let dist_file_path = actual_dir.join("dist").join(&file_name);
+    if let Ok(contents) = fs::read(&dist_file_path).await {
+        let content_type = get_content_type(&file_name);
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::CACHE_CONTROL, "public, max-age=3600")
+            .body(Body::from(contents))
+            .unwrap();
+    }
+    
+    not_found()
 }
 
 /// Serve uploaded files from disk
@@ -237,7 +271,13 @@ async fn serve_theme(path: &str, state: &AppState) -> Response {
 
 /// Try to serve from user theme directory
 async fn try_user_theme(theme: &str, asset_path: &str, state: &AppState) -> Option<Response> {
-    let theme_dir = PathBuf::from("themes").join(theme).join("dist");
+    // Resolve actual directory name via ThemeEngine
+    let theme_base = if let Ok(engine) = state.theme_engine.read() {
+        engine.get_theme_path(theme)
+    } else {
+        PathBuf::from("themes").join(theme)
+    };
+    let theme_dir = theme_base.join("dist");
     
     // Try exact file match (static assets like JS, CSS, images)
     let file_path = theme_dir.join(asset_path);
@@ -248,6 +288,12 @@ async fn try_user_theme(theme: &str, asset_path: &str, state: &AppState) -> Opti
             }
         }
         return Some(build_response(asset_path, &contents));
+    }
+    
+    // If the path looks like a static file (has extension), don't SPA fallback
+    // This prevents returning index.html for missing images/fonts/etc.
+    if asset_path.contains('.') && !asset_path.ends_with(".html") {
+        return None;
     }
     
     // SPA fallback: serve index.html for all routes
@@ -275,6 +321,12 @@ async fn serve_default_theme(asset_path: &str, state: Option<&AppState>) -> Resp
             }
         }
         return build_response(asset_path, &content.data);
+    }
+
+    // If the path looks like a static file (has extension), don't SPA fallback
+    // This prevents returning index.html for missing images/fonts/etc.
+    if asset_path.contains('.') && !asset_path.ends_with(".html") {
+        return not_found();
     }
 
     // SPA fallback: serve index.html for all routes
@@ -494,7 +546,7 @@ fn build_response(path: &str, data: &[u8]) -> Response {
     let content_type = get_content_type(path);
     let cache_control = if is_immutable(path) {
         "public, max-age=31536000, immutable"
-    } else if content_type == "text/html" {
+    } else if content_type.starts_with("text/html") {
         "no-cache"
     } else {
         "public, max-age=3600"

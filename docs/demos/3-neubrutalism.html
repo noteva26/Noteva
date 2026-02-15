@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neubrutalism 博客 Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body { font-family: 'Space Grotesk', sans-serif; background: #e8e4dc; color: #1a1a1a; min-height: 100vh; }
+  
+  .container { max-width: 960px; margin: 0 auto; padding: 24px; }
+  
+  /* Nav */
+  .nav {
+    display: flex; align-items: center; justify-content: space-between; padding: 14px 20px;
+    background: #fff; border: 3px solid #1a1a1a; border-radius: 12px;
+    box-shadow: 6px 6px 0 #1a1a1a; margin-bottom: 32px;
+  }
+  .nav .logo { font-weight: 700; font-size: 1.3rem; }
+  .nav .links { display: flex; gap: 8px; }
+  .nav .links a {
+    color: #1a1a1a; text-decoration: none; font-weight: 600; font-size: 0.9rem;
+    padding: 6px 14px; border-radius: 8px; border: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .nav .links a:hover { background: #ff6b6b; color: #fff; border-color: #1a1a1a; }
+  
+  /* Header */
+  .header {
+    text-align: center; padding: 48px 24px; margin-bottom: 32px;
+    background: #ff6b6b; border: 3px solid #1a1a1a; border-radius: 16px;
+    box-shadow: 8px 8px 0 #1a1a1a;
+  }
+  .header h1 { font-size: 3rem; font-weight: 700; color: #1a1a1a; }
+  .header p { font-size: 1.1rem; margin-top: 8px; color: #1a1a1a; opacity: 0.8; }
+  
+  /* Posts grid */
+  .posts { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  
+  .post {
+    padding: 24px; border-radius: 14px;
+    background: #fff; border: 3px solid #1a1a1a;
+    box-shadow: 5px 5px 0 #1a1a1a;
+    transition: transform 0.15s, box-shadow 0.15s;
+    cursor: pointer;
+  }
+  .post:hover { transform: translate(-2px, -2px); box-shadow: 7px 7px 0 #1a1a1a; }
+  .post:active { transform: translate(2px, 2px); box-shadow: 3px 3px 0 #1a1a1a; }
+  
+  .post .tag {
+    display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px; border: 2px solid #1a1a1a; margin-bottom: 12px;
+  }
+  .tag.tech { background: #a8e6cf; }
+  .tag.life { background: #ffd3b6; }
+  .tag.tutorial { background: #dcedc1; }
+  .tag.plan { background: #d4a5ff; }
+  .tag.pinned { background: #ff6b6b; color: #fff; }
+  
+  .post h2 { font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; line-height: 1.3; }
+  .post p { font-size: 0.9rem; color: #555; line-height: 1.6; }
+  .post .meta { margin-top: 14px; font-size: 0.8rem; color: #888; font-weight: 600; }
+  
+  /* Featured */
+  .post.featured {
+    grid-column: span 2; background: #feca57;
+    display: flex; flex-direction: column;
+  }
+  .post.featured h2 { font-size: 1.7rem; }
+  
+  /* Accent post */
+  .post.dark { background: #1a1a1a; color: #fff; }
+  .post.dark p { color: rgba(255,255,255,0.6); }
+  .post.dark .meta { color: rgba(255,255,255,0.4); }
+  .post.dark .tag { color: #1a1a1a; border-color: #fff; }
+
+  @media (max-width: 768px) {
+    .posts { grid-template-columns: 1fr; }
+    .post.featured { grid-column: span 1; }
+    .header h1 { font-size: 2rem; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <nav class="nav">
+      <div class="logo">⚡ Orion</div>
+      <div class="links">
+        <a href="#">首页</a><a href="#">归档</a><a href="#">分类</a><a href="#">标签</a><a href="#">关于</a>
+      </div>
+    </nav>
+    
+    <div class="header">
+      <h1>Orion's Blog</h1>
+      <p>「睡起有茶饥有饭，行看流水坐看云」</p>
+    </div>
+    
+    <div class="posts">
+      <div class="post featured">
+        <span class="tag pinned">置顶</span>
+        <h2>2025 年度总结：从零到一的博客系统</h2>
+        <p>回顾这一年，从一个简单的想法到完整的 Rust 博客系统，记录每一步的成长与思考。这是一段关于代码、设计和坚持的故事。</p>
+        <div class="meta">2025/12/31 · 阅读 12 分钟 · 128 次浏览</div>
+      </div>
+      
+      <div class="post dark">
+        <span class="tag tech">技术</span>
+        <h2>Rust + WASM 插件系统设计</h2>
+        <p>用 wasmtime 构建安全高效的插件运行时。</p>
+        <div class="meta">2025/11/15</div>
+      </div>
+      
+      <div class="post">
+        <span class="tag life">随笔</span>
+        <h2>ac.nz 还是没有消息</h2>
+        <p>上周又发送了无法验证的邮箱给客服，到现在还是没有回信。</p>
+        <div class="meta">2026/02/03</div>
+      </div>
+      
+      <div class="post">
+        <span class="tag tutorial">教程</span>
+        <h2>从零搭建你的 Noteva 博客</h2>
+        <p>一步步教你部署、配置主题、安装插件。</p>
+        <div class="meta">2025/10/20</div>
+      </div>
+      
+      <div class="post">
+        <span class="tag plan">计划</span>
+        <h2>GIF 支持 + 音频支持</h2>
+        <p>下一个版本的功能规划。</p>
+        <div class="meta">2026/02/07</div>
+      </div>
+      
+      <div class="post dark">
+        <span class="tag tech">开源</span>
+        <h2>Noteva v0.1.5 正式发布</h2>
+        <p>主题切换修复、MySQL 兼容、插件商店上线。</p>
+        <div class="meta">2026/02/15</div>
+      </div>
+      
+      <div class="post">
+        <span class="tag life">生活</span>
+        <h2>春节前的碎碎念</h2>
+        <p>除夕将至，聊聊这一年的感悟。</p>
+        <div class="meta">2026/02/14</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

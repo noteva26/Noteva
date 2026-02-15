@@ -267,6 +267,29 @@ impl Plugin {
         fs::read_to_string(&path).ok()
     }
     
+    /// Get locale files from locales/ directory
+    /// Returns Vec<(locale_name, json_content)> e.g. [("zh-CN", "{...}"), ("en", "{...}")]
+    pub fn get_locales(&self) -> Vec<(String, String)> {
+        let locales_dir = self.path.join("locales");
+        let mut result = Vec::new();
+        if let Ok(entries) = fs::read_dir(&locales_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                    if let Some(locale) = path.file_stem().and_then(|s| s.to_str()) {
+                        if let Ok(content) = fs::read_to_string(&path) {
+                            // Validate it's valid JSON
+                            if serde_json::from_str::<serde_json::Value>(&content).is_ok() {
+                                result.push((locale.to_string(), content));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        result
+    }
+
     /// Get settings.json schema if exists
     pub fn get_settings_schema(&self) -> Option<serde_json::Value> {
         let path = self.path.join("settings.json");
@@ -591,8 +614,27 @@ impl PluginManager {
     pub fn get_combined_frontend_js(&self) -> String {
         let mut js = String::new();
         for plugin in self.get_enabled() {
+            let has_js = plugin.get_frontend_js().is_some();
+            let locales = plugin.get_locales();
+            
+            if !has_js && locales.is_empty() {
+                continue;
+            }
+            
+            js.push_str(&format!("\n// Plugin: {}\n", plugin.metadata.id));
+            
+            // Inject locale data before plugin JS
+            if !locales.is_empty() {
+                for (locale, content) in &locales {
+                    // Wrap translations under plugin ID namespace
+                    js.push_str(&format!(
+                        "if(typeof Noteva!==\"undefined\")Noteva.i18n.addMessages(\"{}\",{{\"{}\": {}}});\n",
+                        locale, plugin.metadata.id, content
+                    ));
+                }
+            }
+            
             if let Some(content) = plugin.get_frontend_js() {
-                js.push_str(&format!("\n// Plugin: {}\n", plugin.metadata.id));
                 js.push_str(&content);
                 js.push('\n');
             }

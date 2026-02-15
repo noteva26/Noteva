@@ -70,6 +70,20 @@ img.twemoji {
   display: inline-block;
 }
 
+/* Emoji picker: keep twemoji icons small & centered */
+.emoji-picker-grid img.twemoji,
+.emoji-picker-grid .twemoji {
+  height: 22px !important;
+  width: 22px !important;
+  margin: 0 !important;
+}
+.emoji-picker-sidebar img.twemoji,
+.emoji-picker-sidebar .twemoji {
+  height: 20px !important;
+  width: 20px !important;
+  margin: 0 !important;
+}
+
 /* Shimmer skeleton animation - S级骨架屏效果 */
 .skeleton-shimmer {
   background: linear-gradient(
@@ -98,4 +112,13 @@ img.twemoji {
 .hide-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Vditor editor integration */
+.vditor-container .vditor {
+  border-radius: var(--radius);
+  border-color: hsl(var(--border));
+}
+.vditor-container .vditor--fullscreen {
+  z-index: 50;
 }

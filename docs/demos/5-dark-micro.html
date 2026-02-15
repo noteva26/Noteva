@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>暗色微交互博客 Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    font-family: 'Inter', sans-serif; background: #0a0a0a; color: #ededed;
+    min-height: 100vh;
+  }
+  
+  .container { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+  
+  /* Nav */
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .nav .logo { font-weight: 600; font-size: 1rem; display: flex; align-items: center; gap: 8px; }
+  .nav .logo .dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  
+  .nav .links { display: flex; gap: 24px; }
+  .nav .links a {
+    color: rgba(255,255,255,0.4); text-decoration: none; font-size: 0.85rem; font-weight: 500;
+    transition: color 0.3s; position: relative;
+  }
+  .nav .links a:hover { color: #ededed; }
+  .nav .links a::after {
+    content: ''; position: absolute; bottom: -4px; left: 0; width: 0; height: 1.5px;
+    background: linear-gradient(90deg, #10b981, #3b82f6); transition: width 0.3s;
+  }
+  .nav .links a:hover::after { width: 100%; }
+  
+  /* Header */
+  .header {
+    padding: 80px 0 60px; text-align: center;
+    position: relative;
+  }
+  .header::before {
+    content: ''; position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
+    width: 400px; height: 400px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .header h1 {
+    font-size: 2.8rem; font-weight: 700; letter-spacing: -1px;
+    background: linear-gradient(135deg, #ededed 0%, rgba(255,255,255,0.6) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .header p { color: rgba(255,255,255,0.35); margin-top: 12px; font-size: 1rem; font-weight: 300; }
+  
+  /* Stats bar */
+  .stats {
+    display: flex; justify-content: center; gap: 40px; padding: 24px 0;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    margin-bottom: 48px;
+  }
+  .stat { text-align: center; }
+  .stat .num { font-size: 1.5rem; font-weight: 700; background: linear-gradient(135deg, #10b981, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .stat .label { font-size: 0.7rem; color: rgba(255,255,255,0.3); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+  
+  /* Posts */
+  .posts { display: flex; flex-direction: column; gap: 2px; }
+  
+  .post {
+    display: flex; align-items: flex-start; gap: 20px;
+    padding: 24px 20px; border-radius: 12px;
+    transition: background 0.3s; cursor: pointer;
+    position: relative;
+  }
+  .post:hover { background: rgba(255,255,255,0.03); }
+  
+  /* Hover glow effect */
+  .post::before {
+    content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 0; border-radius: 2px;
+    background: linear-gradient(180deg, #10b981, #3b82f6);
+    transition: height 0.3s;
+  }
+  .post:hover::before { height: 60%; }
+  
+  .post .date-col {
+    min-width: 60px; text-align: right; padding-top: 2px;
+  }
+  .post .date-col .day { font-size: 1.5rem; font-weight: 700; color: rgba(255,255,255,0.15); line-height: 1; }
+  .post .date-col .month { font-size: 0.65rem; color: rgba(255,255,255,0.2); text-transform: uppercase; letter-spacing: 1px; }
+  
+  .post .content { flex: 1; }
+  .post .tag {
+    display: inline-block; padding: 2px 10px; border-radius: 4px; font-size: 0.65rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;
+  }
+  .tag.tech { background: rgba(59,130,246,0.15); color: #60a5fa; }
+  .tag.life { background: rgba(244,114,182,0.15); color: #f472b6; }
+  .tag.tutorial { background: rgba(16,185,129,0.15); color: #34d399; }
+  .tag.plan { background: rgba(168,85,247,0.15); color: #c084fc; }
+  .tag.pinned { background: rgba(251,191,36,0.15); color: #fbbf24; }
+  
+  .post h2 { font-size: 1.15rem; font-weight: 600; margin-bottom: 6px; transition: color 0.2s; }
+  .post:hover h2 { color: #fff; }
+  .post p { font-size: 0.85rem; color: rgba(255,255,255,0.35); line-height: 1.6; }
+  .post .post-meta { display: flex; gap: 16px; margin-top: 10px; font-size: 0.75rem; color: rgba(255,255,255,0.2); }
+  
+  /* Featured */
+  .post.featured {
+    background: linear-gradient(135deg, rgba(59,130,246,0.05), rgba(16,185,129,0.05));
+    border: 1px solid rgba(255,255,255,0.06); border-radius: 16px;
+    margin-bottom: 8px;
+  }
+  .post.featured h2 { font-size: 1.4rem; }
+  .post.featured::before { height: 70%; }
+
+  @media (max-width: 768px) {
+    .header h1 { font-size: 2rem; }
+    .post .date-col { display: none; }
+    .stats { gap: 24px; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <nav class="nav">
+      <div class="logo"><span class="dot"></span> Orion</div>
+      <div class="links">
+        <a href="#">首页</a><a href="#">归档</a><a href="#">分类</a><a href="#">关于</a>
+      </div>
+    </nav>
+    
+    <div class="header">
+      <h1>Orion's Blog</h1>
+      <p>「睡起有茶饥有饭，行看流水坐看云」</p>
+    </div>
+    
+    <div class="stats">
+      <div class="stat"><div class="num">42</div><div class="label">文章</div></div>
+      <div class="stat"><div class="num">1.2k</div><div class="label">访客</div></div>
+      <div class="stat"><div class="num">86</div><div class="label">评论</div></div>
+      <div class="stat"><div class="num">7</div><div class="label">分类</div></div>
+    </div>
+    
+    <div class="posts">
+      <div class="post featured">
+        <div class="date-col"><div class="day">31</div><div class="month">Dec</div></div>
+        <div class="content">
+          <span class="tag pinned">置顶</span>
+          <h2>2025 年度总结：从零到一的博客系统</h2>
+          <p>回顾这一年，从一个简单的想法到完整的 Rust 博客系统，记录每一步的成长与思考。</p>
+          <div class="post-meta"><span>阅读 12 分钟</span><span>128 次浏览</span><span>12 条评论</span></div>
+        </div>
+      </div>
+      
+      <div class="post">
+        <div class="date-col"><div class="day">15</div><div class="month">Nov</div></div>
+        <div class="content">
+          <span class="tag tech">技术</span>
+          <h2>Rust + WASM 插件系统设计实战</h2>
+          <p>用 wasmtime 构建安全高效的插件运行时，支持热加载和沙箱隔离。</p>
+          <div class="post-meta"><span>阅读 8 分钟</span><span>86 次浏览</span></div>
+        </div>
+      </div>
+      
+      <div class="post">
+        <div class="date-col"><div class="day">07</div><div class="month">Feb</div></div>
+        <div class="content">
+          <span class="tag plan">计划</span>
+          <h2>GIF 支持 + 音频支持</h2>
+          <p>下一个版本的功能规划，让博客支持更丰富的媒体内容。</p>
+          <div class="post-meta"><span>阅读 3 分钟</span><span>6 次浏览</span></div>
+        </div>
+      </div>
+      
+      <div class="post">
+        <div class="date-col"><div class="day">03</div><div class="month">Feb</div></div>
+        <div class="content">
+          <span class="tag life">随笔</span>
+          <h2>ac.nz 还是没有消息</h2>
+          <p>上周又发送了无法验证的邮箱给客服，到现在还是没有回信，不知道还有没有转机。</p>
+          <div class="post-meta"><span>阅读 2 分钟</span><span>3 次浏览</span></div>
+        </div>
+      </div>
+      
+      <div class="post">
+        <div class="date-col"><div class="day">15</div><div class="month">Feb</div></div>
+        <div class="content">
+          <span class="tag tech">开源</span>
+          <h2>Noteva v0.1.5 正式发布</h2>
+          <p>主题切换修复、MySQL 兼容、插件商店上线，一个更稳定的版本。</p>
+          <div class="post-meta"><span>阅读 5 分钟</span><span>32 次浏览</span></div>
+        </div>
+      </div>
+      
+      <div class="post">
+        <div class="date-col"><div class="day">14</div><div class="month">Feb</div></div>
+        <div class="content">
+          <span class="tag life">生活</span>
+          <h2>春节前的碎碎念</h2>
+          <p>除夕将至，聊聊这一年的感悟，以及对新一年的期待。</p>
+          <div class="post-meta"><span>阅读 4 分钟</span><span>15 次浏览</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -201,6 +201,9 @@ pub async fn install_github_theme(
 #[derive(Debug, Deserialize)]
 pub struct ThemeInstallFromRepoRequest {
     pub repo: String,
+    /// Store slug for download count tracking (optional)
+    #[serde(default)]
+    pub slug: Option<String>,
 }
 
 /// POST /api/v1/admin/themes/install-from-repo - Install theme from GitHub repo
@@ -234,7 +237,11 @@ pub async fn install_from_repo(
             extract_zip(&data, temp_dir.path())?
         };
 
-        return install_theme_from_dir(temp_dir.path(), &extracted_name, &state).await;
+        let result = install_theme_from_dir(temp_dir.path(), &extracted_name, &state).await?;
+        if let Some(slug) = &body.slug {
+            notify_store_download(&state, slug);
+        }
+        return Ok(result);
     }
 
     // 2) Fallback: download repo ZIP, validate first
@@ -250,7 +257,11 @@ pub async fn install_from_repo(
         .map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
     let extracted_name = extract_zip(&data, temp_dir.path())?;
 
-    install_theme_from_dir(temp_dir.path(), &extracted_name, &state).await
+    let result = install_theme_from_dir(temp_dir.path(), &extracted_name, &state).await?;
+    if let Some(slug) = &body.slug {
+        notify_store_download(&state, slug);
+    }
+    Ok(result)
 }
 
 /// DELETE /api/v1/admin/themes/:name - Delete a theme
@@ -443,7 +454,7 @@ pub async fn update_theme(
         .to_string();
 
     // Use install_from_repo logic
-    let body = ThemeInstallFromRepoRequest { repo: url };
+    let body = ThemeInstallFromRepoRequest { repo: url, slug: None };
     let _result = install_from_repo(State(state.clone()), _user, Json(body)).await?;
 
     // Read new version
@@ -609,7 +620,8 @@ async fn install_theme_from_dir(
     let json: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| ApiError::internal_error(format!("Parse theme.json error: {}", e)))?;
 
-    let theme_id = json.get("name")
+    let theme_id = json.get("short")
+        .or_else(|| json.get("name"))
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::validation_error("theme.json missing 'name' field"))?
         .to_string();
@@ -647,4 +659,25 @@ async fn install_theme_from_dir(
         theme_name: theme_id,
         message: format!("主题「{}」安装成功", display_name),
     }))
+}
+
+/// Notify store about a download (fire-and-forget, non-blocking)
+fn notify_store_download(state: &AppState, slug: &str) {
+    let store_url = state.store_url.as_deref()
+        .unwrap_or("https://store.noteva.org")
+        .to_string();
+    let slug = slug.to_string();
+    tokio::spawn(async move {
+        let client = match reqwest::Client::builder()
+            .user_agent("Noteva")
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let url = format!("{}/api/v1/store/download/{}", store_url, slug);
+        let _ = client.post(&url).send().await;
+    });
 }

@@ -91,14 +91,14 @@ impl ThemeEngine {
             hook_manager: None,
         };
 
+        // Cache theme metadata FIRST so dir_name resolution works
+        engine.refresh_theme_cache()?;
+
         // Load templates for the default theme (may be empty for embedded themes)
         // This won't fail if there are no .html templates - embedded themes serve static files
         if let Err(e) = engine.load_theme_templates(default_theme) {
             tracing::warn!("No templates found for theme '{}': {} (this is OK for embedded themes)", default_theme, e);
         }
-        
-        // Cache theme metadata
-        engine.refresh_theme_cache()?;
 
         Ok(engine)
     }
@@ -128,7 +128,11 @@ impl ThemeEngine {
 
     /// Load templates for a specific theme
     fn load_theme_templates(&mut self, theme_name: &str) -> Result<()> {
-        let theme_path = self.themes_path.join(theme_name);
+        // Resolve actual directory name from cache
+        let dir_name = self.theme_cache.get(theme_name)
+            .map(|info| info.dir_name.clone())
+            .unwrap_or_else(|| theme_name.to_string());
+        let theme_path = self.themes_path.join(&dir_name);
         
         if !theme_path.exists() {
             return Err(ThemeError::NotFound(theme_name.to_string()).into());
@@ -216,7 +220,10 @@ impl ThemeEngine {
                 if let Some(theme_name) = path.file_name().and_then(|n| n.to_str()) {
                     match self.load_theme_metadata(theme_name) {
                         Ok(info) => {
-                            self.theme_cache.insert(theme_name.to_string(), info);
+                            // Use the theme's short name (info.name) as cache key,
+                            // not the directory name, so lookups by short name work
+                            let key = info.name.clone();
+                            self.theme_cache.insert(key, info);
                         }
                         Err(e) => {
                             tracing::warn!("Failed to load theme metadata for '{}': {}", theme_name, e);
@@ -233,6 +240,7 @@ impl ThemeEngine {
     fn load_theme_metadata(&self, theme_name: &str) -> Result<ThemeInfo> {
         let theme_json_path = self.themes_path.join(theme_name).join("theme.json");
         let theme_toml_path = self.themes_path.join(theme_name).join("theme.toml");
+        let has_settings = self.themes_path.join(theme_name).join("settings.json").exists();
         
         // Try theme.json first (for ALL themes, including default)
         if theme_json_path.exists() {
@@ -249,6 +257,7 @@ impl ThemeEngine {
 
             return Ok(ThemeInfo {
                 name: metadata.short.unwrap_or_else(|| theme_name.to_string()),
+                dir_name: theme_name.to_string(),
                 display_name: metadata.name,
                 description: metadata.description,
                 version: metadata.version,
@@ -259,6 +268,7 @@ impl ThemeEngine {
                 compatible: version_check.compatible,
                 compatibility_message: version_check.message,
                 config: metadata.configuration,
+                has_settings,
             });
         }
         
@@ -272,6 +282,7 @@ impl ThemeEngine {
 
             return Ok(ThemeInfo {
                 name: metadata.theme.name,
+                dir_name: theme_name.to_string(),
                 display_name: metadata.theme.display_name,
                 description: metadata.theme.description,
                 version: metadata.theme.version,
@@ -282,6 +293,7 @@ impl ThemeEngine {
                 compatible: true,
                 compatibility_message: None,
                 config: None,
+                has_settings,
             });
         }
         
@@ -290,6 +302,7 @@ impl ThemeEngine {
             let version_check = check_version_requirement(">=0.0.8", NOTEVA_VERSION);
             return Ok(ThemeInfo {
                 name: self.default_theme.clone(),
+                dir_name: theme_name.to_string(),
                 display_name: "Noteva Default Theme".to_string(),
                 description: Some("The default theme for Noteva blog system".to_string()),
                 version: env!("CARGO_PKG_VERSION").to_string(),
@@ -300,12 +313,14 @@ impl ThemeEngine {
                 compatible: version_check.compatible,
                 compatibility_message: version_check.message,
                 config: None,
+                has_settings,
             });
         }
         
         // Return default metadata if no config file exists
         Ok(ThemeInfo {
             name: theme_name.to_string(),
+            dir_name: theme_name.to_string(),
             display_name: theme_name.to_string(),
             description: None,
             version: "0.0.0".to_string(),
@@ -316,6 +331,7 @@ impl ThemeEngine {
             compatible: true,
             compatibility_message: None,
             config: None,
+            has_settings,
         })
     }
 
@@ -382,7 +398,13 @@ impl ThemeEngine {
     /// 
     /// Triggers `theme_switch` hook with old and new theme names
     pub fn set_theme(&mut self, theme_name: &str) -> Result<()> {
-        let theme_path = self.themes_path.join(theme_name);
+        // Resolve actual directory name: theme_name might be a short name (e.g. "pixel")
+        // while the directory is named differently (e.g. "Pixel Art")
+        let dir_name = self.theme_cache.get(theme_name)
+            .map(|info| info.dir_name.clone())
+            .unwrap_or_else(|| theme_name.to_string());
+        
+        let theme_path = self.themes_path.join(&dir_name);
         
         if !theme_path.exists() {
             return Err(ThemeError::NotFound(theme_name.to_string()).into());
@@ -650,6 +672,17 @@ impl ThemeEngine {
         themes
     }
 
+    /// Get the settings.json schema for a theme
+    pub fn get_settings_schema(&self, theme_name: &str) -> Option<serde_json::Value> {
+        let dir_name = self.theme_cache.get(theme_name)
+            .map(|info| info.dir_name.clone())
+            .unwrap_or_else(|| theme_name.to_string());
+        let path = self.themes_path.join(dir_name).join("settings.json");
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+    }
+
     /// Refresh themes (rescan themes directory)
     ///
     /// This method rescans the themes directory and updates the theme cache.
@@ -663,19 +696,27 @@ impl ThemeEngine {
     /// This method reloads all templates from disk for the current theme.
     /// Useful during development or when theme files are modified.
     pub fn reload_templates(&mut self) -> Result<()> {
-        self.load_theme_templates(&self.current_theme.clone())?;
         self.refresh_theme_cache()?;
+        self.load_theme_templates(&self.current_theme.clone())?;
         Ok(())
     }
 
     /// Check if a theme exists
     pub fn theme_exists(&self, theme_name: &str) -> bool {
+        // Check by short name in cache first, then fall back to directory name
+        if self.theme_cache.contains_key(theme_name) {
+            return true;
+        }
         self.themes_path.join(theme_name).exists()
     }
 
     /// Get the path to a theme directory
     pub fn get_theme_path(&self, theme_name: &str) -> PathBuf {
-        self.themes_path.join(theme_name)
+        // Resolve actual directory name from cache
+        let dir_name = self.theme_cache.get(theme_name)
+            .map(|info| info.dir_name.clone())
+            .unwrap_or_else(|| theme_name.to_string());
+        self.themes_path.join(dir_name)
     }
 
     /// Get theme info for a specific theme
@@ -750,8 +791,10 @@ pub struct ThemeRequirements {
 /// Information about a theme
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeInfo {
-    /// Theme name (identifier)
+    /// Theme name (identifier, from "short" field in theme.json or directory name)
     pub name: String,
+    /// Actual directory name on disk (may differ from name if "short" field is used)
+    pub dir_name: String,
     /// Theme display name
     pub display_name: String,
     /// Theme description
@@ -772,6 +815,8 @@ pub struct ThemeInfo {
     pub compatibility_message: Option<String>,
     /// Theme configuration from theme.json
     pub config: Option<serde_json::Value>,
+    /// Whether theme has settings.json
+    pub has_settings: bool,
 }
 
 /// Standard template variables (Requirement 6.5)

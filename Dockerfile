@@ -63,9 +63,6 @@ RUN apt-get update && apt-get install -y \
 # Copy binary from builder
 COPY --from=rust-builder /app/target/release/noteva .
 
-# Copy default plugins
-COPY plugins ./plugins
-
 # Copy config example
 COPY config.example.yml ./config.example.yml
 

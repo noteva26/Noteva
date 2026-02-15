@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glassmorphism 博客 Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #0c0c1d 0%, #1a1a3e 30%, #2d1b69 60%, #0c0c1d 100%);
+    color: #e0e0ff;
+    overflow-x: hidden;
+  }
+  
+  /* Animated background blobs */
+  .bg-blob {
+    position: fixed; border-radius: 50%; filter: blur(80px); opacity: 0.4; z-index: 0;
+    animation: float 20s ease-in-out infinite;
+  }
+  .bg-blob.b1 { width: 500px; height: 500px; background: #7c3aed; top: -100px; left: -100px; }
+  .bg-blob.b2 { width: 400px; height: 400px; background: #ec4899; bottom: -50px; right: -50px; animation-delay: -7s; }
+  .bg-blob.b3 { width: 300px; height: 300px; background: #06b6d4; top: 40%; left: 50%; animation-delay: -14s; }
+  
+  @keyframes float {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(30px, -30px) scale(1.05); }
+    66% { transform: translate(-20px, 20px) scale(0.95); }
+  }
+  
+  .container { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; padding: 24px; }
+  
+  /* Glass nav */
+  .nav {
+    display: flex; align-items: center; justify-content: space-between; padding: 16px 24px;
+    background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; margin-bottom: 32px;
+  }
+  .nav .logo { font-weight: 700; font-size: 1.2rem; }
+  .nav .links { display: flex; gap: 20px; }
+  .nav .links a { color: rgba(255,255,255,0.7); text-decoration: none; font-size: 0.9rem; transition: color 0.2s; }
+  .nav .links a:hover { color: #fff; }
+  
+  /* Header */
+  .header {
+    text-align: center; padding: 48px 24px;
+    background: rgba(255,255,255,0.03); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 24px; margin-bottom: 24px;
+  }
+  .header h1 { font-size: 2.5rem; font-weight: 700; background: linear-gradient(135deg, #c084fc, #60a5fa, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .header p { color: rgba(255,255,255,0.5); margin-top: 12px; font-size: 1rem; font-weight: 300; }
+  
+  /* Glass cards */
+  .posts { display: flex; flex-direction: column; gap: 16px; }
+  
+  .post {
+    padding: 28px; border-radius: 20px;
+    background: rgba(255,255,255,0.05); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.1);
+    transition: background 0.3s, border-color 0.3s, transform 0.3s;
+    cursor: pointer;
+  }
+  .post:hover {
+    background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2);
+    transform: translateY(-2px);
+  }
+  
+  .post .tag {
+    display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.7rem; font-weight: 600;
+    background: rgba(124,58,237,0.3); border: 1px solid rgba(124,58,237,0.4); color: #c084fc;
+    margin-bottom: 12px;
+  }
+  .post .tag.life { background: rgba(236,72,153,0.2); border-color: rgba(236,72,153,0.3); color: #f472b6; }
+  .post .tag.tutorial { background: rgba(6,182,212,0.2); border-color: rgba(6,182,212,0.3); color: #22d3ee; }
+  
+  .post h2 { font-size: 1.3rem; font-weight: 600; margin-bottom: 8px; color: #f0f0ff; }
+  .post p { font-size: 0.9rem; color: rgba(255,255,255,0.5); line-height: 1.6; }
+  .post .meta { display: flex; gap: 16px; margin-top: 14px; font-size: 0.8rem; color: rgba(255,255,255,0.35); }
+  
+  /* Featured post */
+  .post.featured {
+    background: linear-gradient(135deg, rgba(124,58,237,0.15), rgba(236,72,153,0.1));
+    border-color: rgba(124,58,237,0.3);
+  }
+  .post.featured h2 { font-size: 1.6rem; }
+
+  @media (max-width: 768px) {
+    .header h1 { font-size: 1.8rem; }
+    .post.featured h2 { font-size: 1.3rem; }
+  }
+</style>
+</head>
+<body>
+  <div class="bg-blob b1"></div>
+  <div class="bg-blob b2"></div>
+  <div class="bg-blob b3"></div>
+  
+  <div class="container">
+    <nav class="nav">
+      <div class="logo">✦ Orion</div>
+      <div class="links">
+        <a href="#">首页</a><a href="#">归档</a><a href="#">分类</a><a href="#">关于</a>
+      </div>
+    </nav>
+    
+    <div class="header">
+      <h1>Orion's Blog</h1>
+      <p>「睡起有茶饥有饭，行看流水坐看云」</p>
+    </div>
+    
+    <div class="posts">
+      <div class="post featured">
+        <span class="tag">技术</span>
+        <h2>2025 年度总结：从零到一的博客系统</h2>
+        <p>回顾这一年，从一个简单的想法到完整的 Rust 博客系统，记录每一步的成长与思考。这是一段关于代码、设计和坚持的故事。</p>
+        <div class="meta"><span>📅 2025/12/31</span><span>👁 128</span><span>💬 12</span></div>
+      </div>
+      
+      <div class="post">
+        <span class="tag tutorial">教程</span>
+        <h2>Rust + WASM 插件系统设计实战</h2>
+        <p>如何用 wasmtime 构建一个安全、高效的插件运行时，支持热加载和沙箱隔离。</p>
+        <div class="meta"><span>📅 2025/11/15</span><span>👁 86</span><span>💬 5</span></div>
+      </div>
+      
+      <div class="post">
+        <span class="tag life">随笔</span>
+        <h2>ac.nz 还是没有消息</h2>
+        <p>上周又发送了无法验证的邮箱给客服，到现在还是没有回信，不知道还有没有转机。</p>
+        <div class="meta"><span>📅 2026/02/03</span><span>👁 3</span><span>💬 0</span></div>
+      </div>
+      
+      <div class="post">
+        <span class="tag">技术</span>
+        <h2>计划：GIF 支持 + 音频支持</h2>
+        <p>下一个版本的功能规划，让博客支持更丰富的媒体内容。</p>
+        <div class="meta"><span>📅 2026/02/07</span><span>👁 6</span><span>💬 0</span></div>
+      </div>
+      
+      <div class="post">
+        <span class="tag life">生活</span>
+        <h2>春节前的碎碎念</h2>
+        <p>除夕将至，聊聊这一年的感悟，以及对新一年的期待。</p>
+        <div class="meta"><span>📅 2026/02/14</span><span>👁 15</span><span>💬 3</span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

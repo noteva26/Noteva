@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fusion 博客 Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Inter:wght@300;400;500;600;700&display=swap');
+  
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  /* ========== Light Theme (default) ========== */
+  :root {
+    --bg: #f8f7f4;
+    --bg-card: rgba(255,255,255,0.65);
+    --bg-card-hover: rgba(255,255,255,0.9);
+    --bg-nav: rgba(255,255,255,0.6);
+    --text: #1a1a1a;
+    --text-secondary: #666;
+    --text-muted: #999;
+    --border: rgba(0,0,0,0.08);
+    --border-card: rgba(0,0,0,0.06);
+    --shadow: 0 2px 20px rgba(0,0,0,0.04);
+    --shadow-hover: 0 8px 32px rgba(0,0,0,0.08);
+    --accent-gradient: linear-gradient(135deg, #6366f1, #8b5cf6);
+    --accent: #6366f1;
+    --blur: 16px;
+    --tag-tech-bg: rgba(59,130,246,0.1);
+    --tag-tech-color: #3b82f6;
+    --tag-tech-border: rgba(59,130,246,0.25);
+    --tag-life-bg: rgba(244,114,182,0.1);
+    --tag-life-color: #ec4899;
+    --tag-life-border: rgba(244,114,182,0.25);
+    --tag-tutorial-bg: rgba(16,185,129,0.1);
+    --tag-tutorial-color: #10b981;
+    --tag-tutorial-border: rgba(16,185,129,0.25);
+    --tag-plan-bg: rgba(168,85,247,0.1);
+    --tag-plan-color: #8b5cf6;
+    --tag-plan-border: rgba(168,85,247,0.25);
+    --tag-pinned-bg: #fbbf24;
+    --tag-pinned-color: #1a1a1a;
+    --tag-pinned-border: #f59e0b;
+    --featured-bg: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.06));
+    --featured-border: rgba(99,102,241,0.15);
+    --stats-num: linear-gradient(135deg, #6366f1, #8b5cf6);
+  }
+
+  /* ========== Dark Theme ========== */
+  [data-theme="dark"] {
+    --bg: #0e0e11;
+    --bg-card: rgba(255,255,255,0.04);
+    --bg-card-hover: rgba(255,255,255,0.08);
+    --bg-nav: rgba(255,255,255,0.04);
+    --text: #e8e8ed;
+    --text-secondary: rgba(255,255,255,0.5);
+    --text-muted: rgba(255,255,255,0.3);
+    --border: rgba(255,255,255,0.06);
+    --border-card: rgba(255,255,255,0.06);
+    --shadow: 0 2px 20px rgba(0,0,0,0.2);
+    --shadow-hover: 0 8px 32px rgba(0,0,0,0.3);
+    --accent-gradient: linear-gradient(135deg, #818cf8, #a78bfa);
+    --accent: #818cf8;
+    --blur: 20px;
+    --tag-tech-bg: rgba(59,130,246,0.15);
+    --tag-tech-color: #60a5fa;
+    --tag-tech-border: rgba(59,130,246,0.3);
+    --tag-life-bg: rgba(244,114,182,0.15);
+    --tag-life-color: #f472b6;
+    --tag-life-border: rgba(244,114,182,0.3);
+    --tag-tutorial-bg: rgba(16,185,129,0.15);
+    --tag-tutorial-color: #34d399;
+    --tag-tutorial-border: rgba(16,185,129,0.3);
+    --tag-plan-bg: rgba(168,85,247,0.15);
+    --tag-plan-color: #c084fc;
+    --tag-plan-border: rgba(168,85,247,0.3);
+    --tag-pinned-bg: rgba(251,191,36,0.2);
+    --tag-pinned-color: #fbbf24;
+    --tag-pinned-border: rgba(251,191,36,0.35);
+    --featured-bg: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.08));
+    --featured-border: rgba(99,102,241,0.2);
+    --stats-num: linear-gradient(135deg, #818cf8, #a78bfa);
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    transition: background 0.4s, color 0.4s;
+    overflow-x: hidden;
+  }
+
+  /* Subtle background decoration */
+  body::before {
+    content: ''; position: fixed; top: -200px; right: -200px;
+    width: 600px; height: 600px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,102,241,0.06) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+  body::after {
+    content: ''; position: fixed; bottom: -150px; left: -150px;
+    width: 500px; height: 500px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(236,72,153,0.04) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+  [data-theme="dark"] body::before { background: radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 70%); }
+  [data-theme="dark"] body::after { background: radial-gradient(circle, rgba(236,72,153,0.06) 0%, transparent 70%); }
+
+  .container { position: relative; z-index: 1; max-width: 1060px; margin: 0 auto; padding: 0 24px; }
+
+  /* ===== GLASS NAV (from Glassmorphism) ===== */
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px; margin: 20px 0 32px;
+    background: var(--bg-nav);
+    backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur));
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    transition: background 0.4s, border-color 0.4s;
+  }
+  .nav .logo {
+    font-family: 'Noto Serif SC', serif;
+    font-weight: 700; font-size: 1.15rem; letter-spacing: 1px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  /* Breathing dot (from Dark Micro) */
+  .nav .logo .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .nav .right { display: flex; align-items: center; gap: 20px; }
+  .nav .links { display: flex; gap: 20px; }
+  .nav .links a {
+    color: var(--text-muted); text-decoration: none; font-size: 0.85rem; font-weight: 500;
+    transition: color 0.3s; position: relative;
+  }
+  .nav .links a:hover { color: var(--text); }
+  /* Gradient underline on hover (from Dark Micro) */
+  .nav .links a::after {
+    content: ''; position: absolute; bottom: -3px; left: 0; width: 0; height: 1.5px;
+    background: var(--accent-gradient); border-radius: 1px; transition: width 0.3s;
+  }
+  .nav .links a:hover::after { width: 100%; }
+
+  /* Theme toggle */
+  .theme-toggle {
+    width: 36px; height: 36px; border-radius: 10px; border: 2px solid var(--border);
+    background: transparent; cursor: pointer; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color 0.3s, transform 0.2s;
+  }
+  .theme-toggle:hover { border-color: var(--accent); transform: scale(1.05); }
+
+  /* ===== MASTHEAD (from Magazine) ===== */
+  .masthead {
+    text-align: center; padding: 48px 24px 40px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+  }
+  .masthead h1 {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 2.8rem; font-weight: 700; letter-spacing: 2px;
+  }
+  .masthead .subtitle {
+    font-size: 1rem; color: var(--text-muted); margin-top: 10px;
+    font-style: italic; font-weight: 300;
+  }
+
+  /* ===== STATS BAR (from Dark Micro) ===== */
+  .stats {
+    display: flex; justify-content: center; gap: 48px;
+    padding: 20px 0; margin-bottom: 32px;
+  }
+  .stat { text-align: center; }
+  .stat .num {
+    font-size: 1.4rem; font-weight: 700;
+    background: var(--stats-num); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .stat .label {
+    font-size: 0.65rem; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 1.5px; margin-top: 4px;
+  }
+
+  /* ===== BENTO GRID (from Bento Grid) ===== */
+  .bento {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 200px;
+    gap: 16px;
+    margin-bottom: 48px;
+  }
+
+  /* ===== GLASS CARDS (from Glassmorphism + Bento) ===== */
+  .card {
+    padding: 24px;
+    border-radius: 16px;
+    background: var(--bg-card);
+    backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur));
+    border: 1px solid var(--border-card);
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column;
+    cursor: pointer;
+    transition: background 0.3s, border-color 0.3s, box-shadow 0.3s, transform 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .card:hover {
+    background: var(--bg-card-hover);
+    border-color: rgba(99,102,241,0.2);
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-3px);
+  }
+  /* Left accent bar on hover (from Dark Micro) */
+  .card::before {
+    content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 0; border-radius: 2px;
+    background: var(--accent-gradient);
+    transition: height 0.3s;
+  }
+  .card:hover::before { height: 50%; }
+
+  /* ===== BRUTALIST TAGS (from Neubrutalism) ===== */
+  .tag {
+    display: inline-block; padding: 3px 10px; border-radius: 6px;
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    border: 1.5px solid; margin-bottom: 10px; width: fit-content;
+    transition: transform 0.15s;
+  }
+  .tag:hover { transform: scale(1.05); }
+  .tag.tech { background: var(--tag-tech-bg); color: var(--tag-tech-color); border-color: var(--tag-tech-border); }
+  .tag.life { background: var(--tag-life-bg); color: var(--tag-life-color); border-color: var(--tag-life-border); }
+  .tag.tutorial { background: var(--tag-tutorial-bg); color: var(--tag-tutorial-color); border-color: var(--tag-tutorial-border); }
+  .tag.plan { background: var(--tag-plan-bg); color: var(--tag-plan-color); border-color: var(--tag-plan-border); }
+  .tag.pinned { background: var(--tag-pinned-bg); color: var(--tag-pinned-color); border-color: var(--tag-pinned-border); }
+
+  .card h2 {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 1.1rem; font-weight: 700; line-height: 1.4; margin-bottom: 6px;
+  }
+  .card p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.65; flex: 1; }
+  .card .meta {
+    font-size: 0.75rem; color: var(--text-muted); margin-top: auto; padding-top: 12px;
+    display: flex; gap: 12px;
+  }
+
+  /* ===== FEATURED CARD (Bento large + Glass + Magazine) ===== */
+  .card.featured {
+    grid-column: span 2; grid-row: span 2;
+    background: var(--featured-bg);
+    border-color: var(--featured-border);
+    justify-content: flex-end;
+  }
+  .card.featured h2 {
+    font-size: 1.7rem; line-height: 1.35;
+  }
+  .card.featured p { font-size: 0.95rem; }
+  .card.featured::before { height: 60%; }
+  .card.featured:hover::before { height: 75%; }
+
+  /* Tall card */
+  .card.tall { grid-row: span 2; }
+  /* Wide card */
+  .card.wide { grid-column: span 2; }
+
+  /* ===== SECTION DIVIDER (from Magazine) ===== */
+  .section-title {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 0.8rem; text-transform: uppercase; letter-spacing: 3px;
+    color: var(--text-muted);
+    padding: 8px 0 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+
+  /* ===== LIST VIEW for older posts (from Dark Micro + Magazine) ===== */
+  .post-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 48px; }
+
+  .post-item {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px 18px; border-radius: 12px;
+    transition: background 0.3s; cursor: pointer;
+    position: relative;
+  }
+  .post-item:hover { background: var(--bg-card); }
+  .post-item::before {
+    content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 2.5px; height: 0; border-radius: 2px;
+    background: var(--accent-gradient); transition: height 0.3s;
+  }
+  .post-item:hover::before { height: 50%; }
+
+  .post-item .date {
+    min-width: 48px; font-size: 0.75rem; color: var(--text-muted);
+    font-weight: 500; text-align: right;
+  }
+  .post-item .post-content { flex: 1; }
+  .post-item h3 {
+    font-size: 0.95rem; font-weight: 600; margin-bottom: 2px;
+    transition: color 0.2s;
+  }
+  .post-item:hover h3 { color: var(--accent); }
+  .post-item .post-desc { font-size: 0.8rem; color: var(--text-muted); }
+  .post-item .post-tag {
+    font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 4px; border: 1.5px solid;
+  }
+
+  /* ===== FOOTER ===== */
+  .footer {
+    text-align: center; padding: 32px 0;
+    border-top: 1px solid var(--border);
+    font-size: 0.8rem; color: var(--text-muted);
+  }
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 768px) {
+    .bento { grid-template-columns: 1fr; grid-auto-rows: auto; }
+    .card.featured { grid-column: span 1; grid-row: span 1; }
+    .card.tall { grid-row: span 1; }
+    .card.wide { grid-column: span 1; }
+    .masthead h1 { font-size: 2rem; }
+    .stats { gap: 24px; }
+    .post-item .date { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Glass Nav -->
+  <nav class="nav">
+    <div class="logo"><span class="dot"></span> ORION</div>
+    <div class="right">
+      <div class="links">
+        <a href="#">首页</a><a href="#">归档</a><a href="#">分类</a><a href="#">标签</a><a href="#">关于</a>
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">🌙</button>
+    </div>
+  </nav>
+
+  <!-- Magazine Masthead -->
+  <div class="masthead">
+    <h1>ORION'S BLOG</h1>
+    <div class="subtitle">「睡起有茶饥有饭，行看流水坐看云」</div>
+  </div>
+
+  <!-- Stats (Dark Micro style) -->
+  <div class="stats">
+    <div class="stat"><div class="num">42</div><div class="label">文章</div></div>
+    <div class="stat"><div class="num">1.2k</div><div class="label">访客</div></div>
+    <div class="stat"><div class="num">86</div><div class="label">评论</div></div>
+    <div class="stat"><div class="num">7</div><div class="label">分类</div></div>
+  </div>
+
+  <!-- Bento Grid with Glass Cards -->
+  <div class="bento">
+    <!-- Featured: large card -->
+    <div class="card featured">
+      <span class="tag pinned">置顶</span>
+      <h2>2025 年度总结：从零到一的博客系统</h2>
+      <p>回顾这一年，从一个简单的想法到完整的 Rust 博客系统，记录每一步的成长与思考。这是一段关于代码、设计和坚持的故事。从第一行 Rust 代码到上线运行，每一个决策背后都有故事。</p>
+      <div class="meta"><span>2025/12/31</span><span>阅读 12 分钟</span><span>128 浏览</span></div>
+    </div>
+
+    <!-- Tall card -->
+    <div class="card tall">
+      <span class="tag tech">技术</span>
+      <h2>Rust + WASM 插件系统设计实战</h2>
+      <p>用 wasmtime 构建安全高效的插件运行时，支持热加载和沙箱隔离。探索 Rust 在 Web 后端的无限可能。</p>
+      <div class="meta"><span>2025/11/15</span><span>86 浏览</span></div>
+    </div>
+
+    <!-- Normal cards -->
+    <div class="card">
+      <span class="tag tutorial">教程</span>
+      <h2>从零搭建你的 Noteva 博客</h2>
+      <p>一步步教你部署、配置主题、安装插件。</p>
+      <div class="meta"><span>2025/10/20</span></div>
+    </div>
+
+    <div class="card">
+      <span class="tag plan">计划</span>
+      <h2>GIF 支持 + 音频支持</h2>
+      <p>下一个版本的功能规划，让博客支持更丰富的媒体内容。</p>
+      <div class="meta"><span>2026/02/07</span></div>
+    </div>
+
+    <div class="card">
+      <span class="tag tech">技术</span>
+      <h2>Docker 一键部署指南</h2>
+      <p>用 Docker Compose 快速搭建 Noteva，含 MySQL + Redis 配置。</p>
+      <div class="meta"><span>2026/01/20</span></div>
+    </div>
+
+    <div class="card wide">
+      <span class="tag tech">开源</span>
+      <h2>Noteva v0.1.5 正式发布：主题切换修复、MySQL 兼容、插件商店上线</h2>
+      <p>一个更稳定的版本，修复了多个遗留 bug，新增主题商店和插件商店功能。春节前的最后一个正式版本。</p>
+      <div class="meta"><span>2026/02/15</span><span>阅读 5 分钟</span><span>32 浏览</span></div>
+    </div>
+
+    <div class="card">
+      <span class="tag life">随笔</span>
+      <h2>ac.nz 还是没有消息</h2>
+      <p>上周又发送了无法验证的邮箱给客服，到现在还是没有回信。</p>
+      <div class="meta"><span>2026/02/03</span></div>
+    </div>
+  </div>
+
+  <!-- Older posts in list view -->
+  <div class="section-title">更早的文章</div>
+
+  <div class="post-list">
+    <div class="post-item">
+      <div class="date">02/14</div>
+      <div class="post-content">
+        <h3>春节前的碎碎念</h3>
+        <div class="post-desc">除夕将至，聊聊这一年的感悟</div>
+      </div>
+      <span class="post-tag life" style="background:var(--tag-life-bg);color:var(--tag-life-color);border-color:var(--tag-life-border);">生活</span>
+    </div>
+
+    <div class="post-item">
+      <div class="date">01/28</div>
+      <div class="post-content">
+        <h3>Axum 中间件实战：认证、限流与日志</h3>
+        <div class="post-desc">深入 Axum 的 Tower 中间件体系</div>
+      </div>
+      <span class="post-tag" style="background:var(--tag-tech-bg);color:var(--tag-tech-color);border-color:var(--tag-tech-border);">技术</span>
+    </div>
+
+    <div class="post-item">
+      <div class="date">01/15</div>
+      <div class="post-content">
+        <h3>SQLite vs MySQL：博客系统的数据库选择</h3>
+        <div class="post-desc">两种数据库在实际部署中的差异与踩坑</div>
+      </div>
+      <span class="post-tag" style="background:var(--tag-tutorial-bg);color:var(--tag-tutorial-color);border-color:var(--tag-tutorial-border);">教程</span>
+    </div>
+
+    <div class="post-item">
+      <div class="date">01/03</div>
+      <div class="post-content">
+        <h3>2026 新年计划</h3>
+        <div class="post-desc">新的一年，新的目标</div>
+      </div>
+      <span class="post-tag" style="background:var(--tag-plan-bg);color:var(--tag-plan-color);border-color:var(--tag-plan-border);">计划</span>
+    </div>
+
+    <div class="post-item">
+      <div class="date">12/20</div>
+      <div class="post-content">
+        <h3>Cloudflare Turnstile 集成指南</h3>
+        <div class="post-desc">为博客评论添加人机验证</div>
+      </div>
+      <span class="post-tag" style="background:var(--tag-tech-bg);color:var(--tag-tech-color);border-color:var(--tag-tech-border);">技术</span>
+    </div>
+  </div>
+
+  <div class="footer">
+    © 2026 Orion. 保留所有权利 · Powered by Noteva
+  </div>
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  const btn = document.querySelector('.theme-toggle');
+  if (html.getAttribute('data-theme') === 'dark') {
+    html.setAttribute('data-theme', 'light');
+    btn.textContent = '🌙';
+  } else {
+    html.setAttribute('data-theme', 'dark');
+    btn.textContent = '☀️';
+  }
+}
+</script>
+</body>
+</html>

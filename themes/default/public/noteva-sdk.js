@@ -243,6 +243,28 @@
       this._themeConfig = config || {};
       events.emit('theme:config:change', this._themeConfig);
     },
+
+    // 主题设置（settings.json 定义，数据库存储）
+    _themeSettings: null,
+
+    /**
+     * 获取当前主题的设置值
+     * 读取 /api/v1/theme/settings（公开接口，无需登录）
+     * @param {string} [key] - 可选，指定字段名
+     * @returns {Promise<object|string>} 全部设置或单个值
+     */
+    async getThemeSettings(key) {
+      if (!this._themeSettings) {
+        try {
+          this._themeSettings = await api.get('/theme/settings');
+        } catch (e) {
+          console.warn('[Noteva] Failed to load theme settings:', e);
+          this._themeSettings = {};
+        }
+      }
+      if (key) return this._themeSettings[key];
+      return this._themeSettings;
+    },
   };
 
   // ============================================
@@ -1432,6 +1454,202 @@
   }
 
   // ============================================
+  // Emoji / Twemoji
+  // ============================================
+  const emoji = {
+    _twemojiLoaded: false,
+    _twemojiLoading: null,
+
+    /** Emoji data grouped by category */
+    categories: [
+      { id: 'smileys', label: { 'zh-CN': '表情', 'zh-TW': '表情', en: 'Smileys' }, icon: '😀', emojis: {
+        'grinning':'😀','smiley':'😃','smile':'😄','grin':'😁','laughing':'😆',
+        'sweat_smile':'😅','rofl':'🤣','joy':'😂','slightly_smiling_face':'🙂',
+        'upside_down_face':'🙃','melting_face':'🫠','wink':'😉','blush':'😊',
+        'innocent':'😇','smiling_face_with_three_hearts':'🥰','heart_eyes':'😍',
+        'star_struck':'🤩','kissing_heart':'😘','kissing':'😗',
+        'kissing_closed_eyes':'😚','kissing_smiling_eyes':'😙','smiling_face_with_tear':'🥲',
+        'yum':'😋','stuck_out_tongue':'😛','stuck_out_tongue_winking_eye':'😜',
+        'zany_face':'🤪','stuck_out_tongue_closed_eyes':'😝','money_mouth_face':'🤑',
+        'hugs':'🤗','hand_over_mouth':'🤭','shushing_face':'🤫','thinking':'🤔',
+        'saluting_face':'🫡','zipper_mouth_face':'🤐','raised_eyebrow':'🤨',
+        'neutral_face':'😐','expressionless':'😑','no_mouth':'😶',
+        'dotted_line_face':'🫥','smirk':'😏','unamused':'😒','roll_eyes':'🙄',
+        'grimacing':'😬','lying_face':'🤥','shaking_face':'🫨','relieved':'😌',
+        'pensive':'😔','sleepy':'😪','drooling_face':'🤤','sleeping':'😴',
+        'mask':'😷','face_with_thermometer':'🤒','face_with_head_bandage':'🤕',
+        'nauseated_face':'🤢','vomiting':'🤮','sneezing_face':'🤧',
+        'hot':'🥵','cold':'🥶','woozy_face':'🥴','dizzy_face':'😵',
+        'exploding_head':'🤯','cowboy_hat_face':'🤠','partying_face':'🥳',
+        'disguised_face':'🥸','sunglasses':'😎','nerd_face':'🤓','monocle_face':'🧐',
+        'confused':'😕','worried':'😟','slightly_frowning_face':'🙁',
+        'open_mouth':'😮','hushed':'😯','astonished':'😲','flushed':'😳',
+        'pleading_face':'🥺','face_holding_back_tears':'🥹',
+        'fearful':'😨','cold_sweat':'😰','cry':'😢','sob':'😭','scream':'😱',
+        'disappointed':'😞','sweat':'😓','weary':'😩','tired_face':'😫',
+        'yawning_face':'🥱','triumph':'😤','rage':'😡','angry':'😠',
+        'cursing_face':'🤬','smiling_imp':'😈','imp':'👿','skull':'💀',
+        'poop':'💩','clown_face':'🤡','ghost':'👻','alien':'👽','robot':'🤖',
+      }},
+      { id: 'gestures', label: { 'zh-CN': '手势', 'zh-TW': '手勢', en: 'Gestures' }, icon: '👋', emojis: {
+        'wave':'👋','raised_back_of_hand':'🤚','hand':'✋','vulcan_salute':'🖖',
+        'ok_hand':'👌','pinched_fingers':'🤌','pinching_hand':'🤏',
+        'v':'✌️','crossed_fingers':'🤞','love_you_gesture':'🤟','metal':'🤘',
+        'call_me_hand':'🤙','point_left':'👈','point_right':'👉','point_up_2':'👆',
+        'middle_finger':'🖕','point_down':'👇','point_up':'☝️',
+        '+1':'👍','-1':'👎','fist':'✊','facepunch':'👊',
+        'clap':'👏','raised_hands':'🙌','heart_hands':'🫶','open_hands':'👐',
+        'handshake':'🤝','pray':'🙏','writing_hand':'✍️','nail_care':'💅','muscle':'💪',
+      }},
+      { id: 'hearts', label: { 'zh-CN': '心形', 'zh-TW': '心形', en: 'Hearts' }, icon: '❤️', emojis: {
+        'heart':'❤️','orange_heart':'🧡','yellow_heart':'💛','green_heart':'💚',
+        'blue_heart':'💙','purple_heart':'💜','black_heart':'🖤','white_heart':'🤍',
+        'brown_heart':'🤎','pink_heart':'🩷','broken_heart':'💔',
+        'two_hearts':'💕','revolving_hearts':'💞','heartbeat':'💓','heartpulse':'💗',
+        'growing_heart':'💖','cupid':'💘','gift_heart':'💝',
+        'love_letter':'💌','kiss':'💋','100':'💯','anger':'💢','boom':'💥',
+        'dizzy':'💫','sweat_drops':'💦','dash':'💨','speech_balloon':'💬','zzz':'💤',
+      }},
+      { id: 'animals', label: { 'zh-CN': '动物', 'zh-TW': '動物', en: 'Animals' }, icon: '🐱', emojis: {
+        'monkey_face':'🐵','dog':'🐶','cat':'🐱','lion':'🦁','tiger':'🐯',
+        'horse':'🐴','unicorn':'🦄','cow':'🐮','pig':'🐷','frog':'🐸',
+        'rabbit':'🐰','bear':'🐻','panda_face':'🐼','koala':'🐨',
+        'chicken':'🐔','penguin':'🐧','bird':'🐦','eagle':'🦅','owl':'🦉',
+        'fox_face':'🦊','wolf':'🐺','turtle':'🐢','snake':'🐍','dragon_face':'🐲',
+        'whale':'🐳','dolphin':'🐬','fish':'🐟','octopus':'🐙','shark':'🦈',
+        'butterfly':'🦋','bug':'🐛','bee':'🐝','ladybug':'🐞','snail':'🐌',
+      }},
+      { id: 'food', label: { 'zh-CN': '食物', 'zh-TW': '食物', en: 'Food' }, icon: '🍔', emojis: {
+        'apple':'🍎','grapes':'🍇','watermelon':'🍉','tangerine':'🍊','banana':'🍌',
+        'strawberry':'🍓','peach':'🍑','cherries':'🍒','mango':'🥭','pineapple':'🍍',
+        'avocado':'🥑','eggplant':'🍆','carrot':'🥕','corn':'🌽','hot_pepper':'🌶️',
+        'hamburger':'🍔','fries':'🍟','pizza':'🍕','hotdog':'🌭','taco':'🌮',
+        'sushi':'🍣','ramen':'🍜','rice':'🍚','curry':'🍛',
+        'ice_cream':'🍨','doughnut':'🍩','cookie':'🍪','birthday':'🎂','cake':'🍰',
+        'chocolate_bar':'🍫','candy':'🍬','coffee':'☕','tea':'🍵','beer':'🍺',
+        'wine_glass':'🍷','cocktail':'🍸','champagne':'🍾',
+      }},
+      { id: 'travel', label: { 'zh-CN': '旅行', 'zh-TW': '旅行', en: 'Travel' }, icon: '🚗', emojis: {
+        'car':'🚗','taxi':'🚕','bus':'🚌','ambulance':'🚑','fire_engine':'🚒',
+        'motorcycle':'🏍️','bicycle':'🚲','airplane':'✈️','rocket':'🚀',
+        'ship':'🚢','sailboat':'⛵','train':'🚋','helicopter':'🚁',
+        'house':'🏠','office':'🏢','hospital':'🏥','school':'🏫',
+        'sunrise':'🌅','sunset':'🌇','camping':'🏕️','beach_umbrella':'🏖️',
+        'mountain':'⛰️','volcano':'🌋','world_map':'🗺️','compass':'🧭',
+      }},
+      { id: 'objects', label: { 'zh-CN': '物品', 'zh-TW': '物品', en: 'Objects' }, icon: '💻', emojis: {
+        'watch':'⌚','iphone':'📱','computer':'💻','keyboard':'⌨️',
+        'camera':'📷','tv':'📺','bulb':'💡','fire':'🔥','bomb':'💣',
+        'gem':'💎','money_with_wings':'💸','credit_card':'💳',
+        'envelope':'✉️','package':'📦','pencil2':'✏️','memo':'📝',
+        'briefcase':'💼','clipboard':'📋','calendar':'📅','pushpin':'📌',
+        'scissors':'✂️','lock':'🔒','key':'🔑','hammer':'🔨','gear':'⚙️',
+        'link':'🔗','mag':'🔍',
+      }},
+      { id: 'symbols', label: { 'zh-CN': '符号', 'zh-TW': '符號', en: 'Symbols' }, icon: '⭐', emojis: {
+        'warning':'⚠️','no_entry':'⛔','x':'❌','o':'⭕','question':'❓','exclamation':'❗',
+        'white_check_mark':'✅','star':'⭐','star2':'🌟','sparkles':'✨','zap':'⚡',
+        'sunny':'☀️','cloud':'☁️','umbrella':'☂️','snowflake':'❄️','rainbow':'🌈','ocean':'🌊',
+        'recycle':'♻️','arrow_up':'⬆️','arrow_down':'⬇️','arrow_left':'⬅️','arrow_right':'➡️',
+        'new':'🆕','free':'🆓','cool':'🆒','ok':'🆗','sos':'🆘',
+      }},
+      { id: 'activities', label: { 'zh-CN': '活动', 'zh-TW': '活動', en: 'Activities' }, icon: '⚽', emojis: {
+        'soccer':'⚽','basketball':'🏀','football':'🏈','baseball':'⚾','tennis':'🎾',
+        'trophy':'🏆','1st_place_medal':'🥇','2nd_place_medal':'🥈','3rd_place_medal':'🥉',
+        'dart':'🎯','video_game':'🎮','jigsaw':'🧩','teddy_bear':'🧸',
+        'art':'🎨','musical_note':'🎵','microphone':'🎤','headphones':'🎧',
+        'guitar':'🎸','piano':'🎹','drum':'🥁',
+        'tada':'🎉','confetti_ball':'🎊','balloon':'🎈','gift':'🎁','ribbon':'🎀',
+        'christmas_tree':'🎄','jack_o_lantern':'🎃','firecracker':'🧨',
+      }},
+    ],
+
+    /**
+     * Get category labels resolved for a locale
+     * @param {string} [locale] - e.g. 'zh-CN', 'en'. Defaults to SDK i18n locale.
+     * @returns {Array<{id,label,icon,emojis}>}
+     */
+    getCategories(locale) {
+      const loc = locale || i18n.getLocale() || 'zh-CN';
+      return this.categories.map(cat => ({
+        id: cat.id,
+        label: cat.label[loc] || cat.label['en'] || cat.label['zh-CN'],
+        icon: cat.icon,
+        emojis: cat.emojis,
+      }));
+    },
+
+    /**
+     * Get flat emoji map (shortcode → unicode)
+     * @returns {Record<string,string>}
+     */
+    getMap() {
+      const map = {};
+      for (const cat of this.categories) {
+        Object.assign(map, cat.emojis);
+      }
+      return map;
+    },
+
+    /**
+     * Load Twemoji from CDN (lazy, cached)
+     * @returns {Promise<object>} twemoji API
+     */
+    async loadTwemoji() {
+      if (window.twemoji) {
+        this._twemojiLoaded = true;
+        return window.twemoji;
+      }
+      if (this._twemojiLoading) return this._twemojiLoading;
+      this._twemojiLoading = (async () => {
+        await _loadScript('https://cdn.jsdelivr.net/npm/@twemoji/api@latest/dist/twemoji.min.js');
+        this._twemojiLoaded = true;
+        return window.twemoji;
+      })();
+      return this._twemojiLoading;
+    },
+
+    /**
+     * Parse an element's emoji to Twemoji images
+     * Loads Twemoji from CDN if not yet loaded.
+     * @param {HTMLElement} element
+     * @param {object} [options] - twemoji.parse options override
+     */
+    async parse(element, options) {
+      const tw = await this.loadTwemoji();
+      if (!tw || !element) return;
+      tw.parse(element, {
+        folder: 'svg',
+        ext: '.svg',
+        ...options,
+      });
+    },
+
+    /**
+     * Synchronous parse — only works if Twemoji is already loaded.
+     * Falls back to no-op if not loaded yet.
+     * @param {HTMLElement} element
+     * @param {object} [options]
+     */
+    parseSync(element, options) {
+      if (!window.twemoji || !element) return;
+      window.twemoji.parse(element, {
+        folder: 'svg',
+        ext: '.svg',
+        ...options,
+      });
+    },
+
+    /**
+     * Check if Twemoji is loaded
+     * @returns {boolean}
+     */
+    isLoaded() {
+      return this._twemojiLoaded;
+    },
+  };
+
+  // ============================================
   // 初始化
   // ============================================
   let _ready = false;
@@ -1609,7 +1827,7 @@
   // ============================================
   window.Noteva = {
     // 版本
-    version: '0.1.4-beta',
+    version: '0.1.5',
     
     // 核心系统
     hooks,
@@ -1639,6 +1857,9 @@
     plugins,
     shortcodes,
     slots,
+    
+    // Emoji / Twemoji
+    emoji,
     
     // 调试
     debug,

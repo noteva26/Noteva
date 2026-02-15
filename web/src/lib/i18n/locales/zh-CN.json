@@ -506,5 +506,10 @@
     "failureReason": "失败原因",
     "time": "时间",
     "showing": "显示 {from} - {to} 条，共 {total} 条"
+  },
+  "editor": {
+    "plugins": "插件",
+    "emoji": "表情",
+    "searchEmoji": "搜索表情..."
   }
 }

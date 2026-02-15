@@ -134,6 +134,16 @@ export default function ManageLayout() {
                   width={32}
                   height={32}
                   className="rounded"
+                  onError={(e) => {
+                    const img = e.target as HTMLImageElement;
+                    // 如果不是已经在尝试 fallback，则尝试 /manage/logo.png
+                    if (!img.dataset.fallback) {
+                      img.dataset.fallback = '1';
+                      img.src = '/manage/logo.png';
+                    } else {
+                      img.style.display = 'none';
+                    }
+                  }}
                 />
               )}
               <span className="text-xl font-bold">{settings.site_name}</span>

@@ -346,10 +346,13 @@ pub mod builtins {
             }
         });
         
-        // [video url="..." /] - Video embed
+        // [video url="..." /] or [video src="..." poster="..." /] - Video embed
         manager.register("video", |shortcode, _ctx| {
-            let url = shortcode.attrs.get("url").map_or("", |s| s.as_str());
+            let url = shortcode.attrs.get("src")
+                .or(shortcode.attrs.get("url"))
+                .map_or("", |s| s.as_str());
             let width = shortcode.attrs.get("width").map_or("100%", |s| s.as_str());
+            let poster = shortcode.attrs.get("poster");
             
             // Detect video type
             if url.contains("youtube.com") || url.contains("youtu.be") {
@@ -365,9 +368,34 @@ pub mod builtins {
                     width, bvid
                 )
             } else {
+                let poster_attr = poster.map_or(String::new(), |p| format!(r#" poster="{}""#, html_escape(p)));
+                let is_hls = url.ends_with(".m3u8");
+                let data_hls = if is_hls { r#" data-hls="true""# } else { "" };
                 format!(
-                    r#"<div class="shortcode-video"><video src="{}" width="{}" controls></video></div>"#,
-                    html_escape(url), width
+                    r#"<div class="shortcode-video"><video src="{}" width="{}"{}{} controls playsinline></video></div>"#,
+                    html_escape(url), width, poster_attr, data_hls
+                )
+            }
+        });
+        
+        // [audio src="..." /] - Audio player
+        manager.register("audio", |shortcode, _ctx| {
+            let url = shortcode.attrs.get("src")
+                .or(shortcode.attrs.get("url"))
+                .map_or("", |s| s.as_str());
+            let title = shortcode.attrs.get("title");
+            let is_hls = url.ends_with(".m3u8");
+            let data_hls = if is_hls { r#" data-hls="true""# } else { "" };
+            
+            if let Some(t) = title {
+                format!(
+                    r#"<div class="shortcode-audio"><p class="shortcode-audio-title">{}</p><audio src="{}" controls preload="metadata"{}></audio></div>"#,
+                    html_escape(t), html_escape(url), data_hls
+                )
+            } else {
+                format!(
+                    r#"<div class="shortcode-audio"><audio src="{}" controls preload="metadata"{}></audio></div>"#,
+                    html_escape(url), data_hls
                 )
             }
         });

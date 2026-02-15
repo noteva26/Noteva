@@ -39,6 +39,13 @@ const BUILTIN_PATHS: Record<string, string> = {
   tags: "/tags",
 };
 
+const BUILTIN_I18N: Record<string, string> = {
+  home: "nav.home",
+  archives: "nav.archive",
+  categories: "nav.categories",
+  tags: "nav.tags",
+};
+
 export function SiteHeader() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -98,6 +105,18 @@ export function SiteHeader() {
     if (searchQuery.trim()) navigate(`/?q=${encodeURIComponent(searchQuery.trim())}`);
   };
 
+  const getNavTitle = (item: NavItem): string => {
+    // 用户自定义了标题则优先使用
+    const customTitle = item.title || item.name || "";
+    if (item.nav_type === "builtin") {
+      const url = item.target || item.url || "";
+      const i18nKey = BUILTIN_I18N[url];
+      // 只有标题和 builtin key 相同（未自定义）时才走 i18n
+      if (i18nKey && (!customTitle || customTitle === url)) return t(i18nKey);
+    }
+    return customTitle;
+  };
+
   const getNavHref = (item: NavItem): string | null => {
     const targetUrl = item.target || item.url || "";
     if (item.nav_type === "builtin" && !targetUrl) return null;
@@ -111,11 +130,11 @@ export function SiteHeader() {
 
   const renderNavLink = (item: NavItem) => {
     const href = getNavHref(item);
-    if (!href) return <span key={item.id} className="transition-colors text-foreground/60">{item.title}</span>;
+    if (!href) return <span key={item.id} className="transition-colors text-foreground/60">{getNavTitle(item)}</span>;
     if (item.nav_type === "external") {
-      return <a key={item.id} href={href} target={item.open_new_tab ? "_blank" : "_self"} rel={item.open_new_tab ? "noopener noreferrer" : undefined} className="transition-colors hover:text-foreground/80 text-foreground/60">{item.title}</a>;
+      return <a key={item.id} href={href} target={item.open_new_tab ? "_blank" : "_self"} rel={item.open_new_tab ? "noopener noreferrer" : undefined} className="transition-colors hover:text-foreground/80 text-foreground/60">{getNavTitle(item)}</a>;
     }
-    return <Link key={item.id} to={href} className="transition-colors hover:text-foreground/80 text-foreground/60">{item.title}</Link>;
+    return <Link key={item.id} to={href} className="transition-colors hover:text-foreground/80 text-foreground/60">{getNavTitle(item)}</Link>;
   };
 
   const renderNavItemWithChildren = (item: NavItem) => {
@@ -125,13 +144,13 @@ export function SiteHeader() {
     return (
       <DropdownMenu key={item.id}>
         <DropdownMenuTrigger className="flex items-center gap-1 transition-colors hover:text-foreground/80 text-foreground/60">
-          {item.title}<ChevronDown className="h-3 w-3" />
+          {getNavTitle(item)}<ChevronDown className="h-3 w-3" />
         </DropdownMenuTrigger>
         <DropdownMenuContent>
           {!isGroup && href && (
             <>
               <DropdownMenuItem asChild>
-                {item.nav_type === "external" ? <a href={href} target={item.open_new_tab ? "_blank" : "_self"} rel={item.open_new_tab ? "noopener noreferrer" : undefined}>{item.title}</a> : <Link to={href}>{item.title}</Link>}
+                {item.nav_type === "external" ? <a href={href} target={item.open_new_tab ? "_blank" : "_self"} rel={item.open_new_tab ? "noopener noreferrer" : undefined}>{getNavTitle(item)}</a> : <Link to={href}>{getNavTitle(item)}</Link>}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
             </>
@@ -141,7 +160,7 @@ export function SiteHeader() {
             if (!childHref) return null;
             return (
               <DropdownMenuItem key={child.id} asChild>
-                {child.nav_type === "external" ? <a href={childHref} target={child.open_new_tab ? "_blank" : "_self"} rel={child.open_new_tab ? "noopener noreferrer" : undefined}>{child.title}</a> : <Link to={childHref}>{child.title}</Link>}
+                {child.nav_type === "external" ? <a href={childHref} target={child.open_new_tab ? "_blank" : "_self"} rel={child.open_new_tab ? "noopener noreferrer" : undefined}>{getNavTitle(child)}</a> : <Link to={childHref}>{getNavTitle(child)}</Link>}
               </DropdownMenuItem>
             );
           })}
@@ -249,17 +268,17 @@ export function SiteHeader() {
                             const childHref = getNavHref(child);
                             if (!childHref) return null;
                             if (child.nav_type === "external") {
-                              return <a key={child.id} href={childHref} target={child.open_new_tab ? "_blank" : "_self"} rel={child.open_new_tab ? "noopener noreferrer" : undefined} className="text-foreground/60 hover:text-foreground pl-4" onClick={() => setMobileMenuOpen(false)}>{child.title}</a>;
+                              return <a key={child.id} href={childHref} target={child.open_new_tab ? "_blank" : "_self"} rel={child.open_new_tab ? "noopener noreferrer" : undefined} className="text-foreground/60 hover:text-foreground pl-4" onClick={() => setMobileMenuOpen(false)}>{getNavTitle(child)}</a>;
                             }
-                            return <Link key={child.id} to={childHref} className="text-foreground/60 hover:text-foreground pl-4" onClick={() => setMobileMenuOpen(false)}>{child.title}</Link>;
+                            return <Link key={child.id} to={childHref} className="text-foreground/60 hover:text-foreground pl-4" onClick={() => setMobileMenuOpen(false)}>{getNavTitle(child)}</Link>;
                           });
                         }
                         return null;
                       }
                       if (item.nav_type === "external") {
-                        return <a key={item.id} href={href} target={item.open_new_tab ? "_blank" : "_self"} rel={item.open_new_tab ? "noopener noreferrer" : undefined} className="text-foreground/60 hover:text-foreground" onClick={() => setMobileMenuOpen(false)}>{item.title}</a>;
+                        return <a key={item.id} href={href} target={item.open_new_tab ? "_blank" : "_self"} rel={item.open_new_tab ? "noopener noreferrer" : undefined} className="text-foreground/60 hover:text-foreground" onClick={() => setMobileMenuOpen(false)}>{getNavTitle(item)}</a>;
                       }
-                      return <Link key={item.id} to={href} className="text-foreground/60 hover:text-foreground" onClick={() => setMobileMenuOpen(false)}>{item.title}</Link>;
+                      return <Link key={item.id} to={href} className="text-foreground/60 hover:text-foreground" onClick={() => setMobileMenuOpen(false)}>{getNavTitle(item)}</Link>;
                     })
                   : defaultNavItems.map((item) => (
                       <Link key={item.href} to={item.href} className="text-foreground/60 hover:text-foreground" onClick={() => setMobileMenuOpen(false)}>{item.label}</Link>

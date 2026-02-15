@@ -575,6 +575,7 @@ pub struct StorePluginInfo {
     pub version: String,
     pub description: String,
     pub author: String,
+    pub cover_image: Option<String>,
     pub github_url: Option<String>,
     pub external_url: Option<String>,
     pub license_type: String,
@@ -630,7 +631,7 @@ async fn get_plugin_store(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
 ) -> Result<Json<PluginStoreResponse>, ApiError> {
-    let store_url = state.store_url.as_deref().unwrap_or("https://store.noteva.com");
+    let store_url = state.store_url.as_deref().unwrap_or("https://store.noteva.org");
 
     let client = reqwest::Client::builder()
         .user_agent("Noteva")
@@ -659,6 +660,7 @@ async fn get_plugin_store(
         .collect();
 
     let plugins: Vec<StorePluginInfo> = store_data.items.into_iter().map(|item| {
+        let cover = if item.cover_image.is_empty() { None } else { Some(item.cover_image) };
         StorePluginInfo {
             installed: installed_ids.contains(&item.slug),
             slug: item.slug,
@@ -666,6 +668,7 @@ async fn get_plugin_store(
             version: item.version,
             description: item.description,
             author: item.author,
+            cover_image: cover,
             github_url: item.github_url,
             external_url: item.external_url,
             license_type: item.license_type,
@@ -707,7 +710,7 @@ async fn check_plugin_updates(
 ) -> Result<Json<PluginUpdatesResponse>, ApiError> {
     let store_url = match state.store_url.as_deref() {
         Some(url) => url.to_string(),
-        None => "https://store.noteva.com".to_string(),
+        None => "https://store.noteva.org".to_string(),
     };
 
     // Get installed plugins
@@ -922,7 +925,7 @@ pub async fn plugin_api_handler(
     body: axum::body::Bytes,
 ) -> Result<Response<Body>, ApiError> {
     // Verify plugin exists, is enabled, and has api: true
-    let (wasm_path, permissions) = {
+    let (wasm_path, permissions, plugin_settings) = {
         let manager = state.plugin_manager.read().await;
         let plugin = manager.get(&plugin_id)
             .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", plugin_id)))?;
@@ -939,16 +942,25 @@ pub async fn plugin_api_handler(
         let abs_path = std::fs::canonicalize(&wasm_path)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| wasm_path.to_string_lossy().to_string());
-        (abs_path, plugin.metadata.permissions.clone())
+        (abs_path, plugin.metadata.permissions.clone(), plugin.settings.clone())
     };
 
     // Build request data for the WASM function
+    // Inject plugin settings (including secrets) so WASM can access them
     let body_str = String::from_utf8_lossy(&body).to_string();
-    let request_data = serde_json::json!({
+    let mut request_data = serde_json::json!({
         "method": method.as_str(),
         "path": path,
         "body": body_str,
     });
+    // Inject settings into request data (same pattern as hook data injection)
+    if let serde_json::Value::Object(ref mut map) = request_data {
+        for (k, v) in &plugin_settings {
+            if !map.contains_key(k) {
+                map.insert(k.clone(), v.clone());
+            }
+        }
+    }
 
     // Execute in subprocess (blocking, run on spawn_blocking to not block tokio)
     let pool = state.pool.clone();

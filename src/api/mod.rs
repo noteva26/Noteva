@@ -107,6 +107,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .nest("/theme", Router::new()
             .route("/config", axum::routing::get(theme::get_theme_config))
             .route("/info", axum::routing::get(theme::get_theme_info))
+            .route("/settings", axum::routing::get(theme::get_theme_settings_public))
         )
         .nest("/cache", Router::new()
             .route("/:key", axum::routing::get(cache::get_cache))

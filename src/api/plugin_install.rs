@@ -235,7 +235,9 @@ pub async fn install_from_repo(
             extract_zip(&data, temp_dir.path())?
         };
 
-        return install_plugin_from_dir(temp_dir.path(), &extracted_name, &body.plugin_id, &state, Some(&repo)).await;
+        let result = install_plugin_from_dir(temp_dir.path(), &extracted_name, &body.plugin_id, &state, Some(&repo)).await?;
+        notify_store_download(&state, &body.plugin_id);
+        return Ok(result);
     }
 
     // 2) Fallback: download repo ZIP, validate contents first
@@ -253,13 +255,26 @@ pub async fn install_from_repo(
 
     let plugin_dir = find_plugin_dir(temp_dir.path(), &body.plugin_id)?;
 
+    // Read the actual plugin id from plugin.json (may differ from store slug)
+    let actual_id = {
+        let pj = plugin_dir.join("plugin.json");
+        if let Ok(content) = fs::read_to_string(&pj) {
+            serde_json::from_str::<serde_json::Value>(&content)
+                .ok()
+                .and_then(|j| j.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .unwrap_or_else(|| body.plugin_id.clone())
+        } else {
+            body.plugin_id.clone()
+        }
+    };
+
     let plugins_path = Path::new("plugins");
     if !plugins_path.exists() {
         fs::create_dir_all(plugins_path)
             .map_err(|e| ApiError::internal_error(format!("Failed to create plugins dir: {}", e)))?;
     }
 
-    let dest_path = plugins_path.join(&body.plugin_id);
+    let dest_path = plugins_path.join(&actual_id);
     if dest_path.exists() {
         fs::remove_dir_all(&dest_path)
             .map_err(|e| ApiError::internal_error(format!("Remove error: {}", e)))?;
@@ -268,11 +283,25 @@ pub async fn install_from_repo(
     copy_dir_all(&plugin_dir, &dest_path)
         .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
 
-    reload_and_register_plugin(&body.plugin_id, &state, Some(&repo)).await
+    let result = reload_and_register_plugin(&actual_id, &state, Some(&repo)).await?;
+    notify_store_download(&state, &body.plugin_id);
+    Ok(result)
 }
 
-/// Find plugin directory containing plugin.json with matching ID
+/// Find plugin directory containing plugin.json with matching ID or name
 fn find_plugin_dir(base_path: &Path, plugin_id: &str) -> Result<std::path::PathBuf, ApiError> {
+    // First pass: try exact id match
+    if let Some(found) = find_plugin_dir_inner(base_path, plugin_id, true)? {
+        return Ok(found);
+    }
+    // Second pass: try name match (store slug may be the Chinese name)
+    if let Some(found) = find_plugin_dir_inner(base_path, plugin_id, false)? {
+        return Ok(found);
+    }
+    Err(ApiError::not_found(format!("Plugin '{}' not found in archive", plugin_id)))
+}
+
+fn find_plugin_dir_inner(base_path: &Path, plugin_id: &str, match_id: bool) -> Result<Option<std::path::PathBuf>, ApiError> {
     for entry in fs::read_dir(base_path)
         .map_err(|e| ApiError::internal_error(format!("Read dir error: {}", e)))? 
     {
@@ -280,30 +309,36 @@ fn find_plugin_dir(base_path: &Path, plugin_id: &str) -> Result<std::path::PathB
         let path = entry.path();
         
         if path.is_dir() {
-            // Check if plugin.json exists in this directory
             let plugin_json_path = path.join("plugin.json");
             if plugin_json_path.exists() {
-                // Verify plugin ID matches
                 let content = fs::read_to_string(&plugin_json_path)
                     .map_err(|e| ApiError::internal_error(format!("Read plugin.json error: {}", e)))?;
                 
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
-                        if id == plugin_id {
-                            return Ok(path);
+                    if match_id {
+                        if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
+                            if id == plugin_id {
+                                return Ok(Some(path));
+                            }
+                        }
+                    } else {
+                        // Match by name field (store slug may be the display name)
+                        if let Some(name) = json.get("name").and_then(|v| v.as_str()) {
+                            if name == plugin_id {
+                                return Ok(Some(path));
+                            }
                         }
                     }
                 }
             }
             
             // Recursively search subdirectories
-            if let Ok(found) = find_plugin_dir(&path, plugin_id) {
-                return Ok(found);
+            if let Some(found) = find_plugin_dir_inner(&path, plugin_id, match_id)? {
+                return Ok(Some(found));
             }
         }
     }
-    
-    Err(ApiError::not_found(format!("Plugin '{}' not found in archive", plugin_id)))
+    Ok(None)
 }
 
 /// POST /api/v1/admin/plugins/github/install - Install plugin from GitHub release asset
@@ -666,28 +701,59 @@ async fn install_plugin_from_dir(
     }
 
     let src_path = temp_dir.join(extracted_name);
-    let dest_path = plugins_path.join(plugin_id);
+
+    // Read actual plugin id from plugin.json (may differ from store slug)
+    let actual_id = find_actual_plugin_id(temp_dir, &src_path, plugin_id);
+    let dest_path = plugins_path.join(&actual_id);
 
     if dest_path.exists() {
         fs::remove_dir_all(&dest_path)
             .map_err(|e| ApiError::internal_error(format!("Remove error: {}", e)))?;
     }
 
-    // If extracted dir contains plugin.json directly, copy it
-    // Otherwise try to find plugin dir inside
-    if src_path.join("plugin.json").exists() {
-        copy_dir_all(&src_path, &dest_path)
-            .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
-    } else if let Ok(found) = find_plugin_dir(&src_path, plugin_id) {
-        copy_dir_all(&found, &dest_path)
-            .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
+    // Determine the source directory to copy from:
+    // 1. Flat zip (plugin.json directly in temp_dir) — e.g. CI release artifacts
+    // 2. src_path is a directory with plugin.json
+    // 3. Search recursively for plugin.json matching id/name
+    let copy_src = if temp_dir.join("plugin.json").exists() {
+        temp_dir.to_path_buf()
+    } else if src_path.is_dir() && src_path.join("plugin.json").exists() {
+        src_path
+    } else if src_path.is_dir() {
+        match find_plugin_dir(&src_path, plugin_id) {
+            Ok(found) => found,
+            Err(_) => src_path,
+        }
     } else {
-        // Just copy the whole thing and hope for the best
-        copy_dir_all(&src_path, &dest_path)
-            .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
-    }
+        // extracted_name might be a file, not a dir (flat zip) — use temp_dir
+        temp_dir.to_path_buf()
+    };
 
-    reload_and_register_plugin(plugin_id, state, repo).await
+    copy_dir_all(&copy_src, &dest_path)
+        .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
+
+    reload_and_register_plugin(&actual_id, state, repo).await
+}
+
+/// Read the actual plugin id from plugin.json, searching multiple locations
+fn find_actual_plugin_id(temp_dir: &Path, src_path: &Path, fallback_id: &str) -> String {
+    // Try temp_dir/plugin.json (flat zip)
+    if let Some(id) = read_plugin_id(&temp_dir.join("plugin.json")) {
+        return id;
+    }
+    // Try src_path/plugin.json
+    if src_path.is_dir() {
+        if let Some(id) = read_plugin_id(&src_path.join("plugin.json")) {
+            return id;
+        }
+    }
+    fallback_id.to_string()
+}
+
+fn read_plugin_id(path: &Path) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    json.get("id").and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
 /// Reload plugin manager and register new plugin in database
@@ -729,4 +795,25 @@ async fn reload_and_register_plugin(
         plugin_name: plugin_id.to_string(),
         message: format!("Plugin '{}' installed", plugin_id),
     }))
+}
+
+/// Notify store about a download (fire-and-forget, non-blocking)
+fn notify_store_download(state: &AppState, slug: &str) {
+    let store_url = state.store_url.as_deref()
+        .unwrap_or("https://store.noteva.org")
+        .to_string();
+    let slug = slug.to_string();
+    tokio::spawn(async move {
+        let client = match reqwest::Client::builder()
+            .user_agent("Noteva")
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let url = format!("{}/api/v1/store/download/{}", store_url, slug);
+        let _ = client.post(&url).send().await;
+    });
 }

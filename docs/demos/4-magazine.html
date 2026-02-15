@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>杂志风博客 Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Inter:wght@400;500&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body { font-family: 'Inter', sans-serif; background: #faf9f6; color: #2c2c2c; min-height: 100vh; }
+  
+  .container { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
+  
+  /* Nav */
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 0; border-bottom: 1px solid #e0ddd5;
+  }
+  .nav .logo { font-family: 'Noto Serif SC', serif; font-size: 1.1rem; font-weight: 700; letter-spacing: 2px; }
+  .nav .links { display: flex; gap: 24px; }
+  .nav .links a { color: #666; text-decoration: none; font-size: 0.85rem; font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; transition: color 0.2s; }
+  .nav .links a:hover { color: #2c2c2c; }
+  
+  /* Masthead */
+  .masthead {
+    text-align: center; padding: 64px 0 48px;
+    border-bottom: 2px solid #2c2c2c;
+  }
+  .masthead h1 { font-family: 'Noto Serif SC', serif; font-size: 3.5rem; font-weight: 700; letter-spacing: 4px; }
+  .masthead .subtitle { font-size: 1rem; color: #888; margin-top: 12px; font-style: italic; letter-spacing: 1px; }
+  .masthead .date-line { font-size: 0.8rem; color: #aaa; margin-top: 16px; text-transform: uppercase; letter-spacing: 3px; }
+  
+  /* Featured article */
+  .featured {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 40px;
+    padding: 48px 0; border-bottom: 1px solid #e0ddd5;
+  }
+  .featured-img {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    border-radius: 4px; min-height: 320px;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,0.3); font-size: 4rem;
+  }
+  .featured-content { display: flex; flex-direction: column; justify-content: center; }
+  .featured-content .category { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 3px; color: #c0392b; font-weight: 500; margin-bottom: 16px; }
+  .featured-content h2 { font-family: 'Noto Serif SC', serif; font-size: 2rem; font-weight: 700; line-height: 1.3; margin-bottom: 16px; }
+  .featured-content p { font-size: 0.95rem; color: #666; line-height: 1.8; }
+  .featured-content .byline { margin-top: 20px; font-size: 0.8rem; color: #999; }
+  .featured-content .byline strong { color: #2c2c2c; }
+  
+  /* Article grid */
+  .section-title {
+    font-family: 'Noto Serif SC', serif; font-size: 0.85rem; text-transform: uppercase;
+    letter-spacing: 3px; padding: 32px 0 20px; border-bottom: 1px solid #e0ddd5;
+    margin-bottom: 24px; color: #888;
+  }
+  
+  .articles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; padding-bottom: 48px; }
+  
+  .article { cursor: pointer; }
+  .article:hover h3 { color: #c0392b; }
+  
+  .article .thumb {
+    width: 100%; aspect-ratio: 16/10; border-radius: 3px; margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2rem; color: rgba(255,255,255,0.4);
+  }
+  .article .thumb.t1 { background: linear-gradient(135deg, #f093fb, #f5576c); }
+  .article .thumb.t2 { background: linear-gradient(135deg, #4facfe, #00f2fe); }
+  .article .thumb.t3 { background: linear-gradient(135deg, #43e97b, #38f9d7); }
+  .article .thumb.t4 { background: linear-gradient(135deg, #fa709a, #fee140); }
+  .article .thumb.t5 { background: linear-gradient(135deg, #a18cd1, #fbc2eb); }
+  .article .thumb.t6 { background: linear-gradient(135deg, #fccb90, #d57eeb); }
+  
+  .article .cat { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: #c0392b; font-weight: 500; margin-bottom: 8px; }
+  .article h3 { font-family: 'Noto Serif SC', serif; font-size: 1.1rem; font-weight: 700; line-height: 1.4; margin-bottom: 8px; transition: color 0.2s; }
+  .article p { font-size: 0.85rem; color: #888; line-height: 1.6; }
+  .article .meta { font-size: 0.75rem; color: #bbb; margin-top: 10px; }
+  
+  /* Divider */
+  .divider { height: 1px; background: #e0ddd5; margin: 8px 0; }
+
+  @media (max-width: 768px) {
+    .featured { grid-template-columns: 1fr; }
+    .articles { grid-template-columns: 1fr; }
+    .masthead h1 { font-size: 2.2rem; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <nav class="nav">
+      <div class="logo">ORION</div>
+      <div class="links">
+        <a href="#">首页</a><a href="#">归档</a><a href="#">分类</a><a href="#">关于</a>
+      </div>
+    </nav>
+    
+    <div class="masthead">
+      <h1>ORION'S BLOG</h1>
+      <div class="subtitle">「睡起有茶饥有饭，行看流水坐看云」</div>
+      <div class="date-line">二〇二六年 · 二月</div>
+    </div>
+    
+    <div class="featured">
+      <div class="featured-img">📝</div>
+      <div class="featured-content">
+        <div class="category">年度精选</div>
+        <h2>2025 年度总结：从零到一的博客系统</h2>
+        <p>回顾这一年，从一个简单的想法到完整的 Rust 博客系统，记录每一步的成长与思考。这是一段关于代码、设计和坚持的故事。从第一行 Rust 代码到上线运行，每一个决策背后都有故事。</p>
+        <div class="byline">作者 <strong>Orion</strong> · 2025年12月31日 · 阅读 12 分钟</div>
+      </div>
+    </div>
+    
+    <div class="section-title">最新文章</div>
+    
+    <div class="articles">
+      <div class="article">
+        <div class="thumb t1">🔧</div>
+        <div class="cat">技术</div>
+        <h3>Rust + WASM 插件系统设计实战</h3>
+        <p>用 wasmtime 构建安全高效的插件运行时，支持热加载和沙箱隔离。</p>
+        <div class="meta">2025/11/15 · 阅读 8 分钟</div>
+      </div>
+      
+      <div class="article">
+        <div class="thumb t2">💭</div>
+        <div class="cat">随笔</div>
+        <h3>ac.nz 还是没有消息</h3>
+        <p>上周又发送了无法验证的邮箱给客服，到现在还是没有回信。</p>
+        <div class="meta">2026/02/03 · 阅读 2 分钟</div>
+      </div>
+      
+      <div class="article">
+        <div class="thumb t3">📋</div>
+        <div class="cat">计划</div>
+        <h3>GIF 支持 + 音频支持</h3>
+        <p>下一个版本的功能规划，让博客支持更丰富的媒体内容。</p>
+        <div class="meta">2026/02/07 · 阅读 3 分钟</div>
+      </div>
+      
+      <div class="article">
+        <div class="thumb t4">📖</div>
+        <div class="cat">教程</div>
+        <h3>从零搭建你的 Noteva 博客</h3>
+        <p>一步步教你部署、配置主题、安装插件，打造属于自己的博客空间。</p>
+        <div class="meta">2025/10/20 · 阅读 8 分钟</div>
+      </div>
+      
+      <div class="article">
+        <div class="thumb t5">🚀</div>
+        <div class="cat">开源</div>
+        <h3>Noteva v0.1.5 正式发布</h3>
+        <p>主题切换修复、MySQL 兼容、插件商店上线，一个更稳定的版本。</p>
+        <div class="meta">2026/02/15 · 阅读 5 分钟</div>
+      </div>
+      
+      <div class="article">
+        <div class="thumb t6">🌸</div>
+        <div class="cat">生活</div>
+        <h3>春节前的碎碎念</h3>
+        <p>除夕将至，聊聊这一年的感悟，以及对新一年的期待。</p>
+        <div class="meta">2026/02/14 · 阅读 4 分钟</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

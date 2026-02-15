@@ -28,7 +28,7 @@ pub struct Config {
     /// Upload configuration
     #[serde(default)]
     pub upload: UploadConfig,
-    /// Noteva Store URL (e.g. "https://store.noteva.com")
+    /// Noteva Store URL (e.g. "https://store.noteva.org")
     #[serde(default)]
     pub store_url: Option<String>,
 }
@@ -851,6 +851,7 @@ mod property_tests {
                 cache,
                 theme,
                 upload: UploadConfig::default(),
+                store_url: None,
             })
     }
 
@@ -1266,6 +1267,7 @@ mod property_tests {
                 cache: CacheConfig { driver: cache_driver, redis_url: None, ttl_seconds: ttl },
                 theme: ThemeConfig { active: theme_name.clone(), path: PathBuf::from("themes") },
                 upload: UploadConfig::default(),
+                store_url: None,
             };
             
             // Serialize and deserialize

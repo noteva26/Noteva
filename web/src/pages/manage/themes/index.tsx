@@ -1,12 +1,23 @@
 import { useEffect, useState, useRef } from "react";
-import { adminApi, ThemeResponse, GitHubReleaseInfo, GitHubAssetInfo, StoreThemeInfo } from "@/lib/api";
+import { adminApi, ThemeResponse, GitHubReleaseInfo, GitHubAssetInfo, StoreThemeInfo, PluginSettingsSchema, PluginSettingsField } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Palette, Check, RefreshCw, ExternalLink, User, Tag, Upload, Download, Trash2, Github, Loader2, Search, Package, AlertTriangle, Store } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Palette, Check, RefreshCw, ExternalLink, User, Tag, Upload, Download, Trash2, Github, Loader2, Search, Package, AlertTriangle, Store, Settings, Save } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
@@ -35,6 +46,13 @@ export default function ThemesPage() {
   // Updates
   const [updates, setUpdates] = useState<Record<string, { current: string; latest: string }>>({});
   const [checkingUpdates, setCheckingUpdates] = useState(false);
+
+  // Theme settings dialog
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedTheme, setSelectedTheme] = useState<ThemeResponse | null>(null);
+  const [settingsSchema, setSettingsSchema] = useState<PluginSettingsSchema | null>(null);
+  const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>({});
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const fetchThemes = async () => {
     setLoading(true);
@@ -160,11 +178,16 @@ export default function ThemesPage() {
     
     setSwitching(true);
     try {
-      await adminApi.switchTheme(themeName);
-      setCurrentTheme(themeName);
-      toast.success(t("settings.switchSuccess"));
-    } catch (error) {
-      toast.error(t("settings.switchFailed"));
+      const { data } = await adminApi.switchTheme(themeName);
+      // Verify the switch actually succeeded (check returned theme name matches)
+      if (data?.name && data.name !== themeName) {
+        toast.error(t("settings.switchFailed") + `: ${data.name}`);
+      } else {
+        setCurrentTheme(themeName);
+        toast.success(t("settings.switchSuccess"));
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || t("settings.switchFailed"));
     } finally {
       setSwitching(false);
     }
@@ -210,7 +233,7 @@ export default function ThemesPage() {
         return;
       }
       
-      const { data } = await adminApi.installThemeFromRepo(theme.github_url);
+      const { data } = await adminApi.installThemeFromRepo(theme.github_url, theme.slug);
       toast.success(data.message);
       fetchThemes();
       fetchStore(); // Refresh store to update installed status
@@ -242,6 +265,84 @@ export default function ThemesPage() {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const openThemeSettings = async (theme: ThemeResponse) => {
+    setSelectedTheme(theme);
+    setSettingsOpen(true);
+    try {
+      const { data } = await adminApi.getThemeSettings(theme.name);
+      setSettingsSchema(data?.schema || null);
+      setSettingsValues(data?.values || {});
+    } catch {
+      toast.error(t("error.loadFailed"));
+    }
+  };
+
+  const handleSaveThemeSettings = async () => {
+    if (!selectedTheme) return;
+    setSavingSettings(true);
+    try {
+      await adminApi.updateThemeSettings(selectedTheme.name, settingsValues);
+      toast.success(t("plugin.saveSuccess") || "Settings saved");
+      setSettingsOpen(false);
+    } catch {
+      toast.error(t("plugin.saveFailed") || "Save failed");
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const renderSettingsField = (field: PluginSettingsField) => {
+    const value = settingsValues[field.id] ?? field.default ?? "";
+    switch (field.type) {
+      case "switch":
+        return (
+          <Switch
+            checked={!!value}
+            onCheckedChange={(v) => setSettingsValues({ ...settingsValues, [field.id]: v })}
+          />
+        );
+      case "textarea":
+        return (
+          <Textarea
+            value={String(value)}
+            onChange={(e) => setSettingsValues({ ...settingsValues, [field.id]: e.target.value })}
+          />
+        );
+      case "select":
+        return (
+          <Select
+            value={String(value)}
+            onValueChange={(v) => setSettingsValues({ ...settingsValues, [field.id]: v })}
+          >
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {field.options?.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
+      case "number":
+        return (
+          <Input
+            type="number"
+            value={String(value)}
+            onChange={(e) => setSettingsValues({ ...settingsValues, [field.id]: Number(e.target.value) })}
+            min={field.min}
+            max={field.max}
+          />
+        );
+      default:
+        return (
+          <Input
+            type={field.secret ? "password" : "text"}
+            value={String(value)}
+            onChange={(e) => setSettingsValues({ ...settingsValues, [field.id]: e.target.value })}
+          />
+        );
+    }
   };
 
   return (
@@ -337,6 +438,7 @@ export default function ThemesPage() {
                       deleting={deleting === theme.name}
                       onSwitch={() => handleSwitchTheme(theme.name)}
                       onDelete={() => handleDelete(theme.name)}
+                      onSettings={theme.has_settings ? () => openThemeSettings(theme) : undefined}
                       onUpdate={updates[theme.name] ? () => handleUpdateTheme(theme.name) : undefined}
                       updateInfo={updates[theme.name]}
                       t={t}
@@ -375,8 +477,19 @@ export default function ThemesPage() {
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {storeThemes.map((theme) => (
                     <Card key={theme.slug}>
-                      <div className="relative h-36 bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
-                        <Palette className="h-12 w-12 text-muted-foreground/30" />
+                      <div className="relative h-36 bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center overflow-hidden">
+                        {theme.cover_image ? (
+                          <img
+                            src={theme.cover_image}
+                            alt={theme.name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                              (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                            }}
+                          />
+                        ) : null}
+                        <Palette className={cn("h-12 w-12 text-muted-foreground/30 absolute", theme.cover_image && "hidden")} />
                         {theme.installed && (
                           <div className="absolute top-2 right-2 flex items-center gap-1 bg-primary text-primary-foreground px-2 py-1 rounded text-xs">
                             <Check className="h-3 w-3" />
@@ -552,6 +665,46 @@ export default function ThemesPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Theme Settings Dialog */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedTheme?.display_name}
+            </DialogTitle>
+            <DialogDescription>{t("plugin.settingsTitle") || "Settings"}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {settingsSchema?.sections?.length ? (
+              <>
+                {settingsSchema.sections.map((section: any) => (
+                  <div key={section.title} className="space-y-3">
+                    {section.title && (
+                      <h4 className="font-medium text-sm text-muted-foreground">{section.title}</h4>
+                    )}
+                    {section.fields?.map((field: PluginSettingsField) => (
+                      <div key={field.id} className="space-y-1.5">
+                        <Label>{field.label}</Label>
+                        {renderSettingsField(field)}
+                        {field.description && (
+                          <p className="text-xs text-muted-foreground">{field.description}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <Button onClick={handleSaveThemeSettings} disabled={savingSettings} className="w-full">
+                  <Save className="h-4 w-4 mr-2" />
+                  {t("plugin.saveSettings") || "Save"}
+                </Button>
+              </>
+            ) : (
+              <p className="text-center text-muted-foreground py-8">{t("plugin.noSettings") || "No settings available"}</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -564,12 +717,13 @@ interface ThemeCardProps {
   deleting: boolean;
   onSwitch: () => void;
   onDelete: () => void;
+  onSettings?: () => void;
   onUpdate?: () => void;
   updateInfo?: { current: string; latest: string };
   t: (key: string) => string;
 }
 
-function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, onDelete, onUpdate, updateInfo, t }: ThemeCardProps) {
+function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, onDelete, onSettings, onUpdate, updateInfo, t }: ThemeCardProps) {
   return (
     <div
       className={cn(
@@ -675,6 +829,16 @@ function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, 
             >
               <Download className="h-4 w-4 mr-1" />
               更新
+            </Button>
+          )}
+          {theme.has_settings && onSettings && (
+            <Button
+              onClick={onSettings}
+              variant="ghost"
+              size="sm"
+              title={t("plugin.settingsTitle") || "Settings"}
+            >
+              <Settings className="h-4 w-4" />
             </Button>
           )}
           <Button

@@ -692,6 +692,18 @@ export default function PluginsPage() {
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {storePlugins.map((plugin) => (
                     <Card key={plugin.slug}>
+                      {plugin.cover_image && (
+                        <div className="relative h-36 bg-gradient-to-br from-muted to-muted/50 overflow-hidden">
+                          <img
+                            src={plugin.cover_image}
+                            alt={plugin.name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).parentElement?.remove();
+                            }}
+                          />
+                        </div>
+                      )}
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between">
                           <div className="space-y-1">

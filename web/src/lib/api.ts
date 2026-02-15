@@ -158,8 +158,8 @@ export const adminApi = {
   installGitHubTheme: (downloadUrl: string) =>
     api.post<ThemeInstallResponse>("/admin/themes/github/install", { download_url: downloadUrl }),
   
-  installThemeFromRepo: (repo: string) =>
-    api.post<ThemeInstallResponse>("/admin/themes/install-from-repo", { repo }),
+  installThemeFromRepo: (repo: string, slug?: string) =>
+    api.post<ThemeInstallResponse>("/admin/themes/install-from-repo", { repo, slug }),
   
   deleteTheme: (name: string) =>
     api.delete(`/admin/themes/${name}`),
@@ -173,6 +173,13 @@ export const adminApi = {
   // Update theme
   updateTheme: (name: string) =>
     api.post<ThemeInstallResponse>(`/admin/themes/${name}/update`),
+  
+  // Theme settings
+  getThemeSettings: (name: string) =>
+    api.get<PluginSettingsResponse>(`/admin/themes/${name}/settings`),
+  
+  updateThemeSettings: (name: string, settings: Record<string, unknown>) =>
+    api.put<{ success: boolean }>(`/admin/themes/${name}/settings`, settings),
   
   getSettings: () => api.get<SiteSettings>("/admin/settings"),
   
@@ -391,6 +398,7 @@ export interface ThemeResponse {
   requires_noteva: string;
   compatible: boolean;
   compatibility_message: string | null;
+  has_settings: boolean;
 }
 
 export interface ThemeListResponse {
@@ -404,6 +412,7 @@ export interface StoreThemeInfo {
   version: string;
   description: string | null;
   author: string | null;
+  cover_image: string | null;
   github_url: string | null;
   external_url: string | null;
   license_type: string;
@@ -485,6 +494,7 @@ export interface StorePluginInfo {
   version: string;
   description: string;
   author: string;
+  cover_image: string | null;
   github_url: string | null;
   external_url: string | null;
   license_type: string;

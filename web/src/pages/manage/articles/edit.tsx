@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+﻿import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   articlesApi,
@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -23,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Save, Eye, X, Trash2, Bold, Italic, Link, Image as ImageIcon, List, ListOrdered, Quote, Code, Heading1, Heading2, Pin, Loader2, Check } from "lucide-react";
+import { ArrowLeft, Save, X, Trash2, Pin, Loader2, Check } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,11 +36,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
-import { EmojiPicker } from "@/components/ui/emoji-picker";
+import VditorEditor, { type VditorEditorRef } from "@/components/ui/vditor-editor";
 
 interface PluginEditorButton {
   id: string;
-  label: string;
+  label: string | Record<string, string>;
   icon?: string;
   insertBefore: string;
   insertAfter: string;
@@ -70,13 +69,11 @@ export default function EditArticlePage() {
   const { id } = useParams();
   const articleId = parseInt(id || "0");
   const { t } = useTranslation();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<VditorEditorRef>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [preview, setPreview] = useState(false);
-  const [previewHtml, setPreviewHtml] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTags, setSelectedTags] = useState<number[]>([]);
@@ -147,7 +144,7 @@ export default function EditArticlePage() {
       try {
         const [catRes, tagRes, articleRes, pluginsRes] = await Promise.all([
           categoriesApi.list(), tagsApi.list(), articlesApi.getById(articleId),
-          fetch("/api/v1/plugins/enabled").then(r => r.json()).catch(() => ({ data: [] })),
+          fetch("/api/v1/plugins/enabled").then(r => r.json()).catch(() => []),
         ]);
         setCategories(catRes.data.categories);
         setTags(tagRes.data.tags);
@@ -183,68 +180,23 @@ export default function EditArticlePage() {
     setSelectedTags((prev) => prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]);
   };
 
-  const insertMarkdown = (before: string, after: string = "") => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const text = form.content;
-    const selected = text.substring(start, end);
-    const newText = text.substring(0, start) + before + selected + after + text.substring(end);
-    setForm(f => ({ ...f, content: newText }));
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + before.length, start + before.length + selected.length);
-    }, 0);
-  };
-
-  const handleImageUpload = async () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      try {
-        const { data } = await uploadApi.image(file);
-        insertMarkdown(`![${file.name}](${data.url})`, "");
-        toast.success(t("article.saveSuccess"));
-      } catch { toast.error(t("article.saveFailed")); }
-    };
-    input.click();
-  };
-
-  const handlePaste = async (e: React.ClipboardEvent) => {
-    const items = e.clipboardData.items;
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.type.startsWith("image/")) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (!file) continue;
-        try {
-          const { data } = await uploadApi.image(file);
-          insertMarkdown(`![image](${data.url})`, "");
-          toast.success(t("article.saveSuccess"));
-        } catch { toast.error(t("article.saveFailed")); }
-        break;
-      }
-    }
-  };
-
   const handleSubmit = async (status?: "draft" | "published" | "archived") => {
-    if (!form.title.trim()) { toast.error(t("article.title") + " " + t("common.error")); return; }
+    // Sync content from editor before submit
+    const editorContent = editorRef.current?.getValue() || form.content;
+    const currentForm = { ...form, content: editorContent };
+
+    if (!currentForm.title.trim()) { toast.error(t("article.title") + " " + t("common.error")); return; }
     setSaving(true);
     setSaveSuccess(false);
     try {
       const data: UpdateArticleInput = {
-        title: form.title, slug: form.slug, content: form.content,
-        status: status || form.status, category_id: form.category_id,
-        tag_ids: selectedTags, thumbnail: form.thumbnail,
-        is_pinned: form.is_pinned, pin_order: form.pin_order,
+        title: currentForm.title, slug: currentForm.slug, content: currentForm.content,
+        status: status || currentForm.status, category_id: currentForm.category_id,
+        tag_ids: selectedTags, thumbnail: currentForm.thumbnail,
+        is_pinned: currentForm.is_pinned, pin_order: currentForm.pin_order,
       };
       await articlesApi.update(articleId, data);
-      const newForm = { ...form, status: status || form.status };
+      const newForm = { ...currentForm, status: status || currentForm.status };
       setForm(newForm);
       setLastSavedContent(JSON.stringify({ ...newForm, selectedTags }));
       setHasUnsavedChanges(false);
@@ -262,20 +214,6 @@ export default function EditArticlePage() {
       navigate("/manage/articles");
     } catch (error) { toast.error(t("article.deleteFailed")); }
   };
-
-  const fetchPreview = async () => {
-    if (!form.content.trim()) { setPreviewHtml("<p class='text-muted-foreground'>暂无内容</p>"); return; }
-    try {
-      const response = await fetch("/api/v1/site/render", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: form.content }),
-      });
-      if (response.ok) { const data = await response.json(); setPreviewHtml(data.html); }
-      else { setPreviewHtml(`<p>${form.content.replace(/\n/g, "<br>")}</p>`); }
-    } catch { setPreviewHtml(`<p>${form.content.replace(/\n/g, "<br>")}</p>`); }
-  };
-
-  const togglePreview = () => { if (!preview) fetchPreview(); setPreview(!preview); };
 
   if (loading) {
     return (
@@ -328,20 +266,12 @@ export default function EditArticlePage() {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          <Button variant="outline" onClick={togglePreview}>
-            <Eye className="h-4 w-4 mr-2" />
-            {preview ? t("common.edit") : t("article.preview")}
-          </Button>
           <Button variant="outline" onClick={() => handleSubmit("draft")} disabled={saving || !hasUnsavedChanges}>
             {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saveSuccess ? <Check className="h-4 w-4 mr-2 text-green-500" /> : <Save className="h-4 w-4 mr-2" />}
             {t("article.saveDraft")}
           </Button>
           <Button onClick={() => handleSubmit("published")} disabled={saving || !hasUnsavedChanges}>
-            {saving ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : saveSuccess ? (
-              <Check className="h-4 w-4 mr-2" />
-            ) : null}
+            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saveSuccess ? <Check className="h-4 w-4 mr-2" /> : null}
             {form.status === "published" ? t("article.update") : t("article.publish")}
           </Button>
         </div>
@@ -358,42 +288,15 @@ export default function EditArticlePage() {
             <Input id="slug" placeholder="url-friendly-slug" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="content">{t("article.content")}</Label>
-            {preview ? (
-              <Card>
-                <CardContent className="prose prose-sm dark:prose-invert max-w-none p-4 min-h-[400px]">
-                  <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex flex-wrap gap-1 p-2 border rounded-t-md bg-muted/50">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => insertMarkdown("**", "**")} title="Bold"><Bold className="h-4 w-4" /></Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => insertMarkdown("*", "*")} title="Italic"><Italic className="h-4 w-4" /></Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => insertMarkdown("# ")} title="H1"><Heading1 className="h-4 w-4" /></Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => insertMarkdown("## ")} title="H2"><Heading2 className="h-4 w-4" /></Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => insertMarkdown("[", "](url)")} title="Link"><Link className="h-4 w-4" /></Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={handleImageUpload} title="Image"><ImageIcon className="h-4 w-4" /></Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => insertMarkdown("- ")} title="List"><List className="h-4 w-4" /></Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => insertMarkdown("1. ")} title="Ordered"><ListOrdered className="h-4 w-4" /></Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => insertMarkdown("> ")} title="Quote"><Quote className="h-4 w-4" /></Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => insertMarkdown("`", "`")} title="Code"><Code className="h-4 w-4" /></Button>
-                  <EmojiPicker onSelect={(emoji) => insertMarkdown(emoji)} />
-                  {pluginButtons.length > 0 && (
-                    <>
-                      <div className="w-px h-6 bg-border mx-1" />
-                      {pluginButtons.map((button) => (
-                        <Button key={button.id} type="button" variant="ghost" size="sm" onClick={() => insertMarkdown(button.insertBefore, button.insertAfter)} title={button.label}>
-                          {button.icon ? <span className="text-base">{button.icon}</span> : <span className="text-xs font-medium">{button.label.slice(0, 2)}</span>}
-                        </Button>
-                      ))}
-                    </>
-                  )}
-                </div>
-                <Textarea ref={textareaRef} id="content" placeholder={t("article.useMarkdown")} value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} onPaste={handlePaste} className="min-h-[400px] font-mono rounded-t-none" />
-                <p className="text-xs text-muted-foreground">{t("article.pasteImage")}</p>
-              </div>
-            )}
+            <Label>{t("article.content")}</Label>
+            <VditorEditor
+              ref={editorRef}
+              initialValue={form.content}
+              onChange={(value) => setForm((f) => ({ ...f, content: value }))}
+              pluginButtons={pluginButtons}
+              placeholder={t("article.useMarkdown")}
+              minHeight={400}
+            />
           </div>
         </div>
 

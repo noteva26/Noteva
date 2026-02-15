@@ -380,12 +380,6 @@ async fn create_category(
     } else {
         input
     };
-    
-    let input = if let Some(parent_id) = body.parent_id {
-        input.with_parent(parent_id)
-    } else {
-        input
-    };
 
     let category = state
         .category_service
@@ -414,10 +408,6 @@ async fn update_category(
     
     if let Some(desc) = body.description {
         input = input.with_description(Some(desc));
-    }
-    
-    if let Some(parent_id) = body.parent_id {
-        input = input.with_parent(Some(parent_id));
     }
 
     let category = state

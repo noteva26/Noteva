@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bento Grid 博客 Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; background: #f5f5f7; color: #1d1d1f; padding: 24px; min-height: 100vh; }
+  
+  .header { text-align: center; padding: 40px 0 32px; }
+  .header h1 { font-size: 2rem; font-weight: 700; }
+  .header p { color: #86868b; margin-top: 8px; font-size: 1.05rem; }
+  
+  .bento { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 180px; gap: 16px; max-width: 1100px; margin: 0 auto; }
+  
+  .card { background: #fff; border-radius: 20px; padding: 28px; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; position: relative; transition: transform 0.3s, box-shadow 0.3s; cursor: pointer; }
+  .card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.1); }
+  
+  .card .tag { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 8px; }
+  .card h2 { font-size: 1.15rem; font-weight: 700; line-height: 1.4; }
+  .card p { font-size: 0.85rem; color: #6e6e73; margin-top: 6px; line-height: 1.5; }
+  .card .meta { font-size: 0.75rem; color: #86868b; margin-top: auto; padding-top: 12px; }
+  
+  /* Featured - large */
+  .card.featured { grid-column: span 2; grid-row: span 2; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; }
+  .card.featured .tag { color: rgba(255,255,255,0.7); }
+  .card.featured h2 { font-size: 1.8rem; }
+  .card.featured p { color: rgba(255,255,255,0.8); }
+  .card.featured .meta { color: rgba(255,255,255,0.6); }
+  
+  /* Accent cards */
+  .card.accent-orange { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: #fff; }
+  .card.accent-orange .tag, .card.accent-orange .meta { color: rgba(255,255,255,0.7); }
+  .card.accent-orange p { color: rgba(255,255,255,0.8); }
+  
+  .card.accent-dark { background: #1d1d1f; color: #f5f5f7; }
+  .card.accent-dark .tag { color: rgba(245,245,247,0.5); }
+  .card.accent-dark p { color: rgba(245,245,247,0.6); }
+  .card.accent-dark .meta { color: rgba(245,245,247,0.4); }
+  
+  .card.accent-green { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: #1d1d1f; }
+  
+  .card.wide { grid-column: span 2; }
+  .card.tall { grid-row: span 2; }
+
+  .nav { display: flex; justify-content: center; gap: 24px; padding: 16px 0 8px; }
+  .nav a { color: #86868b; text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: color 0.2s; }
+  .nav a:hover { color: #1d1d1f; }
+
+  @media (max-width: 768px) {
+    .bento { grid-template-columns: repeat(2, 1fr); grid-auto-rows: 160px; }
+    .card.featured h2 { font-size: 1.3rem; }
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="nav"><a href="#">首页</a><a href="#">归档</a><a href="#">分类</a><a href="#">标签</a><a href="#">关于</a></div>
+    <h1>Orion's Blog</h1>
+    <p>「睡起有茶饥有饭，行看流水坐看云」</p>
+  </div>
+  
+  <div class="bento">
+    <div class="card featured">
+      <span class="tag">置顶</span>
+      <h2>2025 年度总结：从零到一的博客系统</h2>
+      <p>回顾这一年，从一个简单的想法到完整的 Rust 博客系统，记录每一步的成长与思考。</p>
+      <div class="meta">2025/12/31 · 阅读 12 分钟</div>
+    </div>
+    
+    <div class="card accent-dark">
+      <span class="tag">技术</span>
+      <h2>Rust + WASM 插件系统设计</h2>
+      <div class="meta">2025/11/15</div>
+    </div>
+    
+    <div class="card">
+      <span class="tag">随笔</span>
+      <h2>ac.nz 还是没有消息</h2>
+      <div class="meta">2026/02/03</div>
+    </div>
+    
+    <div class="card wide accent-orange">
+      <span class="tag">教程</span>
+      <h2>从零搭建你的 Noteva 博客</h2>
+      <p>一步步教你部署、配置主题、安装插件，打造属于自己的博客空间。</p>
+      <div class="meta">2025/10/20 · 阅读 8 分钟</div>
+    </div>
+    
+    <div class="card accent-green">
+      <span class="tag">计划</span>
+      <h2>GIF 支持 + 音频支持</h2>
+      <div class="meta">2026/02/07</div>
+    </div>
+    
+    <div class="card">
+      <span class="tag">生活</span>
+      <h2>春节前的碎碎念</h2>
+      <p>除夕将至，聊聊这一年的感悟。</p>
+      <div class="meta">2026/02/14</div>
+    </div>
+    
+    <div class="card accent-dark wide">
+      <span class="tag">开源</span>
+      <h2>Noteva v0.1.5 正式发布</h2>
+      <p>主题切换修复、MySQL 兼容、插件商店上线，一个更稳定的版本。</p>
+      <div class="meta">2026/02/15 · 阅读 5 分钟</div>
+    </div>
+    
+    <div class="card">
+      <span class="tag">技术</span>
+      <h2>Axum 中间件实战</h2>
+      <div class="meta">2025/09/08</div>
+    </div>
+  </div>
+</body>
+</html>

@@ -506,5 +506,10 @@
     "failureReason": "Failure Reason",
     "time": "Time",
     "showing": "Showing {from} - {to} of {total}"
+  },
+  "editor": {
+    "plugins": "Plugins",
+    "emoji": "Emoji",
+    "searchEmoji": "Search emoji..."
   }
 }
