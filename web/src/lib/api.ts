@@ -148,7 +148,7 @@ export const adminApi = {
     const formData = new FormData();
     formData.append("file", file);
     return api.post<ThemeInstallResponse>("/admin/themes/upload", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      headers: { "Content-Type": undefined as any },
     });
   },
   
@@ -224,7 +224,7 @@ export const pluginsApi = {
     const formData = new FormData();
     formData.append("file", file);
     return api.post<PluginInstallResponse>("/admin/plugins/upload", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      headers: { "Content-Type": undefined as any },
     });
   },
   
@@ -257,8 +257,17 @@ export const uploadApi = {
   image: (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
+    // Don't set Content-Type manually — let browser set it with correct boundary
     return api.post<UploadResponse>("/upload/image", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      headers: { "Content-Type": undefined as any },
+    });
+  },
+  
+  file: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<UploadResponse>("/upload/file", formData, {
+      headers: { "Content-Type": undefined as any },
     });
   },
   
@@ -266,7 +275,7 @@ export const uploadApi = {
     const formData = new FormData();
     files.forEach((file) => formData.append("files", file));
     return api.post<MultiUploadResponse>("/upload/images", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      headers: { "Content-Type": undefined as any },
     });
   },
 };

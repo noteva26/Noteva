@@ -49,6 +49,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/image", post(upload_image))
         .route("/images", post(upload_images))
+        .route("/file", post(upload_file))
         .route("/plugin/:plugin_id/file", post(upload_plugin_file))
 }
 
@@ -259,6 +260,57 @@ async fn upload_images(
     }
 
     Ok(Json(MultiUploadResponse { files, failed }))
+}
+
+/// POST /api/v1/upload/file - Upload a generic file (any type)
+///
+/// Requires authentication. No MIME type restriction — only size limit applies.
+/// Files are saved locally (no S3 hook). Returns URL for shortcode embedding.
+async fn upload_file(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+    mut multipart: Multipart,
+) -> Result<Json<UploadResponse>, ApiError> {
+    let config = &state.upload_config;
+    ensure_upload_dir(&config.path).await?;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to read multipart: {}", e)))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        if name != "file" { continue; }
+
+        let filename = field.file_name().map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string());
+        let content_type = field.content_type().map(|s| s.to_string()).unwrap_or_else(|| "application/octet-stream".to_string());
+
+        let data = field.bytes().await
+            .map_err(|e| ApiError::internal_error(format!("Failed to read file: {}", e)))?;
+
+        if data.len() as u64 > config.max_file_size {
+            return Err(ApiError::validation_error(format!(
+                "File too large. Maximum size: {} MB",
+                config.max_file_size / 1024 / 1024
+            )));
+        }
+
+        let ext = get_extension(&filename, &content_type);
+        let new_filename = format!("{}.{}", Uuid::new_v4(), ext);
+        let file_path = config.path.join(&new_filename);
+
+        fs::write(&file_path, &data).await
+            .map_err(|e| ApiError::internal_error(format!("Failed to save file: {}", e)))?;
+
+        return Ok(Json(UploadResponse {
+            url: format!("/uploads/{}", new_filename),
+            filename: new_filename,
+            size: data.len() as u64,
+            content_type,
+        }));
+    }
+
+    Err(ApiError::validation_error("No file provided"))
 }
 
 /// Ensure upload directory exists

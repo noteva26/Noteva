@@ -420,6 +420,36 @@ pub mod builtins {
                 shortcode.content
             )
         });
+
+        // [file name="doc.pdf" size="1.2 MB" url="/uploads/xxx.pdf" /] - File attachment card
+        manager.register("file", |shortcode, _ctx| {
+            let name = shortcode.attrs.get("name").map_or("file", |s| s.as_str());
+            let url = shortcode.attrs.get("url").map_or("#", |s| s.as_str());
+            let size = shortcode.attrs.get("size").map_or("", |s| s.as_str());
+            let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
+            let icon = match ext.as_str() {
+                "pdf" => "pdf",
+                "doc" | "docx" => "word",
+                "xls" | "xlsx" | "csv" => "excel",
+                "ppt" | "pptx" => "ppt",
+                "zip" | "rar" | "7z" | "tar" | "gz" => "archive",
+                "mp3" | "wav" | "flac" | "ogg" => "audio",
+                "mp4" | "mkv" | "avi" | "mov" => "video",
+                "exe" | "msi" => "exe",
+                "md" | "txt" | "json" | "xml" | "yml" | "yaml" => "text",
+                "html" | "css" | "js" | "ts" | "rs" | "py" | "php" => "code",
+                _ => "file",
+            };
+            let size_html = if size.is_empty() {
+                String::new()
+            } else {
+                format!(r#"<span class="shortcode-file-size">{}</span>"#, html_escape(size))
+            };
+            format!(
+                r#"<a href="{}" download class="shortcode-file" data-file-type="{}"><span class="shortcode-file-icon" data-icon="{}"></span><span class="shortcode-file-info"><span class="shortcode-file-name">{}</span>{}</span><span class="shortcode-file-download">↓</span></a>"#,
+                html_escape(url), html_escape(&ext), icon, html_escape(name), size_html
+            )
+        });
     }
     
     /// HTML escape helper

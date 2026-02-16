@@ -243,6 +243,11 @@ const VditorEditor = forwardRef<VditorEditorRef, VditorEditorProps>(
                 return `<blockquote style="margin:8px 0;border-left:4px solid #d1d5db;padding:8px 16px;color:#374151">${content}${footerHtml}</blockquote>`;
               }
             );
+            // [file name="..." size="..." url="..." /]
+            r = r.replace(
+              /\[file\s+(?:[^[\]]*?)name=(?:&quot;|")([^"&]+)(?:&quot;|")(?:[^[\]]*?)url=(?:&quot;|")([^"&]+)(?:&quot;|")(?:[^[\]]*?)\s*\/?\]/g,
+              '<a href="$2" download style="display:flex;align-items:center;gap:10px;padding:10px 14px;margin:8px 0;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none;color:inherit;background:#f9fafb"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg><span style="flex:1;font-size:14px">$1</span><span style="font-size:12px;color:#9ca3af">↓</span></a>'
+            );
             return r;
           },
           parse: (element: HTMLElement) => {
@@ -251,14 +256,30 @@ const VditorEditor = forwardRef<VditorEditorRef, VditorEditorProps>(
           },
         },
         upload: {
-          accept: "image/*",
+          accept: "*/*",
           handler: async (files: File[]) => {
             for (const file of files) {
               try {
-                const { data } = await uploadApi.image(file);
-                vditorRef.current?.insertValue(`![${file.name}](${data.url})`);
-              } catch {
-                // Upload failed silently
+                const isImage = file.type.startsWith("image/");
+                const { data } = isImage
+                  ? await uploadApi.image(file)
+                  : await uploadApi.file(file);
+                if (isImage) {
+                  vditorRef.current?.insertValue(`![${file.name}](${data.url})`);
+                } else {
+                  const sizeStr = data.size < 1024 * 1024
+                    ? `${(data.size / 1024).toFixed(1)} KB`
+                    : `${(data.size / 1024 / 1024).toFixed(1)} MB`;
+                  vditorRef.current?.insertValue(
+                    `[file name="${file.name}" size="${sizeStr}" url="${data.url}" /]`
+                  );
+                }
+              } catch (e: any) {
+                const msg = e?.response?.data?.error?.message
+                  || (e?.code === "ERR_NETWORK" ? "Upload failed: connection error" : null)
+                  || e?.message
+                  || "Upload failed";
+                vditorRef.current?.tip(msg, 3000);
               }
             }
             return null as any;

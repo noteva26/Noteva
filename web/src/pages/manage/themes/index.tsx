@@ -17,10 +17,64 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Palette, Check, RefreshCw, ExternalLink, User, Tag, Upload, Download, Trash2, Github, Loader2, Search, Package, AlertTriangle, Store, Settings, Save } from "lucide-react";
+import { Palette, Check, RefreshCw, ExternalLink, User, Tag, Upload, Download, Trash2, Github, Loader2, Search, Package, AlertTriangle, Store, Settings, Save, Plus, X, List } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
+
+// 通用数组字段编辑器（与插件设置共用逻辑）
+interface ArrayFieldEditorProps {
+  value: Record<string, unknown>[];
+  onChange: (v: Record<string, unknown>[]) => void;
+  itemFields: NonNullable<PluginSettingsField["itemFields"]>;
+}
+
+function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps) {
+  const items = Array.isArray(value) ? value : [];
+  const addItem = () => {
+    const newItem: Record<string, unknown> = {};
+    itemFields.forEach(f => { newItem[f.id] = ""; });
+    onChange([...items, newItem]);
+  };
+  const removeItem = (index: number) => onChange(items.filter((_, i) => i !== index));
+  const updateItem = (index: number, fieldId: string, val: unknown) => {
+    const newItems = [...items];
+    newItems[index] = { ...newItems[index], [fieldId]: val };
+    onChange(newItems);
+  };
+  const moveItem = (from: number, to: number) => {
+    if (to < 0 || to >= items.length) return;
+    const newItems = [...items];
+    const [item] = newItems.splice(from, 1);
+    newItems.splice(to, 0, item);
+    onChange(newItems);
+  };
+  return (
+    <div className="space-y-3">
+      {items.map((item, index) => (
+        <div key={index} className="border rounded-lg p-3 space-y-2 bg-muted/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <List className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">#{index + 1}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveItem(index, index - 1)} disabled={index === 0}><span className="text-xs">↑</span></Button>
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveItem(index, index + 1)} disabled={index === items.length - 1}><span className="text-xs">↓</span></Button>
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => removeItem(index)}><X className="h-4 w-4" /></Button>
+            </div>
+          </div>
+          <div className="grid gap-2" style={{ gridTemplateColumns: itemFields.length <= 2 ? `repeat(${itemFields.length}, 1fr)` : 'repeat(2, 1fr)' }}>
+            {itemFields.map(field => (
+              <Input key={field.id} type={field.type === "number" ? "number" : "text"} placeholder={field.placeholder || field.label + (field.required ? " *" : "")} value={(item[field.id] as string) || ""} onChange={(e) => updateItem(index, field.id, field.type === "number" ? Number(e.target.value) : e.target.value)} />
+            ))}
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline" className="w-full" onClick={addItem}><Plus className="h-4 w-4 mr-2" />添加项目</Button>
+    </div>
+  );
+}
 
 export default function ThemesPage() {
   const { t } = useTranslation();
@@ -273,7 +327,20 @@ export default function ThemesPage() {
     try {
       const { data } = await adminApi.getThemeSettings(theme.name);
       setSettingsSchema(data?.schema || null);
-      setSettingsValues(data?.values || {});
+      // Parse JSON string values back to proper types (array, boolean, etc.)
+      const raw = data?.values || {};
+      const parsed: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(raw)) {
+        if (typeof v === "string") {
+          if (v === "true") { parsed[k] = true; continue; }
+          if (v === "false") { parsed[k] = false; continue; }
+          if ((v.startsWith("[") && v.endsWith("]")) || (v.startsWith("{") && v.endsWith("}"))) {
+            try { parsed[k] = JSON.parse(v); continue; } catch {}
+          }
+        }
+        parsed[k] = v;
+      }
+      setSettingsValues(parsed);
     } catch {
       toast.error(t("error.loadFailed"));
     }
@@ -334,6 +401,14 @@ export default function ThemesPage() {
             max={field.max}
           />
         );
+      case "array":
+        return field.itemFields ? (
+          <ArrayFieldEditor
+            value={value as Record<string, unknown>[]}
+            onChange={(v) => setSettingsValues({ ...settingsValues, [field.id]: v })}
+            itemFields={field.itemFields}
+          />
+        ) : null;
       default:
         return (
           <Input
@@ -675,24 +750,27 @@ export default function ThemesPage() {
             </DialogTitle>
             <DialogDescription>{t("plugin.settingsTitle") || "Settings"}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {settingsSchema?.sections?.length ? (
               <>
-                {settingsSchema.sections.map((section: any) => (
-                  <div key={section.title} className="space-y-3">
-                    {section.title && (
-                      <h4 className="font-medium text-sm text-muted-foreground">{section.title}</h4>
-                    )}
-                    {section.fields?.map((field: PluginSettingsField) => (
-                      <div key={field.id} className="space-y-1.5">
-                        <Label>{field.label}</Label>
-                        {renderSettingsField(field)}
-                        {field.description && (
-                          <p className="text-xs text-muted-foreground">{field.description}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                {settingsSchema.sections.map((section: any, sIdx: number) => (
+                  <details key={section.id || section.title} className="group border rounded-lg" open={sIdx === 0}>
+                    <summary className="flex items-center justify-between px-4 py-3 cursor-pointer select-none hover:bg-muted/50 rounded-lg transition-colors">
+                      <span className="font-medium text-sm">{section.title}</span>
+                      <svg className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m6 9 6 6 6-6"/></svg>
+                    </summary>
+                    <div className="px-4 pb-4 space-y-3">
+                      {section.fields?.map((field: PluginSettingsField) => (
+                        <div key={field.id} className="space-y-1.5">
+                          <Label>{field.label}</Label>
+                          {renderSettingsField(field)}
+                          {field.description && (
+                            <p className="text-xs text-muted-foreground">{field.description}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 ))}
                 <Button onClick={handleSaveThemeSettings} disabled={savingSettings} className="w-full">
                   <Save className="h-4 w-4 mr-2" />

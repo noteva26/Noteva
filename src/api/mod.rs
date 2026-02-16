@@ -37,6 +37,7 @@ pub mod theme_install;
 pub mod upload;
 
 use axum::{
+    extract::DefaultBodyLimit,
     http::{header, HeaderValue, Method},
     middleware as axum_middleware,
     Router,
@@ -53,6 +54,10 @@ pub use middleware::{
 
 /// Build the main API router
 pub fn build_api_router(state: AppState) -> Router<AppState> {
+    // Read body limits from config (add 1MB headroom for multipart overhead)
+    let image_body_limit = (state.upload_config.max_file_size as usize).saturating_add(1024 * 1024);
+    let admin_body_limit = (state.upload_config.max_plugin_file_size as usize).saturating_add(1024 * 1024);
+
     // Admin routes (need admin role)
     let admin_routes = Router::new()
         .nest("/admin", admin::router())
@@ -81,6 +86,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .route("/admin/articles/:id", axum::routing::delete(articles::delete_article_handler))
         // Admin comment operations
         .route("/admin/comments/:id", axum::routing::delete(comments::delete_comment))
+        .layer(DefaultBodyLimit::max(admin_body_limit))
         .route_layer(axum_middleware::from_fn(middleware::require_admin))
         .route_layer(axum_middleware::from_fn_with_state(
             state.clone(),
@@ -90,7 +96,8 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
     // Protected routes (need auth but not admin)
     let protected_routes = Router::new()
         .nest("/auth", auth::protected_router())
-        .nest("/upload", upload::router())
+        .nest("/upload", upload::router()
+            .layer(DefaultBodyLimit::max(image_body_limit)))
         .route("/articles", axum::routing::post(articles::create_article_handler))
         .route_layer(axum_middleware::from_fn_with_state(
             state.clone(),
