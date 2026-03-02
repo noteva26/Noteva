@@ -16,34 +16,40 @@ jobs:
     strategy:
       matrix:
         include:
-          # Linux
+          # Linux x86_64
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             binary: noteva
             archive: noteva-linux-x86_64.tar.gz
-          # ARM64 Linux 暂时禁用（交叉编译问题）
-          # - target: aarch64-unknown-linux-gnu
-          #   os: ubuntu-latest
-          #   binary: noteva
-          #   archive: noteva-linux-arm64.tar.gz
+            use_cross: false
+          # Linux ARM64 (via cross — Docker-based cross-compilation)
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary: noteva
+            archive: noteva-linux-arm64.tar.gz
+            use_cross: true
           # Windows
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             binary: noteva.exe
             archive: noteva-windows-x86_64.zip
+            use_cross: false
           - target: aarch64-pc-windows-msvc
             os: windows-latest
             binary: noteva.exe
             archive: noteva-windows-arm64.zip
+            use_cross: false
           # macOS
           - target: x86_64-apple-darwin
             os: macos-latest
             binary: noteva
             archive: noteva-macos-x86_64.tar.gz
+            use_cross: false
           - target: aarch64-apple-darwin
             os: macos-latest
             binary: noteva
             archive: noteva-macos-arm64.tar.gz
+            use_cross: false
 
     steps:
       - name: Checkout
@@ -83,17 +89,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev
-          
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+
+      - name: Install cross (Linux ARM64)
+        if: matrix.use_cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build Rust Binary
-        run: cargo build --release --features redis-cache --target ${{ matrix.target }}
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --release --features redis-cache --target ${{ matrix.target }}
+          else
+            cargo build --release --features redis-cache --target ${{ matrix.target }}
+          fi
+        shell: bash
 
       - name: Prepare artifacts (Linux)
         if: matrix.os == 'ubuntu-latest'

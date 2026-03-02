@@ -269,6 +269,7 @@ impl ThemeEngine {
                 compatibility_message: version_check.message,
                 config: metadata.configuration,
                 has_settings,
+                pages: metadata.pages,
             });
         }
         
@@ -294,6 +295,7 @@ impl ThemeEngine {
                 compatibility_message: None,
                 config: None,
                 has_settings,
+                pages: Vec::new(),
             });
         }
         
@@ -314,6 +316,7 @@ impl ThemeEngine {
                 compatibility_message: version_check.message,
                 config: None,
                 has_settings,
+                pages: Vec::new(),
             });
         }
         
@@ -332,6 +335,7 @@ impl ThemeEngine {
             compatibility_message: None,
             config: None,
             has_settings,
+            pages: Vec::new(),
         })
     }
 
@@ -778,6 +782,9 @@ pub struct ThemeJsonMetadata {
     pub requires: Option<ThemeRequirements>,
     /// Theme configuration
     pub configuration: Option<serde_json::Value>,
+    /// Routes that require auto-created pages (slug → title)
+    #[serde(default)]
+    pub pages: Vec<ThemePageDeclaration>,
 }
 
 /// Theme requirements
@@ -786,6 +793,15 @@ pub struct ThemeRequirements {
     /// Minimum Noteva version
     #[serde(default)]
     pub noteva: String,
+}
+
+/// A page that a theme declares should exist
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ThemePageDeclaration {
+    /// URL slug (e.g. "about", "friends")
+    pub slug: String,
+    /// Default page title
+    pub title: String,
 }
 
 /// Information about a theme
@@ -817,6 +833,9 @@ pub struct ThemeInfo {
     pub config: Option<serde_json::Value>,
     /// Whether theme has settings.json
     pub has_settings: bool,
+    /// Pages declared by this theme
+    #[serde(default)]
+    pub pages: Vec<ThemePageDeclaration>,
 }
 
 /// Standard template variables (Requirement 6.5)

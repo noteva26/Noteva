@@ -18,6 +18,7 @@ use super::{PluginRuntime, PluginHandle, PluginManifest, Permission, PluginError
 use super::hooks::{HookManager, PRIORITY_DEFAULT};
 use super::hook_registry::validate_plugin_hooks;
 use super::loader::{Plugin, PluginManager};
+use super::plugin_db;
 use crate::db::repositories::{PluginDataRepository, SqlxPluginDataRepository, ArticleRepository, SqlxArticleRepository, CommentRepository, SqlxCommentRepository};
 use crate::db::DynDatabasePool;
 
@@ -251,7 +252,7 @@ impl WorkerPool {
 
     /// Execute a request on a pooled worker with timeout.
     fn execute(&self, request: &serde_json::Value, timeout: std::time::Duration) -> SubprocessResult {
-        let empty = SubprocessResult { output: None, storage_ops: vec![], meta_ops: vec![] };
+        let empty = SubprocessResult { output: None, storage_ops: vec![], meta_ops: vec![], db_ops: vec![] };
 
         let mut worker = match self.acquire() {
             Some(w) => w,
@@ -331,11 +332,13 @@ struct SubprocessResult {
     storage_ops: Vec<(String, String, Option<String>)>, // (op, key, value)
     /// Meta update operations to execute on articles
     meta_ops: Vec<(i64, String)>, // (article_id, data_json)
+    /// Database operations to execute (query/execute)
+    db_ops: Vec<(String, String, String)>, // (op, sql, params_json)
 }
 
 /// Parse the JSON response from a wasm-worker into a SubprocessResult.
 fn parse_subprocess_response(response: &serde_json::Value) -> SubprocessResult {
-    let empty = SubprocessResult { output: None, storage_ops: vec![], meta_ops: vec![] };
+    let empty = SubprocessResult { output: None, storage_ops: vec![], meta_ops: vec![], db_ops: vec![] };
 
     if response.get("success").and_then(|v| v.as_bool()) != Some(true) {
         let raw_err = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
@@ -380,6 +383,20 @@ fn parse_subprocess_response(response: &serde_json::Value) -> SubprocessResult {
         })
         .unwrap_or_default();
 
+    // Parse db_ops
+    let db_ops: Vec<(String, String, String)> = response
+        .get("db_ops")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter().filter_map(|op| {
+                let op_type = op.get("op")?.as_str()?.to_string();
+                let sql = op.get("sql")?.as_str()?.to_string();
+                let params = op.get("params")?.as_str()?.to_string();
+                Some((op_type, sql, params))
+            }).collect()
+        })
+        .unwrap_or_default();
+
     // Decode output
     let output_b64 = response.get("output").and_then(|v| v.as_str()).unwrap_or("");
     let output = match base64_decode(output_b64) {
@@ -387,7 +404,7 @@ fn parse_subprocess_response(response: &serde_json::Value) -> SubprocessResult {
         _ => None,
     };
 
-    SubprocessResult { output, storage_ops, meta_ops }
+    SubprocessResult { output, storage_ops, meta_ops, db_ops }
 }
 
 /// Execute a WASM hook function via a pooled persistent worker.
@@ -548,6 +565,59 @@ fn execute_meta_ops(
                     Err(_) => continue,
                 };
                 let _ = rt.block_on(repo.update_meta(*article_id, plugin_id, &data));
+            }
+        }
+    }
+}
+
+/// Execute database operations (query/execute) returned by the WASM subprocess.
+fn execute_db_ops(
+    pool: &DynDatabasePool,
+    plugin_id: &str,
+    ops: &[(String, String, String)], // (op, sql, params_json)
+) {
+    if ops.is_empty() { return; }
+
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => {
+            for (op, sql, params) in ops {
+                match op.as_str() {
+                    "query" => {
+                        match tokio::task::block_in_place(|| {
+                            handle.block_on(plugin_db::execute_plugin_query(pool, plugin_id, sql, params))
+                        }) {
+                            Ok(_) => tracing::debug!("DB query OK: plugin {}", plugin_id),
+                            Err(e) => tracing::error!("DB query FAILED: plugin {} - {}", plugin_id, e),
+                        }
+                    }
+                    "execute" => {
+                        match tokio::task::block_in_place(|| {
+                            handle.block_on(plugin_db::execute_plugin_statement(pool, plugin_id, sql, params))
+                        }) {
+                            Ok(rows) => tracing::debug!("DB execute OK: plugin {}, {} rows affected", plugin_id, rows),
+                            Err(e) => tracing::error!("DB execute FAILED: plugin {} - {}", plugin_id, e),
+                        }
+                    }
+                    _ => {
+                        tracing::warn!("Unknown db_op type '{}' from plugin {}", op, plugin_id);
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    tracing::error!("Failed to create runtime for db ops: {}", e);
+                    return;
+                }
+            };
+            for (op, sql, params) in ops {
+                match op.as_str() {
+                    "query" => { let _ = rt.block_on(plugin_db::execute_plugin_query(pool, plugin_id, sql, params)); }
+                    "execute" => { let _ = rt.block_on(plugin_db::execute_plugin_statement(pool, plugin_id, sql, params)); }
+                    _ => {}
+                }
             }
         }
     }
@@ -774,6 +844,7 @@ pub async fn load_wasm_plugin(
         .iter().map(|(k, v)| (k.clone(), v.clone())).collect();
 
     let db_pool = pool.clone();
+    let has_database = plugin_permissions.contains(&"database".to_string());
 
     for hook_name in &backend_hooks {
         let wasm_file = wasm_abs_path.clone();
@@ -785,6 +856,7 @@ pub async fn load_wasm_plugin(
         let pool_clone = db_pool.clone();
         let has_read_articles = plugin_permissions.contains(&"read_articles".to_string());
         let has_read_comments = plugin_permissions.contains(&"read_comments".to_string());
+        let has_db = has_database;
 
         hook_manager.register(
             hook_name,
@@ -841,6 +913,12 @@ pub async fn load_wasm_plugin(
                 if !result.meta_ops.is_empty() {
                     execute_meta_ops(&pool, &pid, &result.meta_ops);
                     tracing::debug!("Plugin '{}' executed {} meta ops", pid, result.meta_ops.len());
+                }
+
+                // Execute any database operations the plugin requested
+                if has_db && !result.db_ops.is_empty() {
+                    execute_db_ops(&pool, &pid, &result.db_ops);
+                    tracing::debug!("Plugin '{}' executed {} db ops", pid, result.db_ops.len());
                 }
 
                 // Return hook output
@@ -946,6 +1024,9 @@ pub fn execute_plugin_api_request(
     }
     if !result.meta_ops.is_empty() {
         execute_meta_ops(pool, plugin_id, &result.meta_ops);
+    }
+    if !result.db_ops.is_empty() {
+        execute_db_ops(pool, plugin_id, &result.db_ops);
     }
 
     // Parse response from WASM output

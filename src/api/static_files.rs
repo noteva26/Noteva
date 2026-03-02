@@ -378,6 +378,11 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
     
     let version = env!("CARGO_PKG_VERSION");
     
+    // Get site_url for canonical/OG URLs
+    let site_url = settings_repo.get("site_url").await.ok().flatten()
+        .map(|s| s.value).unwrap_or_default();
+    let base_url = site_url.trim_end_matches('/');
+    
     // Try to fetch article data for SEO if this is a post page
     let article_seo = if asset_path.starts_with("posts/") && !asset_path.contains('.') {
         let slug = asset_path.strip_prefix("posts/").unwrap_or("").trim_end_matches('/');
@@ -390,25 +395,125 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
         None
     };
     
+    // Try to fetch page data for SEO (e.g. /about, /links)
+    let page_seo = if article_seo.is_none()
+        && !asset_path.is_empty()
+        && asset_path != "index.html"
+        && !asset_path.starts_with("posts/")
+        && !asset_path.starts_with("categories/")
+        && !asset_path.starts_with("tags/")
+        && !asset_path.starts_with("manage/")
+        && !asset_path.contains('.')
+    {
+        let slug = asset_path.trim_end_matches('/');
+        if !slug.is_empty() {
+            fetch_page_seo(slug, &state.pool).await
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
     // Build meta tags for SEO
     let (title_tag, meta_tags, body_content) = if let Some(ref seo) = article_seo {
         let title = format!("{} - {}", seo.title, site_name);
         let description = seo.excerpt.replace('"', "&quot;");
-        let meta = format!(
+        let canonical_url = if base_url.is_empty() {
+            String::new()
+        } else {
+            format!("{}/posts/{}", base_url, seo.slug)
+        };
+        let og_image = seo.thumbnail.as_deref().unwrap_or("").to_string();
+        let og_image_full = if og_image.is_empty() {
+            String::new()
+        } else if og_image.starts_with("http") {
+            og_image.clone()
+        } else if !base_url.is_empty() {
+            format!("{}{}", base_url, og_image)
+        } else {
+            og_image.clone()
+        };
+        
+        let mut meta = format!(
             r#"<title>{}</title>
 <meta name="description" content="{}">
+<link rel="canonical" href="{}">"#,
+            html_escape(&title),
+            html_escape(&description),
+            html_escape(&canonical_url),
+        );
+        // Open Graph
+        meta.push_str(&format!(
+            r#"
 <meta property="og:title" content="{}">
 <meta property="og:description" content="{}">
 <meta property="og:type" content="article">
-<meta property="article:published_time" content="{}">
-<meta property="article:author" content="{}">"#,
-            html_escape(&title),
-            html_escape(&description),
+<meta property="og:site_name" content="{}">"#,
             html_escape(&seo.title),
             html_escape(&description),
-            seo.published_at,
             html_escape(&site_name),
-        );
+        ));
+        if !canonical_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<meta property=\"og:url\" content=\"{}\">",
+                html_escape(&canonical_url)
+            ));
+        }
+        if !og_image_full.is_empty() {
+            meta.push_str(&format!(
+                "\n<meta property=\"og:image\" content=\"{}\">",
+                html_escape(&og_image_full)
+            ));
+        }
+        meta.push_str(&format!(
+            r#"
+<meta property="article:published_time" content="{}">
+<meta property="article:modified_time" content="{}">"#,
+            seo.published_at,
+            seo.updated_at,
+        ));
+        // Twitter Card
+        meta.push_str(&format!(
+            r#"
+<meta name="twitter:card" content="{}">
+<meta name="twitter:title" content="{}">
+<meta name="twitter:description" content="{}">"#,
+            if og_image_full.is_empty() { "summary" } else { "summary_large_image" },
+            html_escape(&seo.title),
+            html_escape(&description),
+        ));
+        if !og_image_full.is_empty() {
+            meta.push_str(&format!(
+                "\n<meta name=\"twitter:image\" content=\"{}\">",
+                html_escape(&og_image_full)
+            ));
+        }
+        // JSON-LD structured data
+        let json_ld_image = if og_image_full.is_empty() {
+            "null".to_string()
+        } else {
+            format!("\"{}\"", og_image_full.replace('"', "\\\""))
+        };
+        meta.push_str(&format!(
+            r#"
+<script type="application/ld+json">
+{{"@context":"https://schema.org","@type":"BlogPosting","headline":"{}","description":"{}","datePublished":"{}","dateModified":"{}","image":{},"url":"{}","author":{{"@type":"Organization","name":"{}"}}}}</script>"#,
+            seo.title.replace('"', "\\\""),
+            seo.excerpt.replace('"', "\\\"").chars().take(160).collect::<String>(),
+            seo.published_at,
+            seo.updated_at,
+            json_ld_image,
+            canonical_url.replace('"', "\\\""),
+            site_name.replace('"', "\\\""),
+        ));
+        // RSS feed discovery
+        if !base_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<link rel=\"alternate\" type=\"application/rss+xml\" title=\"{}\" href=\"{}/feed.xml\">",
+                html_escape(&site_name), base_url
+            ));
+        }
         // Inject article content into <div id="root"> for crawlers
         let body = format!(
             r#"<article style="display:none" data-noteva-seo="true"><h1>{}</h1><div>{}</div></article>"#,
@@ -416,13 +521,111 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
             seo.content_html,
         );
         (Some(title), meta, body)
+    } else if let Some(ref seo) = page_seo {
+        // Page SEO (e.g. /about)
+        let title = format!("{} - {}", seo.title, site_name);
+        let description = seo.excerpt.replace('"', "&quot;");
+        let canonical_url = if base_url.is_empty() {
+            String::new()
+        } else {
+            format!("{}/{}", base_url, seo.slug)
+        };
+        let mut meta = format!(
+            r#"<title>{}</title>
+<meta name="description" content="{}">
+<link rel="canonical" href="{}">
+<meta property="og:title" content="{}">
+<meta property="og:description" content="{}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="{}">"#,
+            html_escape(&title),
+            html_escape(&description),
+            html_escape(&canonical_url),
+            html_escape(&seo.title),
+            html_escape(&description),
+            html_escape(&site_name),
+        );
+        if !canonical_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<meta property=\"og:url\" content=\"{}\">",
+                html_escape(&canonical_url)
+            ));
+        }
+        meta.push_str(&format!(
+            r#"
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{}">
+<meta name="twitter:description" content="{}">"#,
+            html_escape(&seo.title),
+            html_escape(&description),
+        ));
+        if !base_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<link rel=\"alternate\" type=\"application/rss+xml\" title=\"{}\" href=\"{}/feed.xml\">",
+                html_escape(&site_name), base_url
+            ));
+        }
+        let body = format!(
+            r#"<article style="display:none" data-noteva-seo="true"><h1>{}</h1><div>{}</div></article>"#,
+            html_escape(&seo.title),
+            seo.content_html,
+        );
+        (Some(title), meta, body)
     } else {
-        let meta = format!(
+        // Homepage / list pages
+        let canonical_url = if base_url.is_empty() {
+            String::new()
+        } else if asset_path.is_empty() || asset_path == "index.html" {
+            format!("{}/", base_url)
+        } else {
+            format!("{}/{}", base_url, asset_path.trim_end_matches('/'))
+        };
+        let mut meta = format!(
             r#"<title>{}</title>
 <meta name="description" content="{}">"#,
             html_escape(&site_name),
             html_escape(&site_description),
         );
+        if !canonical_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<link rel=\"canonical\" href=\"{}\">",
+                html_escape(&canonical_url)
+            ));
+            meta.push_str(&format!(
+                r#"
+<meta property="og:title" content="{}">
+<meta property="og:description" content="{}">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{}">
+<meta property="og:site_name" content="{}">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{}">
+<meta name="twitter:description" content="{}">"#,
+                html_escape(&site_name),
+                html_escape(&site_description),
+                html_escape(&canonical_url),
+                html_escape(&site_name),
+                html_escape(&site_name),
+                html_escape(&site_description),
+            ));
+        }
+        // JSON-LD for website
+        if !base_url.is_empty() {
+            meta.push_str(&format!(
+                r#"
+<script type="application/ld+json">
+{{"@context":"https://schema.org","@type":"WebSite","name":"{}","description":"{}","url":"{}"}}</script>"#,
+                site_name.replace('"', "\\\""),
+                site_description.replace('"', "\\\""),
+                base_url.replace('"', "\\\""),
+            ));
+        }
+        if !base_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<link rel=\"alternate\" type=\"application/rss+xml\" title=\"{}\" href=\"{}/feed.xml\">",
+                html_escape(&site_name), base_url
+            ));
+        }
         (None, meta, String::new())
     };
     
@@ -487,6 +690,17 @@ struct ArticleSeo {
     excerpt: String,
     content_html: String,
     published_at: String,
+    updated_at: String,
+    thumbnail: Option<String>,
+    slug: String,
+}
+
+/// Page SEO data
+struct PageSeo {
+    title: String,
+    excerpt: String,
+    content_html: String,
+    slug: String,
 }
 
 /// Fetch article data for SEO injection
@@ -525,11 +739,44 @@ async fn fetch_article_seo(slug: &str, pool: &crate::db::DynDatabasePool, _site_
         .map(|d| d.to_rfc3339())
         .unwrap_or_default();
     
+    let updated_at = article.updated_at.to_rfc3339();
+    
     Some(ArticleSeo {
         title: article.title,
         excerpt,
         content_html: article.content_html,
         published_at,
+        updated_at,
+        thumbnail: article.thumbnail,
+        slug: article.slug,
+    })
+}
+
+/// Fetch page data for SEO injection
+async fn fetch_page_seo(slug: &str, pool: &crate::db::DynDatabasePool) -> Option<PageSeo> {
+    use crate::db::repositories::{PageRepository, SqlxPageRepository};
+    
+    let repo = SqlxPageRepository::new(pool.clone());
+    let page = repo.get_by_slug(slug).await.ok().flatten()?;
+    
+    if page.status != crate::models::PageStatus::Published {
+        return None;
+    }
+    
+    let excerpt = page.content
+        .replace('#', "")
+        .replace('*', "")
+        .replace('`', "")
+        .replace('\n', " ")
+        .chars()
+        .take(200)
+        .collect::<String>();
+    
+    Some(PageSeo {
+        title: page.title,
+        excerpt,
+        content_html: page.content_html,
+        slug: page.slug,
     })
 }
 

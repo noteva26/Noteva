@@ -29,6 +29,7 @@ pub mod plugins;
 pub mod plugin_install;
 pub mod proxy;
 pub mod responses;
+pub mod seo;
 pub mod site;
 pub mod static_files;
 pub mod tags;
@@ -156,6 +157,12 @@ pub fn build_router(state: AppState, cors_origin: &str) -> Router {
 
     Router::new()
         .nest("/api/v1", build_api_router(state.clone()))
+        // SEO endpoints (top-level, before static file fallback)
+        .route("/sitemap.xml", axum::routing::get(seo::sitemap_xml))
+        .route("/robots.txt", axum::routing::get(seo::robots_txt))
+        .route("/feed.xml", axum::routing::get(seo::feed_xml))
+        .route("/rss.xml", axum::routing::get(seo::feed_xml))
+        .route("/feed", axum::routing::get(seo::feed_xml))
         // Static file serving (for production)
         .fallback(static_files::serve_static)
         .layer(cors)

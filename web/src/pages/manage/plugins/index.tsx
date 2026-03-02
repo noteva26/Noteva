@@ -1,122 +1,17 @@
 import { useEffect, useState, useRef } from "react";
-import { pluginsApi, Plugin, PluginSettingsSchema, PluginSettingsField, GitHubReleaseInfo, GitHubAssetInfo, StorePluginInfo } from "@/lib/api";
+import { pluginsApi, Plugin, PluginSettingsSchema, GitHubReleaseInfo, GitHubAssetInfo, StorePluginInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Settings, Puzzle, Code, Save, Upload, Download, Trash2, Github, Loader2, RefreshCw, Search, Package, Tag, Plus, X, List, AlertTriangle, Store } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { SettingsRenderer, parseSettingsValues } from "@/components/settings-renderer";
+import { Settings, Puzzle, Code, Save, Upload, Download, Trash2, Github, Loader2, RefreshCw, Search, Package, Tag, AlertTriangle, Store } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
-
-// 通用数组字段编辑器
-interface ArrayFieldEditorProps {
-  value: Record<string, unknown>[];
-  onChange: (v: Record<string, unknown>[]) => void;
-  itemFields: NonNullable<PluginSettingsField["itemFields"]>;
-}
-
-function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps) {
-  const items = Array.isArray(value) ? value : [];
-  
-  const addItem = () => {
-    const newItem: Record<string, unknown> = {};
-    itemFields.forEach(f => { newItem[f.id] = ""; });
-    onChange([...items, newItem]);
-  };
-  
-  const removeItem = (index: number) => {
-    onChange(items.filter((_, i) => i !== index));
-  };
-  
-  const updateItem = (index: number, fieldId: string, val: unknown) => {
-    const newItems = [...items];
-    newItems[index] = { ...newItems[index], [fieldId]: val };
-    onChange(newItems);
-  };
-  
-  const moveItem = (from: number, to: number) => {
-    if (to < 0 || to >= items.length) return;
-    const newItems = [...items];
-    const [item] = newItems.splice(from, 1);
-    newItems.splice(to, 0, item);
-    onChange(newItems);
-  };
-  
-  return (
-    <div className="space-y-3">
-      {items.map((item, index) => (
-        <div key={index} className="border rounded-lg p-3 space-y-2 bg-muted/30">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <List className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">#{index + 1}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => moveItem(index, index - 1)}
-                disabled={index === 0}
-              >
-                <span className="text-xs">↑</span>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => moveItem(index, index + 1)}
-                disabled={index === items.length - 1}
-              >
-                <span className="text-xs">↓</span>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-destructive hover:text-destructive"
-                onClick={() => removeItem(index)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-          <div className="grid gap-2" style={{ gridTemplateColumns: itemFields.length <= 2 ? `repeat(${itemFields.length}, 1fr)` : 'repeat(2, 1fr)' }}>
-            {itemFields.map(field => (
-              <Input
-                key={field.id}
-                type={field.type === "number" ? "number" : "text"}
-                placeholder={field.placeholder || field.label + (field.required ? " *" : "")}
-                value={(item[field.id] as string) || ""}
-                onChange={(e) => updateItem(index, field.id, field.type === "number" ? Number(e.target.value) : e.target.value)}
-                className={itemFields.length > 2 && itemFields.indexOf(field) >= itemFields.length - (itemFields.length % 2 || 2) ? "col-span-1" : ""}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
-      <Button type="button" variant="outline" className="w-full" onClick={addItem}>
-        <Plus className="h-4 w-4 mr-2" />
-        添加项目
-      </Button>
-    </div>
-  );
-}
 
 export default function PluginsPage() {
   const { t } = useTranslation();
@@ -348,7 +243,7 @@ export default function PluginsPage() {
     try {
       const { data } = await pluginsApi.getSettings(plugin.id);
       setSchema(data?.schema || null);
-      setValues(data?.values || {});
+      setValues(parseSettingsValues(data?.values || {}));
     } catch (error) {
       toast.error(t("error.loadFailed"));
     }
@@ -368,109 +263,10 @@ export default function PluginsPage() {
     }
   };
 
-  const updateValue = (key: string, value: unknown) => {
-    setValues((prev) => ({ ...prev, [key]: value }));
-  };
-
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  const renderField = (field: PluginSettingsSchema["sections"][0]["fields"][0]) => {
-    const value = values[field.id] ?? field.default ?? "";
-
-    switch (field.type) {
-      case "text":
-        return (
-          <Input
-            id={field.id}
-            type={field.secret ? "password" : "text"}
-            value={value as string}
-            onChange={(e) => updateValue(field.id, e.target.value)}
-            onFocus={(e) => {
-              if (field.secret && e.target.value === "••••••••") {
-                updateValue(field.id, "");
-              }
-            }}
-            placeholder={field.secret && (value as string) === "••••••••" ? "输入新值或保持不变" : undefined}
-          />
-        );
-      case "textarea":
-        return (
-          <Textarea
-            id={field.id}
-            value={value as string}
-            onChange={(e) => updateValue(field.id, e.target.value)}
-            rows={4}
-          />
-        );
-      case "number":
-        return (
-          <Input
-            id={field.id}
-            type="number"
-            value={value as number}
-            min={field.min}
-            max={field.max}
-            onChange={(e) => updateValue(field.id, Number(e.target.value))}
-          />
-        );
-      case "switch":
-        return (
-          <Switch
-            id={field.id}
-            checked={value as boolean}
-            onCheckedChange={(checked) => updateValue(field.id, checked)}
-          />
-        );
-      case "select":
-        return (
-          <Select value={value as string} onValueChange={(v) => updateValue(field.id, v)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {field.options?.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        );
-      case "color":
-        return (
-          <div className="flex items-center gap-2">
-            <Input
-              type="color"
-              value={value as string}
-              onChange={(e) => updateValue(field.id, e.target.value)}
-              className="w-12 h-10 p-1"
-            />
-            <Input
-              value={value as string}
-              onChange={(e) => updateValue(field.id, e.target.value)}
-              className="flex-1"
-            />
-          </div>
-        );
-      case "array":
-        return field.itemFields ? (
-          <ArrayFieldEditor 
-            value={value as Record<string, unknown>[]} 
-            onChange={(v) => updateValue(field.id, v)} 
-            itemFields={field.itemFields}
-          />
-        ) : null;
-      default:
-        return (
-          <Input
-            id={field.id}
-            value={value as string}
-            onChange={(e) => updateValue(field.id, e.target.value)}
-          />
-        );
-    }
   };
 
   return (
@@ -862,48 +658,32 @@ export default function PluginsPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Settings Dialog */}
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+      {/* Settings Sheet */}
+      <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <SheetContent className="overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
               <Puzzle className="h-5 w-5" />
               {selectedPlugin?.name}
-            </DialogTitle>
-            <DialogDescription>{t("plugin.settingsTitle")}</DialogDescription>
-          </DialogHeader>
-          
-          <div className="mt-4 space-y-6">
+            </SheetTitle>
+            <SheetDescription>{t("plugin.settingsTitle")}</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <SettingsRenderer
+              schema={schema}
+              values={values}
+              onChange={setValues}
+              emptyMessage={t("plugin.noSettings")}
+            />
             {schema?.sections?.length ? (
-              <>
-                {schema.sections.map((section) => (
-                  <div key={section.id} className="space-y-4">
-                    <h3 className="font-medium">{section.title}</h3>
-                    {section.fields.map((field) => (
-                      <div key={field.id} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor={field.id}>{field.label}</Label>
-                          {field.type === "switch" && renderField(field)}
-                        </div>
-                        {field.type !== "switch" && renderField(field)}
-                        {field.description && (
-                          <p className="text-xs text-muted-foreground">{field.description}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-                <Button onClick={handleSaveSettings} disabled={saving} className="w-full">
-                  <Save className="h-4 w-4 mr-2" />
-                  {t("plugin.saveSettings")}
-                </Button>
-              </>
-            ) : (
-              <p className="text-center text-muted-foreground py-8">{t("plugin.noSettings")}</p>
-            )}
+              <Button onClick={handleSaveSettings} disabled={saving} className="w-full">
+                <Save className="h-4 w-4 mr-2" />
+                {t("plugin.saveSettings")}
+              </Button>
+            ) : null}
           </div>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

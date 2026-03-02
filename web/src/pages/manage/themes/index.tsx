@@ -1,80 +1,17 @@
 import { useEffect, useState, useRef } from "react";
-import { adminApi, ThemeResponse, GitHubReleaseInfo, GitHubAssetInfo, StoreThemeInfo, PluginSettingsSchema, PluginSettingsField } from "@/lib/api";
+import { adminApi, ThemeResponse, GitHubReleaseInfo, GitHubAssetInfo, StoreThemeInfo, PluginSettingsSchema } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Palette, Check, RefreshCw, ExternalLink, User, Tag, Upload, Download, Trash2, Github, Loader2, Search, Package, AlertTriangle, Store, Settings, Save, Plus, X, List } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { SettingsRenderer, parseSettingsValues } from "@/components/settings-renderer";
+import { Palette, Check, RefreshCw, ExternalLink, User, Tag, Upload, Download, Trash2, Github, Loader2, Search, Package, AlertTriangle, Store, Settings, Save } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
-
-// 通用数组字段编辑器（与插件设置共用逻辑）
-interface ArrayFieldEditorProps {
-  value: Record<string, unknown>[];
-  onChange: (v: Record<string, unknown>[]) => void;
-  itemFields: NonNullable<PluginSettingsField["itemFields"]>;
-}
-
-function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps) {
-  const items = Array.isArray(value) ? value : [];
-  const addItem = () => {
-    const newItem: Record<string, unknown> = {};
-    itemFields.forEach(f => { newItem[f.id] = ""; });
-    onChange([...items, newItem]);
-  };
-  const removeItem = (index: number) => onChange(items.filter((_, i) => i !== index));
-  const updateItem = (index: number, fieldId: string, val: unknown) => {
-    const newItems = [...items];
-    newItems[index] = { ...newItems[index], [fieldId]: val };
-    onChange(newItems);
-  };
-  const moveItem = (from: number, to: number) => {
-    if (to < 0 || to >= items.length) return;
-    const newItems = [...items];
-    const [item] = newItems.splice(from, 1);
-    newItems.splice(to, 0, item);
-    onChange(newItems);
-  };
-  return (
-    <div className="space-y-3">
-      {items.map((item, index) => (
-        <div key={index} className="border rounded-lg p-3 space-y-2 bg-muted/30">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <List className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">#{index + 1}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveItem(index, index - 1)} disabled={index === 0}><span className="text-xs">↑</span></Button>
-              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveItem(index, index + 1)} disabled={index === items.length - 1}><span className="text-xs">↓</span></Button>
-              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => removeItem(index)}><X className="h-4 w-4" /></Button>
-            </div>
-          </div>
-          <div className="grid gap-2" style={{ gridTemplateColumns: itemFields.length <= 2 ? `repeat(${itemFields.length}, 1fr)` : 'repeat(2, 1fr)' }}>
-            {itemFields.map(field => (
-              <Input key={field.id} type={field.type === "number" ? "number" : "text"} placeholder={field.placeholder || field.label + (field.required ? " *" : "")} value={(item[field.id] as string) || ""} onChange={(e) => updateItem(index, field.id, field.type === "number" ? Number(e.target.value) : e.target.value)} />
-            ))}
-          </div>
-        </div>
-      ))}
-      <Button type="button" variant="outline" className="w-full" onClick={addItem}><Plus className="h-4 w-4 mr-2" />添加项目</Button>
-    </div>
-  );
-}
 
 export default function ThemesPage() {
   const { t } = useTranslation();
@@ -327,20 +264,7 @@ export default function ThemesPage() {
     try {
       const { data } = await adminApi.getThemeSettings(theme.name);
       setSettingsSchema(data?.schema || null);
-      // Parse JSON string values back to proper types (array, boolean, etc.)
-      const raw = data?.values || {};
-      const parsed: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(raw)) {
-        if (typeof v === "string") {
-          if (v === "true") { parsed[k] = true; continue; }
-          if (v === "false") { parsed[k] = false; continue; }
-          if ((v.startsWith("[") && v.endsWith("]")) || (v.startsWith("{") && v.endsWith("}"))) {
-            try { parsed[k] = JSON.parse(v); continue; } catch {}
-          }
-        }
-        parsed[k] = v;
-      }
-      setSettingsValues(parsed);
+      setSettingsValues(parseSettingsValues(data?.values || {}));
     } catch {
       toast.error(t("error.loadFailed"));
     }
@@ -357,66 +281,6 @@ export default function ThemesPage() {
       toast.error(t("plugin.saveFailed") || "Save failed");
     } finally {
       setSavingSettings(false);
-    }
-  };
-
-  const renderSettingsField = (field: PluginSettingsField) => {
-    const value = settingsValues[field.id] ?? field.default ?? "";
-    switch (field.type) {
-      case "switch":
-        return (
-          <Switch
-            checked={!!value}
-            onCheckedChange={(v) => setSettingsValues({ ...settingsValues, [field.id]: v })}
-          />
-        );
-      case "textarea":
-        return (
-          <Textarea
-            value={String(value)}
-            onChange={(e) => setSettingsValues({ ...settingsValues, [field.id]: e.target.value })}
-          />
-        );
-      case "select":
-        return (
-          <Select
-            value={String(value)}
-            onValueChange={(v) => setSettingsValues({ ...settingsValues, [field.id]: v })}
-          >
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {field.options?.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        );
-      case "number":
-        return (
-          <Input
-            type="number"
-            value={String(value)}
-            onChange={(e) => setSettingsValues({ ...settingsValues, [field.id]: Number(e.target.value) })}
-            min={field.min}
-            max={field.max}
-          />
-        );
-      case "array":
-        return field.itemFields ? (
-          <ArrayFieldEditor
-            value={value as Record<string, unknown>[]}
-            onChange={(v) => setSettingsValues({ ...settingsValues, [field.id]: v })}
-            itemFields={field.itemFields}
-          />
-        ) : null;
-      default:
-        return (
-          <Input
-            type={field.secret ? "password" : "text"}
-            value={String(value)}
-            onChange={(e) => setSettingsValues({ ...settingsValues, [field.id]: e.target.value })}
-          />
-        );
     }
   };
 
@@ -741,48 +605,29 @@ export default function ThemesPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Theme Settings Dialog */}
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedTheme?.display_name}
-            </DialogTitle>
-            <DialogDescription>{t("plugin.settingsTitle") || "Settings"}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
+      {/* Theme Settings Sheet */}
+      <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <SheetContent className="overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>{selectedTheme?.display_name}</SheetTitle>
+            <SheetDescription>{t("plugin.settingsTitle") || "Settings"}</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <SettingsRenderer
+              schema={settingsSchema}
+              values={settingsValues}
+              onChange={setSettingsValues}
+              emptyMessage={t("plugin.noSettings") || "No settings available"}
+            />
             {settingsSchema?.sections?.length ? (
-              <>
-                {settingsSchema.sections.map((section: any, sIdx: number) => (
-                  <details key={section.id || section.title} className="group border rounded-lg" open={sIdx === 0}>
-                    <summary className="flex items-center justify-between px-4 py-3 cursor-pointer select-none hover:bg-muted/50 rounded-lg transition-colors">
-                      <span className="font-medium text-sm">{section.title}</span>
-                      <svg className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m6 9 6 6 6-6"/></svg>
-                    </summary>
-                    <div className="px-4 pb-4 space-y-3">
-                      {section.fields?.map((field: PluginSettingsField) => (
-                        <div key={field.id} className="space-y-1.5">
-                          <Label>{field.label}</Label>
-                          {renderSettingsField(field)}
-                          {field.description && (
-                            <p className="text-xs text-muted-foreground">{field.description}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                ))}
-                <Button onClick={handleSaveThemeSettings} disabled={savingSettings} className="w-full">
-                  <Save className="h-4 w-4 mr-2" />
-                  {t("plugin.saveSettings") || "Save"}
-                </Button>
-              </>
-            ) : (
-              <p className="text-center text-muted-foreground py-8">{t("plugin.noSettings") || "No settings available"}</p>
-            )}
+              <Button onClick={handleSaveThemeSettings} disabled={savingSettings} className="w-full">
+                <Save className="h-4 w-4 mr-2" />
+                {t("plugin.saveSettings") || "Save"}
+              </Button>
+            ) : null}
           </div>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

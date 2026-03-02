@@ -100,6 +100,9 @@ async fn main() -> Result<()> {
     ));
     let tag_service = Arc::new(TagService::new(tag_repo.clone(), cache.clone()));
     let settings_service = Arc::new(SettingsService::from_sqlx(settings_repo));
+
+
+
     let article_service = Arc::new(ArticleService::with_hooks(
         article_repo,
         tag_repo,
@@ -217,6 +220,96 @@ async fn main() -> Result<()> {
             loop {
                 interval.tick().await;
                 limiter.cleanup().await;
+            }
+        });
+    }
+
+    // Start plugin activation re-verification task
+    // Checks enabled plugins with activate.interval_hours > 0 and re-triggers plugin_activate
+    {
+        let pm = state.plugin_manager.clone();
+        let hm = state.hook_manager.clone();
+        let ss = state.settings_service.clone();
+        let wr = state.wasm_runtime.clone();
+        let wreg = state.wasm_registry.clone();
+        tokio::spawn(async move {
+            // Check every 10 minutes; actual per-plugin interval is tracked internally
+            let mut tick = tokio::time::interval(tokio::time::Duration::from_secs(600));
+            // Skip the first immediate tick
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                // Collect plugins that need re-verification
+                let plugins_to_check: Vec<(String, String, u64)> = {
+                    let mgr = pm.read().await;
+                    mgr.get_enabled()
+                        .iter()
+                        .filter(|p| {
+                            p.metadata.activate.interval_hours > 0
+                                && p.metadata.hooks.backend.contains(&"plugin_activate".to_string())
+                        })
+                        .map(|p| (
+                            p.metadata.id.clone(),
+                            p.metadata.version.clone(),
+                            p.metadata.activate.interval_hours,
+                        ))
+                        .collect()
+                };
+
+                if plugins_to_check.is_empty() {
+                    continue;
+                }
+
+                let site_url = ss.get("site_url").await.ok().flatten().unwrap_or_default();
+
+                for (plugin_id, plugin_version, interval_hours) in &plugins_to_check {
+                    // Check last activation time from plugin storage
+                    let last_key = format!("__activate_last_{}", plugin_id);
+                    let last_ts: i64 = ss.get(&last_key).await
+                        .ok().flatten()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
+                    let now = chrono::Utc::now().timestamp();
+                    let interval_secs = (*interval_hours as i64) * 3600;
+
+                    if now - last_ts < interval_secs {
+                        continue;
+                    }
+
+                    tracing::info!("Re-verifying plugin '{}' activation (interval: {}h)", plugin_id, interval_hours);
+
+                    let data = serde_json::json!({
+                        "plugin_id": plugin_id,
+                        "plugin_version": plugin_version,
+                        "site_url": site_url,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    let result = hm.trigger(
+                        noteva::plugin::hook_names::PLUGIN_ACTIVATE,
+                        data,
+                    );
+
+                    // Update last activation timestamp
+                    let _ = ss.set(&last_key, &now.to_string()).await;
+
+                    if result.get("allow").and_then(|v| v.as_bool()) == Some(false) {
+                        let message = result.get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Re-verification failed");
+                        tracing::warn!("Plugin '{}' re-verification failed: {}", plugin_id, message);
+
+                        // Disable plugin: unload WASM and mark disabled
+                        let _ = noteva::plugin::wasm_bridge::unload_wasm_plugin(
+                            plugin_id, &wr, &hm, &wreg,
+                        ).await;
+                        {
+                            let mut mgr = pm.write().await;
+                            let _ = mgr.disable(plugin_id).await;
+                        }
+                        tracing::warn!("Plugin '{}' disabled due to failed re-verification", plugin_id);
+                    }
+                }
             }
         });
     }

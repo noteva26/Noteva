@@ -649,6 +649,42 @@ pub const MIGRATIONS: &[Migration] = &[
             ALTER TABLE articles ADD COLUMN meta JSON NOT NULL DEFAULT ('{}');
         "#,
     },
+    // Migration 24: Create plugin_migrations table for tracking plugin database migrations
+    Migration {
+        version: 24,
+        name: "create_plugin_migrations",
+        up_sqlite: r#"
+            CREATE TABLE IF NOT EXISTS plugin_migrations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plugin_id VARCHAR(100) NOT NULL,
+                filename VARCHAR(255) NOT NULL,
+                applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(plugin_id, filename)
+            );
+            CREATE INDEX IF NOT EXISTS idx_plugin_migrations_plugin_id ON plugin_migrations(plugin_id);
+        "#,
+        up_mysql: r#"
+            CREATE TABLE IF NOT EXISTS plugin_migrations (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                plugin_id VARCHAR(100) NOT NULL,
+                filename VARCHAR(255) NOT NULL,
+                applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_plugin_migration (plugin_id, filename)
+            );
+            CREATE INDEX idx_plugin_migrations_plugin_id ON plugin_migrations(plugin_id);
+        "#,
+    },
+    // Migration 25: Add source column to pages for tracking auto-created pages
+    Migration {
+        version: 25,
+        name: "add_pages_source",
+        up_sqlite: r#"
+            ALTER TABLE pages ADD COLUMN source VARCHAR(100) NOT NULL DEFAULT 'user';
+        "#,
+        up_mysql: r#"
+            ALTER TABLE pages ADD COLUMN source VARCHAR(100) NOT NULL DEFAULT 'user';
+        "#,
+    },
 ];
 
 /// Run all pending migrations
@@ -839,7 +875,7 @@ fn truncate_sql(sql: &str) -> String {
 }
 
 /// Split SQL into individual statements, handling comments properly
-fn split_sql_statements(sql: &str) -> Vec<&str> {
+pub fn split_sql_statements(sql: &str) -> Vec<&str> {
     let mut statements = Vec::new();
     let mut current_start = 0;
     let mut in_statement = false;
@@ -1287,7 +1323,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_total_migrations() {
-        assert_eq!(total_migrations(), 23);
+        assert_eq!(total_migrations(), 25);
     }
 
     #[test]

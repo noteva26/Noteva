@@ -12,6 +12,7 @@ use tracing::{debug, info, warn};
 
 use crate::db::repositories::{PluginState, PluginStateRepository, SqlxPluginStateRepository};
 use crate::db::DynDatabasePool;
+use super::plugin_db;
 
 /// Current Noteva version from Cargo.toml
 pub const NOTEVA_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -169,6 +170,21 @@ pub struct PluginMetadata {
     /// Whether plugin exposes custom API routes
     #[serde(default)]
     pub api: bool,
+    /// Activation / license re-verification config
+    #[serde(default)]
+    pub activate: ActivateConfig,
+    /// Pages to auto-create when plugin is enabled (slug → title)
+    #[serde(default)]
+    pub pages: Vec<PluginPageDeclaration>,
+}
+
+/// A page that a plugin declares should exist
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginPageDeclaration {
+    /// URL slug (e.g. "about", "friendlinks")
+    pub slug: String,
+    /// Default page title
+    pub title: String,
 }
 
 /// Plugin requirements
@@ -180,6 +196,28 @@ pub struct PluginRequirements {
     /// Required plugins
     #[serde(default)]
     pub plugins: Vec<String>,
+}
+
+/// Activation / license re-verification configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivateConfig {
+    /// Re-trigger plugin_activate on startup (default true)
+    #[serde(default = "default_true")]
+    pub on_start: bool,
+    /// Periodic re-verification interval in hours (0 = disabled)
+    #[serde(default)]
+    pub interval_hours: u64,
+}
+
+fn default_true() -> bool { true }
+
+impl Default for ActivateConfig {
+    fn default() -> Self {
+        Self {
+            on_start: true,
+            interval_hours: 0,
+        }
+    }
 }
 
 /// Plugin hooks configuration
@@ -348,6 +386,8 @@ pub struct PluginManager {
     plugins_dir: PathBuf,
     /// Data directory path (for legacy migration)
     data_dir: PathBuf,
+    /// Database pool (for plugin migrations)
+    pool: DynDatabasePool,
     /// Database repository for plugin states
     repo: Arc<dyn PluginStateRepository>,
     /// Loaded plugins (id -> Plugin)
@@ -360,6 +400,7 @@ impl PluginManager {
         Self {
             plugins_dir: plugins_dir.to_path_buf(),
             data_dir: data_dir.to_path_buf(),
+            pool: pool.clone(),
             repo: Arc::new(SqlxPluginStateRepository::new(pool)),
             plugins: HashMap::new(),
         }
@@ -504,6 +545,17 @@ impl PluginManager {
             let version_check = check_version_requirement(&plugin.metadata.requires.noteva, NOTEVA_VERSION);
             if !version_check.compatible {
                 anyhow::bail!("{}", version_check.message.unwrap_or_else(|| "版本不兼容".to_string()));
+            }
+            
+            // Run plugin database migrations if declared
+            if plugin.metadata.database {
+                let migrations = plugin.get_migrations();
+                if !migrations.is_empty() {
+                    let count = plugin_db::run_plugin_migrations(&self.pool, id, &migrations).await?;
+                    if count > 0 {
+                        info!("Plugin '{}' applied {} database migration(s)", id, count);
+                    }
+                }
             }
             
             plugin.enabled = true;

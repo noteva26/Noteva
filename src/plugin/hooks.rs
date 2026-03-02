@@ -188,6 +188,7 @@ pub mod hook_names {
     pub const SYSTEM_INIT: &str = "system_init";           // src/main.rs
     pub const CACHE_CLEAR: &str = "cache_clear";           // src/cache/mod.rs
     pub const THEME_SWITCH: &str = "theme_switch";         // src/theme/mod.rs
+    pub const THEME_ACTIVATE: &str = "theme_activate";     // src/api/admin.rs
     pub const PLUGIN_ACTIVATE: &str = "plugin_activate";   // src/api/plugins.rs
     pub const PLUGIN_DEACTIVATE: &str = "plugin_deactivate"; // src/api/plugins.rs
     pub const PLUGIN_ACTION: &str = "plugin_action";         // src/api/plugins.rs
@@ -209,6 +210,7 @@ pub mod hook_names {
     
     // Upload hooks - triggered in src/api/upload.rs
     pub const IMAGE_UPLOAD_FILTER: &str = "image_upload_filter";           // src/api/upload.rs
+    pub const FILE_UPLOAD_FILTER: &str = "file_upload_filter";             // src/api/upload.rs
 }
 
 #[cfg(test)]

@@ -1,10 +1,11 @@
 //! Upload API endpoints
 //!
 //! Handles file uploads for:
-//! - Images (for articles)
+//! - Images (for articles) — supports plugin presign delegation
+//! - Generic files — supports plugin presign delegation
 //!
-//! Satisfies requirements:
-//! - 1.1: Article creation with images
+//! Presign flow: WASM plugin returns {"handled": true, "presign": {"url": "...", "method": "PUT", "headers": {...}}}
+//! and the main process uploads the file natively (no base64, no WASM memory limit).
 
 use axum::{
     extract::{Multipart, State},
@@ -110,7 +111,7 @@ async fn upload_image(
             )));
         }
 
-        // Trigger image_upload_filter hook — plugins can intercept and upload to S3/COS
+        // Trigger image_upload_filter hook — plugins can intercept via presign or direct upload
         if state.hook_manager.has_handlers(hook_names::IMAGE_UPLOAD_FILTER) {
             let ext = get_extension(&filename, &content_type);
             let new_filename = format!("{}.{}", Uuid::new_v4(), ext);
@@ -123,15 +124,13 @@ async fn upload_image(
                 "timestamp": Utc::now().to_rfc3339(),
             });
             let result = state.hook_manager.trigger(hook_names::IMAGE_UPLOAD_FILTER, hook_data);
-            if let Some(true) = result.get("handled").and_then(|v| v.as_bool()) {
-                if let Some(url) = result.get("url").and_then(|v| v.as_str()) {
-                    return Ok(Json(UploadResponse {
-                        url: url.to_string(),
-                        filename: new_filename,
-                        size: data.len() as u64,
-                        content_type,
-                    }));
-                }
+            if let Some(url) = try_plugin_upload(&result, &data, &content_type, &new_filename).await {
+                return Ok(Json(UploadResponse {
+                    url,
+                    filename: new_filename,
+                    size: data.len() as u64,
+                    content_type,
+                }));
             }
         }
 
@@ -218,7 +217,7 @@ async fn upload_images(
         let ext = get_extension(&filename, &content_type);
         let new_filename = format!("{}.{}", Uuid::new_v4(), ext);
 
-        // Try plugin upload hook first
+        // Try plugin upload hook first (presign or direct)
         if has_upload_hook {
             let hook_data = serde_json::json!({
                 "filename": new_filename,
@@ -229,16 +228,14 @@ async fn upload_images(
                 "timestamp": Utc::now().to_rfc3339(),
             });
             let result = state.hook_manager.trigger(hook_names::IMAGE_UPLOAD_FILTER, hook_data);
-            if let Some(true) = result.get("handled").and_then(|v| v.as_bool()) {
-                if let Some(url) = result.get("url").and_then(|v| v.as_str()) {
-                    files.push(UploadResponse {
-                        url: url.to_string(),
-                        filename: new_filename,
-                        size: data.len() as u64,
-                        content_type,
-                    });
-                    continue;
-                }
+            if let Some(url) = try_plugin_upload(&result, &data, &content_type, &new_filename).await {
+                files.push(UploadResponse {
+                    url,
+                    filename: new_filename,
+                    size: data.len() as u64,
+                    content_type,
+                });
+                continue;
             }
         }
 
@@ -265,7 +262,7 @@ async fn upload_images(
 /// POST /api/v1/upload/file - Upload a generic file (any type)
 ///
 /// Requires authentication. No MIME type restriction — only size limit applies.
-/// Files are saved locally (no S3 hook). Returns URL for shortcode embedding.
+/// Supports plugin presign delegation via file_upload_filter hook (no base64).
 async fn upload_file(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
@@ -297,6 +294,28 @@ async fn upload_file(
 
         let ext = get_extension(&filename, &content_type);
         let new_filename = format!("{}.{}", Uuid::new_v4(), ext);
+
+        // Try file_upload_filter hook — presign only, no data_base64
+        if state.hook_manager.has_handlers(hook_names::FILE_UPLOAD_FILTER) {
+            let hook_data = serde_json::json!({
+                "filename": new_filename,
+                "original_filename": filename,
+                "content_type": content_type,
+                "size": data.len(),
+                "timestamp": Utc::now().to_rfc3339(),
+            });
+            let result = state.hook_manager.trigger(hook_names::FILE_UPLOAD_FILTER, hook_data);
+            if let Some(url) = try_plugin_upload(&result, &data, &content_type, &new_filename).await {
+                return Ok(Json(UploadResponse {
+                    url,
+                    filename: new_filename,
+                    size: data.len() as u64,
+                    content_type,
+                }));
+            }
+        }
+
+        // Default: save locally
         let file_path = config.path.join(&new_filename);
 
         fs::write(&file_path, &data).await
@@ -321,6 +340,111 @@ async fn ensure_upload_dir(path: &PathBuf) -> Result<(), ApiError> {
             .map_err(|e| ApiError::internal_error(format!("Failed to create upload dir: {}", e)))?;
     }
     Ok(())
+}
+
+/// Execute a presign-delegated upload: the plugin returned a presign URL + headers,
+/// and we upload the file data natively using reqwest (streaming, no base64).
+///
+/// Returns the public URL on success, or an error string on failure.
+async fn execute_presign_upload(
+    presign: &serde_json::Value,
+    data: &[u8],
+    content_type: &str,
+) -> Result<String, String> {
+    let url = presign.get("url").and_then(|v| v.as_str())
+        .ok_or_else(|| "presign missing 'url' field".to_string())?;
+    let method = presign.get("method").and_then(|v| v.as_str()).unwrap_or("PUT");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let mut request_builder = match method.to_uppercase().as_str() {
+        "PUT" => client.put(url),
+        "POST" => client.post(url),
+        _ => return Err(format!("Unsupported presign method: {}", method)),
+    };
+
+    // Apply headers from presign response
+    if let Some(headers) = presign.get("headers").and_then(|v| v.as_object()) {
+        for (key, value) in headers {
+            if let Some(val_str) = value.as_str() {
+                request_builder = request_builder.header(key.as_str(), val_str);
+            }
+        }
+    }
+
+    // Set content-type if not already in presign headers
+    let has_content_type = presign.get("headers")
+        .and_then(|v| v.as_object())
+        .map(|h| h.keys().any(|k| k.to_lowercase() == "content-type"))
+        .unwrap_or(false);
+    if !has_content_type {
+        request_builder = request_builder.header("Content-Type", content_type);
+    }
+
+    let response = request_builder
+        .body(data.to_vec())
+        .send()
+        .await
+        .map_err(|e| format!("Presign upload request failed: {}", e))?;
+
+    let status = response.status().as_u16();
+    if status >= 200 && status < 300 {
+        // Use the public_url from presign if provided, otherwise use the presign URL itself
+        let public_url = presign.get("public_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or(url)
+            .to_string();
+        tracing::info!("Presign upload success (HTTP {}): {}", status, public_url);
+        Ok(public_url)
+    } else {
+        let body = response.text().await.unwrap_or_default();
+        let preview_len = body.len().min(200);
+        Err(format!("Presign upload failed (HTTP {}): {}", status, &body[..preview_len]))
+    }
+}
+
+/// Try to handle an upload via plugin hook (image_upload_filter or file_upload_filter).
+///
+/// Supports three response modes:
+/// 1. Legacy direct: `{"handled": true, "url": "https://..."}` — plugin already uploaded
+/// 2. Presign delegation: `{"handled": true, "presign": {...}}` — main process uploads
+/// 3. Not handled: `{"handled": false}` — fall back to local storage
+///
+/// Returns `Some(url)` if plugin handled the upload, `None` to fall back to local.
+async fn try_plugin_upload(
+    hook_result: &serde_json::Value,
+    data: &[u8],
+    content_type: &str,
+    filename: &str,
+) -> Option<String> {
+    if hook_result.get("handled").and_then(|v| v.as_bool()) != Some(true) {
+        return None;
+    }
+
+    // Mode 1: presign delegation (preferred for large files)
+    if let Some(presign) = hook_result.get("presign") {
+        if presign.is_object() {
+            match execute_presign_upload(presign, data, content_type).await {
+                Ok(url) => return Some(url),
+                Err(e) => {
+                    tracing::error!("Presign upload failed for '{}': {}", filename, e);
+                    // Fall through — if plugin also returned a direct URL, use that
+                }
+            }
+        }
+    }
+
+    // Mode 2: legacy direct URL (plugin already uploaded the file)
+    if let Some(url) = hook_result.get("url").and_then(|v| v.as_str()) {
+        return Some(url.to_string());
+    }
+
+    // handled=true but no url and no presign — treat as not handled
+    tracing::warn!("Plugin returned handled=true but no url or presign for '{}'", filename);
+    None
 }
 
 /// Get file extension from filename or content type

@@ -361,10 +361,47 @@ async fn toggle_plugin(
             }
         }
 
-        state.hook_manager.trigger(
+        // Trigger plugin_activate (filter hook) — plugin can deny activation
+        // Build rich hook data with site info for license verification
+        let activate_data = {
+            let site_url = state.settings_service.get("site_url").await.ok().flatten().unwrap_or_default();
+            let plugin_version = {
+                let mgr = state.plugin_manager.read().await;
+                mgr.get(&id).map(|p| p.metadata.version.clone()).unwrap_or_default()
+            };
+            serde_json::json!({
+                "plugin_id": id,
+                "plugin_version": plugin_version,
+                "site_url": site_url,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            })
+        };
+
+        let activate_result = state.hook_manager.trigger(
             hook_names::PLUGIN_ACTIVATE,
-            serde_json::json!({ "plugin_id": id })
+            activate_data,
         );
+
+        // Check if plugin denied activation
+        if activate_result.get("allow").and_then(|v| v.as_bool()) == Some(false) {
+            let message = activate_result.get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Plugin denied activation");
+            tracing::warn!("Plugin '{}' denied activation: {}", id, message);
+
+            // Rollback: unload WASM and disable plugin
+            let _ = crate::plugin::wasm_bridge::unload_wasm_plugin(
+                &id, &state.wasm_runtime, &state.hook_manager, &state.wasm_registry,
+            ).await;
+            {
+                let mut manager = state.plugin_manager.write().await;
+                let _ = manager.disable(&id).await;
+            }
+
+            return Err(ApiError::validation_error(format!(
+                "Plugin activation denied: {}", message
+            )));
+        }
     } else {
         state.hook_manager.trigger(
             hook_names::PLUGIN_DEACTIVATE,
@@ -376,6 +413,17 @@ async fn toggle_plugin(
     let manager = state.plugin_manager.read().await;
     let plugin = manager.get(&id)
         .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", id)))?;
+
+    // Auto-create pages declared by the plugin (non-destructive, skips existing)
+    if body.enabled && !plugin.metadata.pages.is_empty() {
+        let pages: Vec<(String, String)> = plugin.metadata.pages.iter()
+            .map(|p| (p.slug.clone(), p.title.clone()))
+            .collect();
+        let source = format!("plugin:{}", id);
+        if let Err(e) = state.page_service.ensure_pages(&pages, &source).await {
+            tracing::warn!("Failed to auto-create pages for plugin '{}': {}", id, e);
+        }
+    }
     
     let version_check = check_version_requirement(&plugin.metadata.requires.noteva, NOTEVA_VERSION);
     let has_wasm = plugin.path.join("backend.wasm").exists();

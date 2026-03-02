@@ -516,11 +516,21 @@ async fn list_themes(
 ///
 /// Requires admin authentication.
 /// Satisfies requirement 6.1: Theme switching
+/// Triggers `theme_activate` filter hook — companion plugins can deny the switch.
 async fn switch_theme(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
     Json(body): Json<ThemeSwitchRequest>,
 ) -> Result<Json<ThemeResponse>, ApiError> {
+    use crate::plugin::hook_names;
+
+    // Remember previous theme for rollback
+    let previous_theme = {
+        let engine = state.theme_engine.read()
+            .map_err(|e| ApiError::internal_error(format!("Failed to acquire theme lock: {}", e)))?;
+        engine.get_current_theme().to_string()
+    };
+
     // Switch theme and get result
     let (actual_theme, theme_info) = {
         let mut theme_engine = state
@@ -548,11 +558,60 @@ async fn switch_theme(
         (actual_theme, theme_info)
     }; // Lock released here
 
+    // Trigger theme_activate filter hook — companion plugins can deny the switch
+    let theme_version = theme_info.as_ref().map(|i| i.version.clone()).unwrap_or_default();
+    let activate_data = {
+        let site_url = state.settings_service.get("site_url").await.ok().flatten().unwrap_or_default();
+        serde_json::json!({
+            "theme_name": actual_theme,
+            "theme_version": theme_version,
+            "site_url": site_url,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        })
+    };
+
+    let activate_result = state.hook_manager.trigger(
+        hook_names::THEME_ACTIVATE,
+        activate_data,
+    );
+
+    // Check if a companion plugin denied the switch
+    if activate_result.get("allow").and_then(|v| v.as_bool()) == Some(false) {
+        let message = activate_result.get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Theme activation denied");
+        tracing::warn!("Theme '{}' activation denied: {}", actual_theme, message);
+
+        // Rollback: switch back to previous theme
+        {
+            let mut theme_engine = state.theme_engine.write()
+                .map_err(|e| ApiError::internal_error(format!("Failed to acquire theme lock for rollback: {}", e)))?;
+            let _ = theme_engine.set_theme_with_fallback(&previous_theme);
+        }
+
+        return Err(ApiError::validation_error(format!(
+            "Theme activation denied: {}", message
+        )));
+    }
+
     // Save active theme to database
     state.settings_service
         .set("active_theme", &actual_theme)
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to save theme setting: {}", e)))?;
+
+    // Auto-create pages declared by the theme (non-destructive, skips existing)
+    if let Some(ref info) = theme_info {
+        if !info.pages.is_empty() {
+            let pages: Vec<(String, String)> = info.pages.iter()
+                .map(|p| (p.slug.clone(), p.title.clone()))
+                .collect();
+            let source = format!("theme:{}", actual_theme);
+            if let Err(e) = state.page_service.ensure_pages(&pages, &source).await {
+                tracing::warn!("Failed to auto-create pages for theme '{}': {}", actual_theme, e);
+            }
+        }
+    }
 
     Ok(Json(ThemeResponse {
         name: actual_theme.clone(),

@@ -98,13 +98,14 @@ impl PageRepository for SqlxPageRepository {
 async fn create_sqlite(pool: &SqlitePool, page: &Page) -> Result<Page> {
     let now = Utc::now();
     let result = sqlx::query(
-        "INSERT INTO pages (slug, title, content, content_html, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO pages (slug, title, content, content_html, status, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&page.slug)
     .bind(&page.title)
     .bind(&page.content)
     .bind(&page.content_html)
     .bind(page.status.to_string())
+    .bind(&page.source)
     .bind(now)
     .bind(now)
     .execute(pool)
@@ -118,6 +119,7 @@ async fn create_sqlite(pool: &SqlitePool, page: &Page) -> Result<Page> {
         content: page.content.clone(),
         content_html: page.content_html.clone(),
         status: page.status.clone(),
+        source: page.source.clone(),
         created_at: now,
         updated_at: now,
     })
@@ -192,6 +194,7 @@ fn row_to_page_sqlite(row: &sqlx::sqlite::SqliteRow) -> Result<Page> {
         content: row.get("content"),
         content_html: row.get("content_html"),
         status: status_str.parse().unwrap_or_default(),
+        source: row.try_get("source").unwrap_or_else(|_| "user".to_string()),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
@@ -201,13 +204,14 @@ fn row_to_page_sqlite(row: &sqlx::sqlite::SqliteRow) -> Result<Page> {
 async fn create_mysql(pool: &MySqlPool, page: &Page) -> Result<Page> {
     let now = Utc::now();
     let result = sqlx::query(
-        "INSERT INTO pages (slug, title, content, content_html, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO pages (slug, title, content, content_html, status, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&page.slug)
     .bind(&page.title)
     .bind(&page.content)
     .bind(&page.content_html)
     .bind(page.status.to_string())
+    .bind(&page.source)
     .bind(now)
     .bind(now)
     .execute(pool)
@@ -221,6 +225,7 @@ async fn create_mysql(pool: &MySqlPool, page: &Page) -> Result<Page> {
         content: page.content.clone(),
         content_html: page.content_html.clone(),
         status: page.status.clone(),
+        source: page.source.clone(),
         created_at: now,
         updated_at: now,
     })
@@ -295,6 +300,7 @@ fn row_to_page_mysql(row: &sqlx::mysql::MySqlRow) -> Result<Page> {
         content: row.get("content"),
         content_html: row.get("content_html"),
         status: status_str.parse().unwrap_or_default(),
+        source: row.try_get("source").unwrap_or_else(|_| "user".to_string()),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
