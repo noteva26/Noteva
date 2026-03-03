@@ -6,7 +6,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{MySqlPool, SqlitePool, Row};
 
-use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
 
 /// Plugin data entry
@@ -50,62 +49,61 @@ impl SqlxPluginDataRepository {
 #[async_trait]
 impl PluginDataRepository for SqlxPluginDataRepository {
     async fn get(&self, plugin_id: &str, key: &str) -> Result<Option<String>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_sqlite(self.pool.as_sqlite().unwrap(), plugin_id, key).await
-            }
-            DatabaseDriver::Mysql => {
-                get_mysql(self.pool.as_mysql().unwrap(), plugin_id, key).await
-            }
-        }
+        dispatch!(self, get, plugin_id, key)
     }
     
     async fn get_all(&self, plugin_id: &str) -> Result<Vec<PluginData>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_all_sqlite(self.pool.as_sqlite().unwrap(), plugin_id).await
-            }
-            DatabaseDriver::Mysql => {
-                get_all_mysql(self.pool.as_mysql().unwrap(), plugin_id).await
-            }
-        }
+        dispatch!(self, get_all, plugin_id)
     }
     
     async fn set(&self, plugin_id: &str, key: &str, value: &str) -> Result<()> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                set_sqlite(self.pool.as_sqlite().unwrap(), plugin_id, key, value).await
-            }
-            DatabaseDriver::Mysql => {
-                set_mysql(self.pool.as_mysql().unwrap(), plugin_id, key, value).await
-            }
-        }
+        dispatch!(self, set, plugin_id, key, value)
     }
     
     async fn delete(&self, plugin_id: &str, key: &str) -> Result<bool> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                delete_sqlite(self.pool.as_sqlite().unwrap(), plugin_id, key).await
-            }
-            DatabaseDriver::Mysql => {
-                delete_mysql(self.pool.as_mysql().unwrap(), plugin_id, key).await
-            }
-        }
+        dispatch!(self, delete, plugin_id, key)
     }
     
     async fn delete_all(&self, plugin_id: &str) -> Result<usize> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                delete_all_sqlite(self.pool.as_sqlite().unwrap(), plugin_id).await
-            }
-            DatabaseDriver::Mysql => {
-                delete_all_mysql(self.pool.as_mysql().unwrap(), plugin_id).await
-            }
-        }
+        dispatch!(self, delete_all, plugin_id)
     }
 }
 
-// SQLite implementations
+// ============================================================================
+// Shared implementations (identical SQL)
+// ============================================================================
+
+impl_dual_fn! {
+    async fn delete(pool, plugin_id: &str, key: &str) -> Result<bool> {
+        let result = sqlx::query(
+            "DELETE FROM plugin_data WHERE plugin_id = ? AND key = ?"
+        )
+        .bind(plugin_id)
+        .bind(key)
+        .execute(pool)
+        .await?;
+        
+        Ok(result.rows_affected() > 0)
+    }
+}
+
+impl_dual_fn! {
+    async fn delete_all(pool, plugin_id: &str) -> Result<usize> {
+        let result = sqlx::query(
+            "DELETE FROM plugin_data WHERE plugin_id = ?"
+        )
+        .bind(plugin_id)
+        .execute(pool)
+        .await?;
+        
+        Ok(result.rows_affected() as usize)
+    }
+}
+
+// ============================================================================
+// SQLite implementations (SQL dialect differences)
+// ============================================================================
+
 async fn get_sqlite(pool: &SqlitePool, plugin_id: &str, key: &str) -> Result<Option<String>> {
     let row = sqlx::query(
         "SELECT value FROM plugin_data WHERE plugin_id = ? AND key = ?"
@@ -150,30 +148,10 @@ async fn set_sqlite(pool: &SqlitePool, plugin_id: &str, key: &str, value: &str) 
     Ok(())
 }
 
-async fn delete_sqlite(pool: &SqlitePool, plugin_id: &str, key: &str) -> Result<bool> {
-    let result = sqlx::query(
-        "DELETE FROM plugin_data WHERE plugin_id = ? AND key = ?"
-    )
-    .bind(plugin_id)
-    .bind(key)
-    .execute(pool)
-    .await?;
-    
-    Ok(result.rows_affected() > 0)
-}
+// ============================================================================
+// MySQL implementations (SQL dialect differences)
+// ============================================================================
 
-async fn delete_all_sqlite(pool: &SqlitePool, plugin_id: &str) -> Result<usize> {
-    let result = sqlx::query(
-        "DELETE FROM plugin_data WHERE plugin_id = ?"
-    )
-    .bind(plugin_id)
-    .execute(pool)
-    .await?;
-    
-    Ok(result.rows_affected() as usize)
-}
-
-// MySQL implementations
 async fn get_mysql(pool: &MySqlPool, plugin_id: &str, key: &str) -> Result<Option<String>> {
     let row = sqlx::query(
         "SELECT value FROM plugin_data WHERE plugin_id = ? AND `key` = ?"
@@ -214,27 +192,4 @@ async fn set_mysql(pool: &MySqlPool, plugin_id: &str, key: &str, value: &str) ->
     .await?;
     
     Ok(())
-}
-
-async fn delete_mysql(pool: &MySqlPool, plugin_id: &str, key: &str) -> Result<bool> {
-    let result = sqlx::query(
-        "DELETE FROM plugin_data WHERE plugin_id = ? AND `key` = ?"
-    )
-    .bind(plugin_id)
-    .bind(key)
-    .execute(pool)
-    .await?;
-    
-    Ok(result.rows_affected() > 0)
-}
-
-async fn delete_all_mysql(pool: &MySqlPool, plugin_id: &str) -> Result<usize> {
-    let result = sqlx::query(
-        "DELETE FROM plugin_data WHERE plugin_id = ?"
-    )
-    .bind(plugin_id)
-    .execute(pool)
-    .await?;
-    
-    Ok(result.rows_affected() as usize)
 }

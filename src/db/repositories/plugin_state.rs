@@ -53,57 +53,44 @@ impl SqlxPluginStateRepository {
 #[async_trait]
 impl PluginStateRepository for SqlxPluginStateRepository {
     async fn get(&self, plugin_id: &str) -> Result<Option<PluginState>> {
-        if let Some(pool) = self.pool.as_sqlite() {
-            get_sqlite(pool, plugin_id).await
-        } else if let Some(pool) = self.pool.as_mysql() {
-            get_mysql(pool, plugin_id).await
-        } else {
-            Ok(None)
-        }
+        dispatch!(self, get, plugin_id)
     }
     
     async fn get_all(&self) -> Result<Vec<PluginState>> {
-        if let Some(pool) = self.pool.as_sqlite() {
-            get_all_sqlite(pool).await
-        } else if let Some(pool) = self.pool.as_mysql() {
-            get_all_mysql(pool).await
-        } else {
-            Ok(vec![])
-        }
+        dispatch!(self, get_all)
     }
     
     async fn save(&self, state: &PluginState) -> Result<()> {
-        if let Some(pool) = self.pool.as_sqlite() {
-            save_sqlite(pool, state).await
-        } else if let Some(pool) = self.pool.as_mysql() {
-            save_mysql(pool, state).await
-        } else {
-            Ok(())
-        }
+        dispatch!(self, save, state)
     }
     
     async fn delete(&self, plugin_id: &str) -> Result<bool> {
-        if let Some(pool) = self.pool.as_sqlite() {
-            delete_sqlite(pool, plugin_id).await
-        } else if let Some(pool) = self.pool.as_mysql() {
-            delete_mysql(pool, plugin_id).await
-        } else {
-            Ok(false)
-        }
+        dispatch!(self, delete, plugin_id)
     }
 
     async fn update_last_version(&self, plugin_id: &str, version: &str) -> Result<()> {
-        if let Some(pool) = self.pool.as_sqlite() {
-            update_last_version_sqlite(pool, plugin_id, version).await
-        } else if let Some(pool) = self.pool.as_mysql() {
-            update_last_version_mysql(pool, plugin_id, version).await
-        } else {
-            Ok(())
-        }
+        dispatch!(self, update_last_version, plugin_id, version)
     }
 }
 
-// SQLite implementations
+// ============================================================================
+// Shared implementations (identical SQL)
+// ============================================================================
+
+impl_dual_fn! {
+    async fn delete(pool, plugin_id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM plugin_states WHERE plugin_id = ?")
+            .bind(plugin_id)
+            .execute(pool)
+            .await?;
+        
+        Ok(result.rows_affected() > 0)
+    }
+}
+
+// ============================================================================
+// SQLite implementations (type/SQL differences)
+// ============================================================================
 
 async fn get_sqlite(pool: &SqlitePool, plugin_id: &str) -> Result<Option<PluginState>> {
     let row = sqlx::query(
@@ -170,15 +157,6 @@ async fn save_sqlite(pool: &SqlitePool, state: &PluginState) -> Result<()> {
     Ok(())
 }
 
-async fn delete_sqlite(pool: &SqlitePool, plugin_id: &str) -> Result<bool> {
-    let result = sqlx::query("DELETE FROM plugin_states WHERE plugin_id = ?")
-        .bind(plugin_id)
-        .execute(pool)
-        .await?;
-    
-    Ok(result.rows_affected() > 0)
-}
-
 async fn update_last_version_sqlite(pool: &SqlitePool, plugin_id: &str, version: &str) -> Result<()> {
     sqlx::query("UPDATE plugin_states SET last_version = ?, updated_at = CURRENT_TIMESTAMP WHERE plugin_id = ?")
         .bind(version)
@@ -188,7 +166,9 @@ async fn update_last_version_sqlite(pool: &SqlitePool, plugin_id: &str, version:
     Ok(())
 }
 
-// MySQL implementations
+// ============================================================================
+// MySQL implementations (type/SQL differences)
+// ============================================================================
 
 async fn get_mysql(pool: &MySqlPool, plugin_id: &str) -> Result<Option<PluginState>> {
     let row = sqlx::query(
@@ -253,15 +233,6 @@ async fn save_mysql(pool: &MySqlPool, state: &PluginState) -> Result<()> {
     .await?;
     
     Ok(())
-}
-
-async fn delete_mysql(pool: &MySqlPool, plugin_id: &str) -> Result<bool> {
-    let result = sqlx::query("DELETE FROM plugin_states WHERE plugin_id = ?")
-        .bind(plugin_id)
-        .execute(pool)
-        .await?;
-    
-    Ok(result.rows_affected() > 0)
 }
 
 async fn update_last_version_mysql(pool: &MySqlPool, plugin_id: &str, version: &str) -> Result<()> {

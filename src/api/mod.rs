@@ -29,6 +29,7 @@ pub mod plugins;
 pub mod plugin_install;
 pub mod proxy;
 pub mod responses;
+pub mod seo;
 pub mod site;
 pub mod static_files;
 pub mod tags;
@@ -37,7 +38,8 @@ pub mod theme_install;
 pub mod upload;
 
 use axum::{
-    http::{header, HeaderValue, Method},
+    extract::DefaultBodyLimit,
+    http::{header, HeaderName, HeaderValue, Method},
     middleware as axum_middleware,
     Router,
 };
@@ -53,6 +55,10 @@ pub use middleware::{
 
 /// Build the main API router
 pub fn build_api_router(state: AppState) -> Router<AppState> {
+    // Read body limits from config (add 1MB headroom for multipart overhead)
+    let image_body_limit = (state.upload_config.max_file_size as usize).saturating_add(1024 * 1024);
+    let admin_body_limit = (state.upload_config.max_plugin_file_size as usize).saturating_add(1024 * 1024);
+
     // Admin routes (need admin role)
     let admin_routes = Router::new()
         .nest("/admin", admin::router())
@@ -65,6 +71,8 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .route("/admin/themes/github/install", axum::routing::post(theme_install::install_github_theme))
         .route("/admin/themes/install-from-repo", axum::routing::post(theme_install::install_from_repo))
         .route("/admin/themes/:name/update", axum::routing::post(theme_install::update_theme))
+        .route("/admin/themes/:name/settings", axum::routing::get(theme::get_theme_settings_admin))
+        .route("/admin/themes/:name/settings", axum::routing::put(theme::update_theme_settings_admin))
         .route("/admin/themes/:name", axum::routing::delete(theme_install::delete_theme))
         // Plugin installation routes
         .route("/admin/plugins/upload", axum::routing::post(plugin_install::upload_plugin))
@@ -79,6 +87,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .route("/admin/articles/:id", axum::routing::delete(articles::delete_article_handler))
         // Admin comment operations
         .route("/admin/comments/:id", axum::routing::delete(comments::delete_comment))
+        .layer(DefaultBodyLimit::max(admin_body_limit))
         .route_layer(axum_middleware::from_fn(middleware::require_admin))
         .route_layer(axum_middleware::from_fn_with_state(
             state.clone(),
@@ -88,7 +97,8 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
     // Protected routes (need auth but not admin)
     let protected_routes = Router::new()
         .nest("/auth", auth::protected_router())
-        .nest("/upload", upload::router())
+        .nest("/upload", upload::router()
+            .layer(DefaultBodyLimit::max(image_body_limit)))
         .route("/articles", axum::routing::post(articles::create_article_handler))
         .route_layer(axum_middleware::from_fn_with_state(
             state.clone(),
@@ -107,6 +117,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .nest("/theme", Router::new()
             .route("/config", axum::routing::get(theme::get_theme_config))
             .route("/info", axum::routing::get(theme::get_theme_info))
+            .route("/settings", axum::routing::get(theme::get_theme_settings_public))
         )
         .nest("/cache", Router::new()
             .route("/:key", axum::routing::get(cache::get_cache))
@@ -141,14 +152,27 @@ pub fn build_router(state: AppState, cors_origin: &str) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(cors_origin.parse::<HeaderValue>().unwrap())
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::COOKIE])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::COOKIE,
+            HeaderName::from_static("x-csrf-token"),
+        ])
         .allow_credentials(true);
 
     Router::new()
         .nest("/api/v1", build_api_router(state.clone()))
+        // SEO endpoints (top-level, before static file fallback)
+        .route("/sitemap.xml", axum::routing::get(seo::sitemap_xml))
+        .route("/robots.txt", axum::routing::get(seo::robots_txt))
+        .route("/feed.xml", axum::routing::get(seo::feed_xml))
+        .route("/rss.xml", axum::routing::get(seo::feed_xml))
+        .route("/feed", axum::routing::get(seo::feed_xml))
         // Static file serving (for production)
         .fallback(static_files::serve_static)
         .layer(cors)
+        // CSRF protection (after CORS, before demo guard)
+        .layer(axum_middleware::from_fn(middleware::csrf_protection))
         // Demo mode guard (blocks write operations when compiled with --features demo)
         .layer(axum_middleware::from_fn(middleware::demo_guard))
         // Request stats middleware (outermost layer, runs for all requests)

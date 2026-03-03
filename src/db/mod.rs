@@ -36,6 +36,8 @@
 //! }
 //! ```
 
+#[macro_use]
+pub(crate) mod macros;
 pub mod migrations;
 pub mod pool;
 pub mod repositories;

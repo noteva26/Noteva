@@ -1,7 +1,7 @@
 //! Category API endpoints
 //!
 //! Handles HTTP requests for category management:
-//! - GET /api/v1/categories - Get category tree
+//! - GET /api/v1/categories - Get flat category list
 //! - GET /api/v1/categories/:slug/articles - Get articles in category
 //!
 //! Satisfies requirements:
@@ -28,52 +28,47 @@ pub struct ListArticlesQuery {
     pub page_size: u32,
 }
 
-/// Response for category tree
+/// Response for category list
 #[derive(Debug, Serialize)]
 pub struct CategoryTreeResponse {
     pub categories: Vec<CategoryNodeResponse>,
 }
 
-/// Response for a category node in the tree
+/// Response for a single category (flat, no children)
 #[derive(Debug, Serialize)]
 pub struct CategoryNodeResponse {
     pub id: i64,
     pub slug: String,
     pub name: String,
     pub description: Option<String>,
-    pub children: Vec<CategoryNodeResponse>,
-}
-
-impl From<crate::models::CategoryTree> for CategoryNodeResponse {
-    fn from(tree: crate::models::CategoryTree) -> Self {
-        Self {
-            id: tree.category.id,
-            slug: tree.category.slug,
-            name: tree.category.name,
-            description: tree.category.description,
-            children: tree.children.into_iter().map(Into::into).collect(),
-        }
-    }
 }
 
 /// Build the categories router
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/", get(get_category_tree))
+        .route("/", get(get_category_list))
         .route("/{slug}/articles", get(get_category_articles))
 }
 
-/// GET /api/v1/categories - Get category tree
-async fn get_category_tree(
+/// GET /api/v1/categories - Get flat category list
+async fn get_category_list(
     State(state): State<AppState>,
 ) -> Result<Json<CategoryTreeResponse>, ApiError> {
-    let tree = state
+    let all = state
         .category_service
-        .list_tree()
+        .list()
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
-    let categories: Vec<CategoryNodeResponse> = tree.into_iter().map(Into::into).collect();
+    let categories: Vec<CategoryNodeResponse> = all
+        .into_iter()
+        .map(|c| CategoryNodeResponse {
+            id: c.id,
+            slug: c.slug,
+            name: c.name,
+            description: c.description,
+        })
+        .collect();
 
     Ok(Json(CategoryTreeResponse { categories }))
 }
@@ -86,7 +81,6 @@ async fn get_category_articles(
     Path(slug): Path<String>,
     Query(query): Query<ListArticlesQuery>,
 ) -> Result<Json<PaginatedArticleSummaryResponse>, ApiError> {
-    // Get category by slug
     let category = state
         .category_service
         .get_by_slug(&slug)

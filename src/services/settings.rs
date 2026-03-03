@@ -25,6 +25,7 @@ pub mod keys {
     pub const SITE_FOOTER: &str = "site_footer";
     pub const POSTS_PER_PAGE: &str = "posts_per_page";
     pub const PERMALINK_STRUCTURE: &str = "permalink_structure";
+    pub const SITE_URL: &str = "site_url";
 }
 
 /// Permalink structure presets
@@ -213,6 +214,8 @@ impl SettingsService {
 
         Ok(result)
     }
+
+
 }
 
 

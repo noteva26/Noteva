@@ -2,11 +2,12 @@ import { create } from "zustand";
 import { siteApi, SiteSettings } from "@/lib/api";
 
 // 默认设置
+// 使用 /manage/logo.png 确保管理后台能正确加载（走 AdminAssets 嵌入资源）
 const defaultSettings: SiteSettings = {
   site_name: "Noteva",
   site_description: "",
   site_subtitle: "",
-  site_logo: "/logo.png",
+  site_logo: "/manage/logo.png",
   site_footer: "",
   demo_mode: false,
 };
@@ -68,6 +69,12 @@ export const useSiteStore = create<SiteState>((set, get) => ({
   },
 
   updateSettings: (settings: SiteSettings) => {
-    set({ settings, loaded: true });
+    set({
+      settings: {
+        ...settings,
+        site_logo: settings.site_logo || defaultSettings.site_logo,
+      },
+      loaded: true,
+    });
   },
 }));

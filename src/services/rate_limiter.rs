@@ -1,7 +1,10 @@
 //! Rate limiter for login attempts
 //!
 //! Provides protection against brute force attacks by:
-//! - Limiting login attempts per username (5 attempts per 15 minutes)
+//! - Limiting login attempts per username with progressive lockout:
+//!   - Tier 1: 5 failures  → 15 minute lockout
+//!   - Tier 2: 10 failures → 1 hour lockout
+//!   - Tier 3: 20 failures → 24 hour lockout
 //! - Limiting requests per IP address (10 requests per minute)
 
 use std::collections::HashMap;
@@ -9,6 +12,14 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use chrono::{DateTime, Utc, Duration};
+
+fn lockout_tiers() -> Vec<(usize, Duration)> {
+    vec![
+        (20, Duration::hours(24)),   // Tier 3: 20 failures → 24h lockout
+        (10, Duration::hours(1)),    // Tier 2: 10 failures → 1h lockout
+        (5,  Duration::minutes(15)), // Tier 1: 5 failures  → 15min lockout
+    ]
+}
 
 /// Login rate limiter
 pub struct LoginRateLimiter {
@@ -27,20 +38,43 @@ impl LoginRateLimiter {
         }
     }
     
-    /// Check if username is rate limited (5 attempts per 15 minutes)
-    pub async fn is_username_limited(&self, username: &str) -> bool {
+    /// Check if username is rate limited (progressive tiers).
+    /// Returns `Some(lockout_seconds)` if limited, `None` otherwise.
+    pub async fn check_username_limit(&self, username: &str) -> Option<i64> {
         let mut attempts = self.username_attempts.write().await;
         let now = Utc::now();
-        let cutoff = now - Duration::minutes(15);
+        let key = username.to_lowercase();
+        let username_attempts = attempts.entry(key).or_insert_with(Vec::new);
         
-        // Get or create attempt list for this username
-        let username_attempts = attempts.entry(username.to_lowercase()).or_insert_with(Vec::new);
+        // Check tiers from strictest to least strict
+        for (threshold, window) in lockout_tiers() {
+            let cutoff = now - window;
+            let count = username_attempts.iter().filter(|t| **t > cutoff).count();
+            if count >= threshold {
+                return Some(window.num_seconds());
+            }
+        }
+        None
+    }
+    
+    /// Backwards-compatible: check if username is rate limited (bool)
+    pub async fn is_username_limited(&self, username: &str) -> bool {
+        self.check_username_limit(username).await.is_some()
+    }
+    
+    /// Get remaining attempts before the first lockout tier (5)
+    pub async fn remaining_attempts(&self, username: &str) -> usize {
+        let attempts = self.username_attempts.read().await;
+        let key = username.to_lowercase();
+        let now = Utc::now();
+        let cutoff = now - Duration::minutes(15); // tier 1 window
         
-        // Remove old attempts
-        username_attempts.retain(|time| *time > cutoff);
+        let count = attempts
+            .get(&key)
+            .map(|times| times.iter().filter(|t| **t > cutoff).count())
+            .unwrap_or(0);
         
-        // Check if limited (5 or more attempts in last 15 minutes)
-        username_attempts.len() >= 5
+        5usize.saturating_sub(count)
     }
     
     /// Record a failed login attempt for username
@@ -86,7 +120,7 @@ impl LoginRateLimiter {
     /// Clean up old entries (should be called periodically)
     pub async fn cleanup(&self) {
         let now = Utc::now();
-        let username_cutoff = now - Duration::minutes(15);
+        let username_cutoff = now - Duration::hours(24); // longest tier window
         let ip_cutoff = now - Duration::minutes(1);
         
         // Clean username attempts

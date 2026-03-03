@@ -26,7 +26,8 @@
     "less": "收起",
     "show": "顯示",
     "hide": "隱藏",
-    "refresh": "重新整理"
+    "refresh": "重新整理",
+    "done": "完成"
   },
   "nav": {
     "home": "首頁",
@@ -200,6 +201,9 @@
     "siteFooter": "頁尾內容",
     "siteFooterDesc": "支援 HTML，可用於備案號連結、多行排版等",
     "siteFooterPlaceholder": "© 2025 My Blog | <a href=\"https://beian.miit.gov.cn\">京ICP備XXXXXXXX號</a>",
+    "siteUrl": "網站地址",
+    "siteUrlDesc": "網站的公開存取地址，用於 SEO、授權驗證等",
+    "siteUrlPlaceholder": "https://myblog.com",
     "saveSettings": "儲存設定",
     "saveSuccess": "設定已儲存",
     "saveFailed": "儲存失敗",
@@ -289,7 +293,10 @@
     "customJs": "自訂 JavaScript",
     "customJsDesc": "注入到頁面底部的自訂腳本，如統計代碼、第三方元件等",
     "customJsPlaceholder": "// 在此輸入自訂 JavaScript\nconsole.log('Hello Noteva');",
-    "savingCustomCode": "儲存中..."
+    "savingCustomCode": "儲存中...",
+    "siteNameRequired": "網站名稱不能為空",
+    "siteUrlInvalid": "網站地址必須以 http:// 或 https:// 開頭",
+    "passwordRequired": "請輸入目前密碼和新密碼"
   },
   "theme": {
     "light": "淺色",
@@ -313,7 +320,16 @@
     "store": "集市",
     "officialStore": "官方主題集市",
     "storeDesc": "瀏覽並安裝官方主題",
-    "noStoreThemes": "暫無可用主題"
+    "noStoreThemes": "暫無可用主題",
+    "checkUpdates": "檢查更新",
+    "updatesFound": "發現 {count} 個主題更新",
+    "allUpToDate": "所有主題皆為最新版本",
+    "checkUpdateFailed": "檢查更新失敗",
+    "updateFailed": "更新失敗",
+    "updateTo": "更新至 {version}",
+    "update": "更新",
+    "confirmUpdateActive": "目前主題正在使用中，更新後需要重新整理頁面。是否繼續？",
+    "updateRefreshHint": "主題已更新，請重新整理頁面以查看效果"
   },
   "pagination": {
     "page": "第 {current} / {total} 頁",
@@ -438,7 +454,14 @@
     "store": "集市",
     "officialStore": "官方外掛集市",
     "storeDesc": "瀏覽並安裝官方外掛",
-    "noStorePlugins": "暫無可用外掛"
+    "noStorePlugins": "暫無可用外掛",
+    "checkUpdates": "檢查更新",
+    "updatesFound": "發現 {count} 個外掛更新",
+    "allUpToDate": "所有外掛皆為最新版本",
+    "checkUpdateFailed": "檢查更新失敗",
+    "updateFailed": "更新失敗",
+    "updateTo": "更新至 {version}",
+    "update": "更新"
   },
   "user": {
     "title": "使用者管理",
@@ -506,5 +529,17 @@
     "failureReason": "失敗原因",
     "time": "時間",
     "showing": "顯示 {from} - {to} 條，共 {total} 條"
+  },
+  "editor": {
+    "plugins": "外掛",
+    "emoji": "表情",
+    "searchEmoji": "搜尋表情...",
+    "preview": "預覽",
+    "edit": "編輯",
+    "fullscreen": "全螢幕",
+    "previewEmpty": "暫無內容可預覽",
+    "upload": "上傳圖片/檔案（支援貼上和拖曳）",
+    "dropzoneTitle": "拖曳檔案到此處，或點擊選擇",
+    "dropzoneHint": "支援圖片、文件及其他檔案"
   }
 }

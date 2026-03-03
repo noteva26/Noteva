@@ -11,13 +11,11 @@
 //! - 4.4: WHEN 会话令牌过期 THEN User_Service SHALL 要求用户重新登录
 //! - 4.7: WHILE 用户已登录 THEN User_Service SHALL 维护用户会话状态
 
-use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
 use crate::models::Session;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use sqlx::{MySqlPool, Row, SqlitePool};
+use chrono::Utc;
 use std::sync::Arc;
 
 /// Session repository trait
@@ -61,221 +59,130 @@ impl SqlxSessionRepository {
 #[async_trait]
 impl SessionRepository for SqlxSessionRepository {
     async fn create(&self, session: &Session) -> Result<Session> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                create_session_sqlite(self.pool.as_sqlite().unwrap(), session).await
-            }
-            DatabaseDriver::Mysql => {
-                create_session_mysql(self.pool.as_mysql().unwrap(), session).await
-            }
-        }
+        dispatch!(self, create_session, session)
     }
 
     async fn get_by_id(&self, id: &str) -> Result<Option<Session>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_session_by_id_sqlite(self.pool.as_sqlite().unwrap(), id).await
-            }
-            DatabaseDriver::Mysql => {
-                get_session_by_id_mysql(self.pool.as_mysql().unwrap(), id).await
-            }
-        }
+        dispatch!(self, get_session_by_id, id)
     }
 
     async fn delete(&self, id: &str) -> Result<()> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                delete_session_sqlite(self.pool.as_sqlite().unwrap(), id).await
-            }
-            DatabaseDriver::Mysql => delete_session_mysql(self.pool.as_mysql().unwrap(), id).await,
-        }
+        dispatch!(self, delete_session, id)
     }
 
     async fn delete_by_user(&self, user_id: i64) -> Result<()> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                delete_sessions_by_user_sqlite(self.pool.as_sqlite().unwrap(), user_id).await
-            }
-            DatabaseDriver::Mysql => {
-                delete_sessions_by_user_mysql(self.pool.as_mysql().unwrap(), user_id).await
-            }
-        }
+        dispatch!(self, delete_sessions_by_user, user_id)
     }
 
     async fn delete_expired(&self) -> Result<i64> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                delete_expired_sessions_sqlite(self.pool.as_sqlite().unwrap()).await
-            }
-            DatabaseDriver::Mysql => {
-                delete_expired_sessions_mysql(self.pool.as_mysql().unwrap()).await
-            }
+        dispatch!(self, delete_expired_sessions)
+    }
+}
+
+// ============================================================================
+// Shared implementations (generated for both SQLite and MySQL)
+// ============================================================================
+
+impl_dual_fn! {
+    async fn create_session(pool, session: &Session) -> Result<Session> {
+        sqlx::query(
+            r#"
+            INSERT INTO sessions (id, user_id, expires_at, created_at)
+            VALUES (?, ?, ?, ?)
+            "#,
+        )
+        .bind(&session.id)
+        .bind(session.user_id)
+        .bind(session.expires_at)
+        .bind(session.created_at)
+        .execute(pool)
+        .await
+        .context("Failed to create session")?;
+
+        Ok(session.clone())
+    }
+}
+
+impl_dual_fn! {
+    async fn get_session_by_id(pool, id: &str) -> Result<Option<Session>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, user_id, expires_at, created_at
+            FROM sessions
+            WHERE id = ?
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to get session by ID")?;
+
+        match row {
+            Some(row) => Ok(Some(row_to_session(&row)?)),
+            None => Ok(None),
         }
     }
 }
 
-// ============================================================================
-// SQLite implementations
-// ============================================================================
+impl_dual_fn! {
+    async fn delete_session(pool, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM sessions WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await
+            .context("Failed to delete session")?;
 
-async fn create_session_sqlite(pool: &SqlitePool, session: &Session) -> Result<Session> {
-    sqlx::query(
-        r#"
-        INSERT INTO sessions (id, user_id, expires_at, created_at)
-        VALUES (?, ?, ?, ?)
-        "#,
-    )
-    .bind(&session.id)
-    .bind(session.user_id)
-    .bind(session.expires_at)
-    .bind(session.created_at)
-    .execute(pool)
-    .await
-    .context("Failed to create session")?;
-
-    Ok(session.clone())
-}
-
-async fn get_session_by_id_sqlite(pool: &SqlitePool, id: &str) -> Result<Option<Session>> {
-    let row = sqlx::query(
-        r#"
-        SELECT id, user_id, expires_at, created_at
-        FROM sessions
-        WHERE id = ?
-        "#,
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await
-    .context("Failed to get session by ID")?;
-
-    match row {
-        Some(row) => Ok(Some(row_to_session_sqlite(&row)?)),
-        None => Ok(None),
+        Ok(())
     }
 }
 
-async fn delete_session_sqlite(pool: &SqlitePool, id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM sessions WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await
-        .context("Failed to delete session")?;
+impl_dual_fn! {
+    async fn delete_sessions_by_user(pool, user_id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+            .bind(user_id)
+            .execute(pool)
+            .await
+            .context("Failed to delete sessions by user")?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
-async fn delete_sessions_by_user_sqlite(pool: &SqlitePool, user_id: i64) -> Result<()> {
-    sqlx::query("DELETE FROM sessions WHERE user_id = ?")
-        .bind(user_id)
-        .execute(pool)
-        .await
-        .context("Failed to delete sessions by user")?;
+impl_dual_fn! {
+    async fn delete_expired_sessions(pool) -> Result<i64> {
+        let now = Utc::now();
+        let result = sqlx::query("DELETE FROM sessions WHERE expires_at < ?")
+            .bind(now)
+            .execute(pool)
+            .await
+            .context("Failed to delete expired sessions")?;
 
-    Ok(())
+        Ok(result.rows_affected() as i64)
+    }
 }
 
-async fn delete_expired_sessions_sqlite(pool: &SqlitePool) -> Result<i64> {
-    let now = Utc::now();
-    let result = sqlx::query("DELETE FROM sessions WHERE expires_at < ?")
-        .bind(now)
-        .execute(pool)
-        .await
-        .context("Failed to delete expired sessions")?;
+// ============================================================================
+// Row mapper
+// ============================================================================
 
-    Ok(result.rows_affected() as i64)
-}
-
-fn row_to_session_sqlite(row: &sqlx::sqlite::SqliteRow) -> Result<Session> {
+/// Convert a database row to a Session.
+///
+/// Note: We use a simple function instead of `impl_row_mapper!` here because
+/// the row type needs to implement sqlx::Row with the correct column types.
+/// Both SQLite and MySQL rows support the same `.get()` calls for Session fields.
+fn row_to_session<'r, R>(row: &'r R) -> Result<Session>
+where
+    R: sqlx::Row,
+    &'r str: sqlx::ColumnIndex<R>,
+    String: sqlx::Decode<'r, R::Database> + sqlx::Type<R::Database>,
+    i64: sqlx::Decode<'r, R::Database> + sqlx::Type<R::Database>,
+    chrono::DateTime<Utc>: sqlx::Decode<'r, R::Database> + sqlx::Type<R::Database>,
+{
     Ok(Session {
         id: row.get("id"),
         user_id: row.get("user_id"),
         expires_at: row.get("expires_at"),
         created_at: row.get("created_at"),
-    })
-}
-
-// ============================================================================
-// MySQL implementations
-// ============================================================================
-
-async fn create_session_mysql(pool: &MySqlPool, session: &Session) -> Result<Session> {
-    sqlx::query(
-        r#"
-        INSERT INTO sessions (id, user_id, expires_at, created_at)
-        VALUES (?, ?, ?, ?)
-        "#,
-    )
-    .bind(&session.id)
-    .bind(session.user_id)
-    .bind(session.expires_at)
-    .bind(session.created_at)
-    .execute(pool)
-    .await
-    .context("Failed to create session")?;
-
-    Ok(session.clone())
-}
-
-async fn get_session_by_id_mysql(pool: &MySqlPool, id: &str) -> Result<Option<Session>> {
-    let row = sqlx::query(
-        r#"
-        SELECT id, user_id, expires_at, created_at
-        FROM sessions
-        WHERE id = ?
-        "#,
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await
-    .context("Failed to get session by ID")?;
-
-    match row {
-        Some(row) => Ok(Some(row_to_session_mysql(&row)?)),
-        None => Ok(None),
-    }
-}
-
-async fn delete_session_mysql(pool: &MySqlPool, id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM sessions WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await
-        .context("Failed to delete session")?;
-
-    Ok(())
-}
-
-async fn delete_sessions_by_user_mysql(pool: &MySqlPool, user_id: i64) -> Result<()> {
-    sqlx::query("DELETE FROM sessions WHERE user_id = ?")
-        .bind(user_id)
-        .execute(pool)
-        .await
-        .context("Failed to delete sessions by user")?;
-
-    Ok(())
-}
-
-async fn delete_expired_sessions_mysql(pool: &MySqlPool) -> Result<i64> {
-    let now = Utc::now();
-    let result = sqlx::query("DELETE FROM sessions WHERE expires_at < ?")
-        .bind(now)
-        .execute(pool)
-        .await
-        .context("Failed to delete expired sessions")?;
-
-    Ok(result.rows_affected() as i64)
-}
-
-fn row_to_session_mysql(row: &sqlx::mysql::MySqlRow) -> Result<Session> {
-    let expires_at: DateTime<Utc> = row.get("expires_at");
-    let created_at: DateTime<Utc> = row.get("created_at");
-
-    Ok(Session {
-        id: row.get("id"),
-        user_id: row.get("user_id"),
-        expires_at,
-        created_at,
     })
 }
 

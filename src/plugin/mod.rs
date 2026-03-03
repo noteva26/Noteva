@@ -12,9 +12,10 @@ pub mod hook_registry;
 pub mod doc_gen;
 pub mod shortcode;
 pub mod wasm_bridge;
+pub mod plugin_db;
 
 // Re-export commonly used types
-pub use loader::{Plugin, PluginManager, PluginMetadata, PluginRequirements, PluginHooks, 
+pub use loader::{Plugin, PluginManager, PluginMetadata, PluginRequirements, PluginHooks, PluginPageDeclaration,
                  check_version_requirement, VersionCheckResult, NOTEVA_VERSION};
 pub use hooks::{HookManager, hook_names};
 pub use shortcode::{ShortcodeManager, Shortcode, ShortcodeContext};
@@ -58,6 +59,8 @@ pub enum Permission {
     FileSystemWrite,
     /// Plugin data storage access
     Storage,
+    /// Database access (plugin-owned tables)
+    Database,
 }
 
 impl Permission {
@@ -74,6 +77,7 @@ impl Permission {
             "fs_read" | "fs-read" | "filesystem_read" => Some(Permission::FileSystemRead),
             "fs_write" | "fs-write" | "filesystem_write" => Some(Permission::FileSystemWrite),
             "storage" => Some(Permission::Storage),
+            "database" | "db" => Some(Permission::Database),
             _ => None,
         }
     }
@@ -91,6 +95,7 @@ impl Permission {
             Permission::FileSystemRead => "fs_read",
             Permission::FileSystemWrite => "fs_write",
             Permission::Storage => "storage",
+            Permission::Database => "database",
         }
     }
 }
@@ -346,6 +351,14 @@ impl PluginRuntime {
         let _ = linker.func_wrap(
             "env", "host_sha256",
             |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "env", "host_db_query",
+            |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
+        );
+        let _ = linker.func_wrap(
+            "env", "host_db_execute",
+            |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
         );
 
         // WASI stubs — plugins compiled with wasm32-wasip1 import these.

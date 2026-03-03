@@ -195,4 +195,28 @@ impl PageService {
         let _ = self.cache.delete(CACHE_KEY_PAGE_LIST_PUBLISHED).await;
         Ok(())
     }
+
+    /// Ensure pages declared by a plugin or theme exist in the database.
+    ///
+    /// For each (slug, title) pair, creates a published Page if no page with
+    /// that slug exists yet. Existing pages are never overwritten.
+    /// The `source` field records the origin (e.g. "plugin:friendlinks", "theme:fusion").
+    pub async fn ensure_pages(&self, pages: &[(String, String)], source: &str) -> Result<usize> {
+        let mut created = 0usize;
+        for (slug, title) in pages {
+            if self.repo.exists_by_slug(slug).await? {
+                tracing::debug!("Page '{}' already exists, skipping auto-creation", slug);
+                continue;
+            }
+            let page = Page::new_auto(slug.clone(), title.clone(), source.to_string());
+            self.repo.create(&page).await
+                .with_context(|| format!("Failed to auto-create page '{}'", slug))?;
+            tracing::info!("Auto-created page '{}' (source: {})", slug, source);
+            created += 1;
+        }
+        if created > 0 {
+            self.invalidate_cache().await?;
+        }
+        Ok(created)
+    }
 }

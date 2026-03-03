@@ -1,0 +1,339 @@
+﻿//! Article repository
+//!
+//! Database operations for articles.
+//!
+//! This module provides:
+//! - `ArticleRepository` trait defining the interface for article data access
+//! - `SqlxArticleRepository` implementing the trait for SQLite and MySQL
+//!
+//! Satisfies requirements:
+//! - 1.1: WHEN 用户提交新文章 THEN Article_Manager SHALL 创建文章记录并生成唯一标识符
+//! - 1.2: WHEN 用户请求文章列表 THEN Article_Manager SHALL 返回分页的文章列表，支持按时间排序
+
+use crate::db::macros::{dispatch, impl_dual_fn, impl_row_mapper};
+use crate::db::DynDatabasePool;
+use crate::models::{Article, ArticleStatus, CreateArticleInput, UpdateArticleInput};
+use anyhow::{Context, Result};
+use async_trait::async_trait;
+use chrono::Utc;
+use sqlx::{MySqlPool, Row, SqlitePool};
+use std::sync::Arc;
+
+mod sqlite_impl;
+mod mysql_impl;
+
+#[cfg(test)]
+mod tests;
+
+use self::sqlite_impl::*;
+use self::mysql_impl::*;
+
+/// Article repository trait
+#[async_trait]
+pub trait ArticleRepository: Send + Sync {
+    /// Create a new article
+    async fn create(&self, input: &CreateArticleInput) -> Result<Article>;
+
+    /// Get article by ID
+    async fn get_by_id(&self, id: i64) -> Result<Option<Article>>;
+
+    /// Get article by slug
+    async fn get_by_slug(&self, slug: &str) -> Result<Option<Article>>;
+
+    /// List articles with pagination (all statuses)
+    async fn list(&self, offset: i64, limit: i64) -> Result<Vec<Article>>;
+
+    /// Count total articles (all statuses)
+    async fn count(&self) -> Result<i64>;
+
+    /// Update an article
+    async fn update(&self, id: i64, input: &UpdateArticleInput) -> Result<Article>;
+
+    /// Delete an article
+    async fn delete(&self, id: i64) -> Result<()>;
+
+    /// List articles by category with pagination
+    async fn list_by_category(&self, category_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>>;
+
+    /// List articles by tag with pagination
+    async fn list_by_tag(&self, tag_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>>;
+
+    /// List only published articles with pagination (ordered by published_at DESC)
+    async fn list_published(&self, offset: i64, limit: i64) -> Result<Vec<Article>>;
+
+    /// Count published articles
+    async fn count_published(&self) -> Result<i64>;
+
+    /// Count articles in a category
+    async fn count_by_category(&self, category_id: i64) -> Result<i64>;
+
+    /// Count articles with a tag
+    async fn count_by_tag(&self, tag_id: i64) -> Result<i64>;
+
+    /// Check if a slug already exists
+    async fn exists_by_slug(&self, slug: &str) -> Result<bool>;
+
+    /// Check if a slug exists for a different article (for updates)
+    async fn exists_by_slug_excluding(&self, slug: &str, exclude_id: i64) -> Result<bool>;
+
+    /// Search articles by keyword in title and content
+    async fn search(&self, keyword: &str, offset: i64, limit: i64, published_only: bool) -> Result<Vec<Article>>;
+
+    /// Count search results
+    async fn count_search(&self, keyword: &str, published_only: bool) -> Result<i64>;
+
+    /// Update article meta JSON (merge plugin_id namespace)
+    async fn update_meta(&self, article_id: i64, plugin_id: &str, data: &serde_json::Value) -> Result<()>;
+}
+
+/// SQLx-based article repository implementation
+///
+/// Supports both SQLite and MySQL databases.
+pub struct SqlxArticleRepository {
+    pool: DynDatabasePool,
+}
+
+impl SqlxArticleRepository {
+    /// Create a new SQLx article repository
+    pub fn new(pool: DynDatabasePool) -> Self {
+        Self { pool }
+    }
+
+    /// Create a boxed repository for use with dependency injection
+    pub fn boxed(pool: DynDatabasePool) -> Arc<dyn ArticleRepository> {
+        Arc::new(Self::new(pool))
+    }
+}
+
+#[async_trait]
+impl ArticleRepository for SqlxArticleRepository {
+    async fn create(&self, input: &CreateArticleInput) -> Result<Article> {
+        dispatch!(self, create_article, input)
+    }
+
+    async fn get_by_id(&self, id: i64) -> Result<Option<Article>> {
+        dispatch!(self, get_article_by_id, id)
+    }
+
+    async fn get_by_slug(&self, slug: &str) -> Result<Option<Article>> {
+        dispatch!(self, get_article_by_slug, slug)
+    }
+
+    async fn list(&self, offset: i64, limit: i64) -> Result<Vec<Article>> {
+        dispatch!(self, list_articles, offset, limit)
+    }
+
+    async fn count(&self) -> Result<i64> {
+        dispatch!(self, count_articles)
+    }
+
+    async fn update(&self, id: i64, input: &UpdateArticleInput) -> Result<Article> {
+        dispatch!(self, update_article, id, input)
+    }
+
+    async fn delete(&self, id: i64) -> Result<()> {
+        dispatch!(self, delete_article, id)
+    }
+
+    async fn list_by_category(&self, category_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>> {
+        dispatch!(self, list_articles_by_category, category_id, offset, limit)
+    }
+
+    async fn list_by_tag(&self, tag_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>> {
+        dispatch!(self, list_articles_by_tag, tag_id, offset, limit)
+    }
+
+    async fn list_published(&self, offset: i64, limit: i64) -> Result<Vec<Article>> {
+        dispatch!(self, list_published_articles, offset, limit)
+    }
+
+    async fn count_published(&self) -> Result<i64> {
+        dispatch!(self, count_published)
+    }
+
+    async fn count_by_category(&self, category_id: i64) -> Result<i64> {
+        dispatch!(self, count_by_category, category_id)
+    }
+
+    async fn count_by_tag(&self, tag_id: i64) -> Result<i64> {
+        dispatch!(self, count_by_tag, tag_id)
+    }
+
+    async fn exists_by_slug(&self, slug: &str) -> Result<bool> {
+        dispatch!(self, exists_by_slug, slug)
+    }
+
+    async fn exists_by_slug_excluding(&self, slug: &str, exclude_id: i64) -> Result<bool> {
+        dispatch!(self, exists_by_slug_excluding, exclude_id, slug)
+    }
+
+    async fn search(&self, keyword: &str, offset: i64, limit: i64, published_only: bool) -> Result<Vec<Article>> {
+        dispatch!(self, search_articles, keyword, offset, limit, published_only)
+    }
+
+    async fn count_search(&self, keyword: &str, published_only: bool) -> Result<i64> {
+        dispatch!(self, count_search, keyword, published_only)
+    }
+
+    async fn update_meta(&self, article_id: i64, plugin_id: &str, data: &serde_json::Value) -> Result<()> {
+        // Read current meta, merge plugin namespace, write back
+        let article = self.get_by_id(article_id).await?
+            .ok_or_else(|| anyhow::anyhow!("Article not found: {}", article_id))?;
+
+        let mut meta = article.meta.clone();
+        if !meta.is_object() {
+            meta = serde_json::json!({});
+        }
+        meta.as_object_mut().unwrap().insert(plugin_id.to_string(), data.clone());
+
+        dispatch!(self, update_article_meta, article_id, &meta.to_string())
+    }
+}
+
+// ============================================================================
+// Shared implementations (identical SQL across SQLite and MySQL)
+// ============================================================================
+
+impl_row_mapper! {
+    pub(super) fn row_to_article(row) -> Result<Article> {
+        let status_str: String = row.get("status");
+        let status = ArticleStatus::from_str(&status_str)
+            .ok_or_else(|| anyhow::anyhow!("Invalid article status: {}", status_str))?;
+
+        Ok(Article {
+            id: row.get("id"),
+            slug: row.get("slug"),
+            title: row.get("title"),
+            content: row.get("content"),
+            content_html: row.get("content_html"),
+            author_id: row.get("author_id"),
+            category_id: row.get("category_id"),
+            status,
+            published_at: row.get("published_at"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+            view_count: row.try_get("view_count").unwrap_or(0),
+            like_count: row.try_get("like_count").unwrap_or(0),
+            comment_count: row.try_get("comment_count").unwrap_or(0),
+            thumbnail: row.try_get("thumbnail").ok(),
+            is_pinned: row.try_get("is_pinned").unwrap_or(false),
+            pin_order: row.try_get("pin_order").unwrap_or(0),
+            meta: row.try_get::<String, _>("meta")
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or(serde_json::json!({})),
+        })
+    }
+}
+
+impl_dual_fn! {
+    pub(super) async fn delete_article(pool, id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM articles WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await
+            .context("Failed to delete article")?;
+        Ok(())
+    }
+}
+
+impl_dual_fn! {
+    pub(super) async fn count_articles(pool) -> Result<i64> {
+        let row = sqlx::query("SELECT COUNT(*) as count FROM articles")
+            .fetch_one(pool)
+            .await
+            .context("Failed to count articles")?;
+        Ok(row.get("count"))
+    }
+}
+
+impl_dual_fn! {
+    pub(super) async fn count_published(pool) -> Result<i64> {
+        let row = sqlx::query("SELECT COUNT(*) as count FROM articles WHERE status = 'published'")
+            .fetch_one(pool)
+            .await
+            .context("Failed to count published articles")?;
+        Ok(row.get("count"))
+    }
+}
+
+impl_dual_fn! {
+    pub(super) async fn count_by_category(pool, category_id: i64) -> Result<i64> {
+        let row = sqlx::query("SELECT COUNT(*) as count FROM articles WHERE category_id = ?")
+            .bind(category_id)
+            .fetch_one(pool)
+            .await
+            .context("Failed to count articles by category")?;
+        Ok(row.get("count"))
+    }
+}
+
+impl_dual_fn! {
+    pub(super) async fn count_by_tag(pool, tag_id: i64) -> Result<i64> {
+        let row = sqlx::query("SELECT COUNT(*) as count FROM article_tags WHERE tag_id = ?")
+            .bind(tag_id)
+            .fetch_one(pool)
+            .await
+            .context("Failed to count articles by tag")?;
+        Ok(row.get("count"))
+    }
+}
+
+impl_dual_fn! {
+    pub(super) async fn exists_by_slug(pool, slug: &str) -> Result<bool> {
+        let row = sqlx::query("SELECT COUNT(*) as count FROM articles WHERE slug = ?")
+            .bind(slug)
+            .fetch_one(pool)
+            .await
+            .context("Failed to check article slug existence")?;
+        let count: i64 = row.get("count");
+        Ok(count > 0)
+    }
+}
+
+impl_dual_fn! {
+    pub(super) async fn exists_by_slug_excluding(pool, exclude_id: i64, slug: &str) -> Result<bool> {
+        let row = sqlx::query("SELECT COUNT(*) as count FROM articles WHERE slug = ? AND id != ?")
+            .bind(slug)
+            .bind(exclude_id)
+            .fetch_one(pool)
+            .await
+            .context("Failed to check article slug existence")?;
+        let count: i64 = row.get("count");
+        Ok(count > 0)
+    }
+}
+
+impl_dual_fn! {
+    pub(super) async fn count_search(pool, keyword: &str, published_only: bool) -> Result<i64> {
+        let search_pattern = format!("%{}%", keyword);
+
+        let query = if published_only {
+            "SELECT COUNT(*) as count FROM articles WHERE status = 'published' AND (title LIKE ? OR content LIKE ?)"
+        } else {
+            "SELECT COUNT(*) as count FROM articles WHERE title LIKE ? OR content LIKE ?"
+        };
+
+        let row = sqlx::query(query)
+            .bind(&search_pattern)
+            .bind(&search_pattern)
+            .fetch_one(pool)
+            .await
+            .context("Failed to count search results")?;
+
+        Ok(row.get("count"))
+    }
+}
+
+impl_dual_fn! {
+    pub(super) async fn update_article_meta(pool, article_id: i64, meta_str: &str) -> Result<()> {
+        sqlx::query("UPDATE articles SET meta = ?, updated_at = ? WHERE id = ?")
+            .bind(meta_str)
+            .bind(Utc::now())
+            .bind(article_id)
+            .execute(pool)
+            .await
+            .context("Failed to update article meta")?;
+        Ok(())
+    }
+}

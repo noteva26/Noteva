@@ -406,6 +406,117 @@ pub fn is_demo_mode() -> bool {
     cfg!(feature = "demo")
 }
 
+// ============================================================================
+// CSRF Protection (Double Submit Cookie)
+// ============================================================================
+
+/// Generate a random CSRF token (64-char hex string)
+/// Uses multiple entropy sources without requiring external crates
+pub fn generate_csrf_token() -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    
+    let mut hasher = DefaultHasher::new();
+    // Mix multiple entropy sources
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        .hash(&mut hasher);
+    std::thread::current().id().hash(&mut hasher);
+    COUNTER.fetch_add(1, Ordering::Relaxed).hash(&mut hasher);
+    let h1 = hasher.finish();
+    
+    // Second round with different seed
+    let mut hasher2 = DefaultHasher::new();
+    h1.hash(&mut hasher2);
+    std::time::Instant::now().hash(&mut hasher2);
+    COUNTER.fetch_add(1, Ordering::Relaxed).hash(&mut hasher2);
+    let h2 = hasher2.finish();
+    
+    format!("{:016x}{:016x}{:016x}{:016x}", h1, h2, h1 ^ h2, h1.wrapping_mul(h2))
+}
+
+/// Extract CSRF token from cookie
+fn extract_csrf_cookie(request: &Request) -> Option<String> {
+    request.headers().get(header::COOKIE)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| {
+            s.split(';')
+                .find(|c| c.trim().starts_with("csrf_token="))
+                .map(|c| c.trim().strip_prefix("csrf_token=").unwrap_or("").to_string())
+        })
+}
+
+/// CSRF protection middleware
+///
+/// For mutation requests (POST/PUT/DELETE) to API endpoints, validates that
+/// the `X-CSRF-Token` header matches the `csrf_token` cookie.
+/// Exempts public auth endpoints (login, register, send-code, has-admin)
+/// and non-mutating requests (GET, HEAD, OPTIONS).
+pub async fn csrf_protection(
+    request: Request,
+    next: Next,
+) -> Result<Response, ApiError> {
+    use axum::http::Method;
+    
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+    
+    // Skip non-mutating methods
+    if matches!(method, Method::GET | Method::HEAD | Method::OPTIONS) {
+        return Ok(next.run(request).await);
+    }
+    
+    // Skip public auth endpoints that don't require CSRF
+    let csrf_exempt = [
+        "/api/v1/auth/login",
+        "/api/v1/auth/register",
+        "/api/v1/auth/send-code",
+        "/api/v1/auth/has-admin",
+        "/api/v1/comments",        // public comment posting (uses its own auth)
+        "/api/v1/like",            // public like
+        "/api/v1/view/",           // public view count
+        "/api/v1/site/render",     // markdown preview
+        "/api/v1/plugins/proxy",   // plugin proxy
+    ];
+    
+    for exempt in &csrf_exempt {
+        if path.starts_with(exempt) {
+            return Ok(next.run(request).await);
+        }
+    }
+    
+    // Skip if no session cookie (not logged in → nothing to protect)
+    let has_session = request.headers().get(header::COOKIE)
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.contains("session="))
+        .unwrap_or(false);
+    
+    if !has_session {
+        return Ok(next.run(request).await);
+    }
+    
+    // Validate CSRF token
+    let cookie_token = extract_csrf_cookie(&request);
+    let header_token = request.headers()
+        .get("x-csrf-token")
+        .and_then(|h| h.to_str().ok())
+        .map(String::from);
+    
+    match (cookie_token, header_token) {
+        (Some(cookie), Some(header)) if !cookie.is_empty() && cookie == header => {
+            Ok(next.run(request).await)
+        }
+        _ => {
+            Err(ApiError::new("CSRF_INVALID", "CSRF token missing or invalid"))
+        }
+    }
+}
+
 
 // ============================================================================
 // HTTP Cache Headers

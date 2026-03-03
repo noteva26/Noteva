@@ -10,7 +10,6 @@
 //! - 2.1: WHEN 用户创建分类 THEN Category_Service SHALL 创建分类记录并支持设置父分类
 //! - 2.3: WHEN 用户请求某分类下的文章 THEN Category_Service SHALL 返回该分类及其子分类下的所有文章
 
-use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
 use crate::models::{Category, CategoryTree};
 use anyhow::{Context, Result};
@@ -86,122 +85,52 @@ impl SqlxCategoryRepository {
 #[async_trait]
 impl CategoryRepository for SqlxCategoryRepository {
     async fn create(&self, category: &Category) -> Result<Category> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                create_category_sqlite(self.pool.as_sqlite().unwrap(), category).await
-            }
-            DatabaseDriver::Mysql => {
-                create_category_mysql(self.pool.as_mysql().unwrap(), category).await
-            }
-        }
+        dispatch!(self, create_category, category)
     }
 
     async fn get_by_id(&self, id: i64) -> Result<Option<Category>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_category_by_id_sqlite(self.pool.as_sqlite().unwrap(), id).await
-            }
-            DatabaseDriver::Mysql => {
-                get_category_by_id_mysql(self.pool.as_mysql().unwrap(), id).await
-            }
-        }
+        dispatch!(self, get_category_by_id, id)
     }
 
     async fn get_by_slug(&self, slug: &str) -> Result<Option<Category>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_category_by_slug_sqlite(self.pool.as_sqlite().unwrap(), slug).await
-            }
-            DatabaseDriver::Mysql => {
-                get_category_by_slug_mysql(self.pool.as_mysql().unwrap(), slug).await
-            }
-        }
+        dispatch!(self, get_category_by_slug, slug)
     }
 
     async fn get_by_name(&self, name: &str) -> Result<Option<Category>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_category_by_name_sqlite(self.pool.as_sqlite().unwrap(), name).await
-            }
-            DatabaseDriver::Mysql => {
-                get_category_by_name_mysql(self.pool.as_mysql().unwrap(), name).await
-            }
-        }
+        dispatch!(self, get_category_by_name, name)
     }
 
     async fn list(&self) -> Result<Vec<Category>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => list_categories_sqlite(self.pool.as_sqlite().unwrap()).await,
-            DatabaseDriver::Mysql => list_categories_mysql(self.pool.as_mysql().unwrap()).await,
-        }
+        dispatch!(self, list_categories)
     }
 
     async fn list_tree(&self) -> Result<Vec<CategoryTree>> {
-        // Get all categories and build tree in application layer
         let categories = self.list().await?;
         Ok(build_category_tree(categories))
     }
 
     async fn get_children(&self, parent_id: i64) -> Result<Vec<Category>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_children_sqlite(self.pool.as_sqlite().unwrap(), parent_id).await
-            }
-            DatabaseDriver::Mysql => {
-                get_children_mysql(self.pool.as_mysql().unwrap(), parent_id).await
-            }
-        }
+        dispatch!(self, get_children, parent_id)
     }
 
     async fn get_all_descendants(&self, id: i64) -> Result<Vec<i64>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_all_descendants_sqlite(self.pool.as_sqlite().unwrap(), id).await
-            }
-            DatabaseDriver::Mysql => {
-                get_all_descendants_mysql(self.pool.as_mysql().unwrap(), id).await
-            }
-        }
+        dispatch!(self, get_all_descendants, id)
     }
 
     async fn update(&self, category: &Category) -> Result<Category> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                update_category_sqlite(self.pool.as_sqlite().unwrap(), category).await
-            }
-            DatabaseDriver::Mysql => {
-                update_category_mysql(self.pool.as_mysql().unwrap(), category).await
-            }
-        }
+        dispatch!(self, update_category, category)
     }
 
     async fn delete(&self, id: i64) -> Result<()> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => delete_category_sqlite(self.pool.as_sqlite().unwrap(), id).await,
-            DatabaseDriver::Mysql => delete_category_mysql(self.pool.as_mysql().unwrap(), id).await,
-        }
+        dispatch!(self, delete_category, id)
     }
 
     async fn exists_by_name(&self, name: &str) -> Result<bool> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                exists_by_name_sqlite(self.pool.as_sqlite().unwrap(), name).await
-            }
-            DatabaseDriver::Mysql => {
-                exists_by_name_mysql(self.pool.as_mysql().unwrap(), name).await
-            }
-        }
+        dispatch!(self, exists_by_name, name)
     }
 
     async fn exists_by_slug(&self, slug: &str) -> Result<bool> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                exists_by_slug_sqlite(self.pool.as_sqlite().unwrap(), slug).await
-            }
-            DatabaseDriver::Mysql => {
-                exists_by_slug_mysql(self.pool.as_mysql().unwrap(), slug).await
-            }
-        }
+        dispatch!(self, exists_by_slug, slug)
     }
 
     async fn get_default(&self) -> Result<Option<Category>> {

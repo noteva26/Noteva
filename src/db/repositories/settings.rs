@@ -9,7 +9,6 @@ use chrono::{DateTime, Utc};
 use sqlx::{MySqlPool, Row, SqlitePool};
 use std::collections::HashMap;
 
-use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
 
 /// A setting key-value pair
@@ -56,31 +55,19 @@ impl SqlxSettingsRepository {
 #[async_trait]
 impl SettingsRepository for SqlxSettingsRepository {
     async fn get(&self, key: &str) -> Result<Option<Setting>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => get_sqlite(self.pool.as_sqlite().unwrap(), key).await,
-            DatabaseDriver::Mysql => get_mysql(self.pool.as_mysql().unwrap(), key).await,
-        }
+        dispatch!(self, get, key)
     }
     
     async fn get_all(&self) -> Result<Vec<Setting>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => get_all_sqlite(self.pool.as_sqlite().unwrap()).await,
-            DatabaseDriver::Mysql => get_all_mysql(self.pool.as_mysql().unwrap()).await,
-        }
+        dispatch!(self, get_all)
     }
     
     async fn get_many(&self, keys: &[&str]) -> Result<HashMap<String, String>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => get_many_sqlite(self.pool.as_sqlite().unwrap(), keys).await,
-            DatabaseDriver::Mysql => get_many_mysql(self.pool.as_mysql().unwrap(), keys).await,
-        }
+        dispatch!(self, get_many, keys)
     }
     
     async fn set(&self, key: &str, value: &str) -> Result<()> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => set_sqlite(self.pool.as_sqlite().unwrap(), key, value).await,
-            DatabaseDriver::Mysql => set_mysql(self.pool.as_mysql().unwrap(), key, value).await,
-        }
+        dispatch!(self, set, key, value)
     }
     
     async fn set_many(&self, settings: &HashMap<String, String>) -> Result<()> {
@@ -91,14 +78,28 @@ impl SettingsRepository for SqlxSettingsRepository {
     }
     
     async fn delete(&self, key: &str) -> Result<()> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => delete_sqlite(self.pool.as_sqlite().unwrap(), key).await,
-            DatabaseDriver::Mysql => delete_mysql(self.pool.as_mysql().unwrap(), key).await,
-        }
+        dispatch!(self, delete, key)
     }
 }
 
-// SQLite implementations
+// ============================================================================
+// Shared implementations (identical SQL for both backends)
+// ============================================================================
+
+impl_dual_fn! {
+    async fn delete(pool, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM settings WHERE key = ?")
+            .bind(key)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+}
+
+// ============================================================================
+// SQLite implementations (SQL dialect differences)
+// ============================================================================
+
 async fn get_sqlite(pool: &SqlitePool, key: &str) -> Result<Option<Setting>> {
     let row = sqlx::query("SELECT key, value, updated_at FROM settings WHERE key = ?")
         .bind(key)
@@ -146,15 +147,10 @@ async fn set_sqlite(pool: &SqlitePool, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-async fn delete_sqlite(pool: &SqlitePool, key: &str) -> Result<()> {
-    sqlx::query("DELETE FROM settings WHERE key = ?")
-        .bind(key)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
+// ============================================================================
+// MySQL implementations (SQL dialect differences)
+// ============================================================================
 
-// MySQL implementations
 async fn get_mysql(pool: &MySqlPool, key: &str) -> Result<Option<Setting>> {
     let row = sqlx::query("SELECT `key`, value, updated_at FROM settings WHERE `key` = ?")
         .bind(key)
@@ -199,13 +195,5 @@ async fn set_mysql(pool: &MySqlPool, key: &str, value: &str) -> Result<()> {
     .bind(value)
     .execute(pool)
     .await?;
-    Ok(())
-}
-
-async fn delete_mysql(pool: &MySqlPool, key: &str) -> Result<()> {
-    sqlx::query("DELETE FROM settings WHERE `key` = ?")
-        .bind(key)
-        .execute(pool)
-        .await?;
     Ok(())
 }

@@ -346,10 +346,13 @@ pub mod builtins {
             }
         });
         
-        // [video url="..." /] - Video embed
+        // [video url="..." /] or [video src="..." poster="..." /] - Video embed
         manager.register("video", |shortcode, _ctx| {
-            let url = shortcode.attrs.get("url").map_or("", |s| s.as_str());
+            let url = shortcode.attrs.get("src")
+                .or(shortcode.attrs.get("url"))
+                .map_or("", |s| s.as_str());
             let width = shortcode.attrs.get("width").map_or("100%", |s| s.as_str());
+            let poster = shortcode.attrs.get("poster");
             
             // Detect video type
             if url.contains("youtube.com") || url.contains("youtu.be") {
@@ -365,9 +368,34 @@ pub mod builtins {
                     width, bvid
                 )
             } else {
+                let poster_attr = poster.map_or(String::new(), |p| format!(r#" poster="{}""#, html_escape(p)));
+                let is_hls = url.ends_with(".m3u8");
+                let data_hls = if is_hls { r#" data-hls="true""# } else { "" };
                 format!(
-                    r#"<div class="shortcode-video"><video src="{}" width="{}" controls></video></div>"#,
-                    html_escape(url), width
+                    r#"<div class="shortcode-video"><video src="{}" width="{}"{}{} controls playsinline></video></div>"#,
+                    html_escape(url), width, poster_attr, data_hls
+                )
+            }
+        });
+        
+        // [audio src="..." /] - Audio player
+        manager.register("audio", |shortcode, _ctx| {
+            let url = shortcode.attrs.get("src")
+                .or(shortcode.attrs.get("url"))
+                .map_or("", |s| s.as_str());
+            let title = shortcode.attrs.get("title");
+            let is_hls = url.ends_with(".m3u8");
+            let data_hls = if is_hls { r#" data-hls="true""# } else { "" };
+            
+            if let Some(t) = title {
+                format!(
+                    r#"<div class="shortcode-audio"><p class="shortcode-audio-title">{}</p><audio src="{}" controls preload="metadata"{}></audio></div>"#,
+                    html_escape(t), html_escape(url), data_hls
+                )
+            } else {
+                format!(
+                    r#"<div class="shortcode-audio"><audio src="{}" controls preload="metadata"{}></audio></div>"#,
+                    html_escape(url), data_hls
                 )
             }
         });
@@ -390,6 +418,36 @@ pub mod builtins {
                 article_id,
                 html_escape(placeholder),
                 shortcode.content
+            )
+        });
+
+        // [file name="doc.pdf" size="1.2 MB" url="/uploads/xxx.pdf" /] - File attachment card
+        manager.register("file", |shortcode, _ctx| {
+            let name = shortcode.attrs.get("name").map_or("file", |s| s.as_str());
+            let url = shortcode.attrs.get("url").map_or("#", |s| s.as_str());
+            let size = shortcode.attrs.get("size").map_or("", |s| s.as_str());
+            let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
+            let icon = match ext.as_str() {
+                "pdf" => "pdf",
+                "doc" | "docx" => "word",
+                "xls" | "xlsx" | "csv" => "excel",
+                "ppt" | "pptx" => "ppt",
+                "zip" | "rar" | "7z" | "tar" | "gz" => "archive",
+                "mp3" | "wav" | "flac" | "ogg" => "audio",
+                "mp4" | "mkv" | "avi" | "mov" => "video",
+                "exe" | "msi" => "exe",
+                "md" | "txt" | "json" | "xml" | "yml" | "yaml" => "text",
+                "html" | "css" | "js" | "ts" | "rs" | "py" | "php" => "code",
+                _ => "file",
+            };
+            let size_html = if size.is_empty() {
+                String::new()
+            } else {
+                format!(r#"<span class="shortcode-file-size">{}</span>"#, html_escape(size))
+            };
+            format!(
+                r#"<a href="{}" download class="shortcode-file" data-file-type="{}"><span class="shortcode-file-icon" data-icon="{}"></span><span class="shortcode-file-info"><span class="shortcode-file-name">{}</span>{}</span><span class="shortcode-file-download">↓</span></a>"#,
+                html_escape(url), html_escape(&ext), icon, html_escape(name), size_html
             )
         });
     }

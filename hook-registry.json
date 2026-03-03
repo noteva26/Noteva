@@ -1,5 +1,5 @@
 {
-  "version": "0.1.5-beta",
+  "version": "0.1.6-beta",
   "hooks": [
     {
       "name": "article_before_create",
@@ -428,16 +428,44 @@
       "available_since": "0.1.3-beta"
     },
     {
+      "name": "theme_activate",
+      "type": "filter",
+      "description": "主题切换时触发，可用于授权验证。返回 {allow: false} 阻止切换",
+      "trigger_point": "src/api/admin.rs",
+      "input_schema": {
+        "theme_name": "string",
+        "theme_version": "string",
+        "site_url": "string",
+        "timestamp": "string",
+        "settings": "object (plugin settings including secret fields)"
+      },
+      "output_schema": {
+        "allow": "boolean (default true)",
+        "message": "string | null (reason for denial)",
+        "level": "string | null ('disable' or 'degrade', default 'disable')"
+      },
+      "scope": "backend",
+      "available_since": "0.1.6-beta"
+    },
+    {
       "name": "plugin_activate",
-      "type": "action",
-      "description": "插件启用时触发",
+      "type": "filter",
+      "description": "插件启用/加载时触发，可用于授权验证。返回 {allow: false} 阻止启用",
       "trigger_point": "src/api/plugins.rs",
       "input_schema": {
-        "plugin_id": "string"
+        "plugin_id": "string",
+        "plugin_version": "string",
+        "site_url": "string",
+        "timestamp": "string",
+        "settings": "object (plugin settings including secret fields)"
       },
-      "output_schema": null,
+      "output_schema": {
+        "allow": "boolean (default true)",
+        "message": "string | null (reason for denial)",
+        "level": "string | null ('disable' or 'degrade', default 'disable')"
+      },
       "scope": "backend",
-      "available_since": "0.1.3-beta"
+      "available_since": "0.1.6-beta"
     },
     {
       "name": "plugin_deactivate",
@@ -602,21 +630,43 @@
     {
       "name": "image_upload_filter",
       "type": "filter",
-      "description": "图片上传过滤器，插件可拦截上传并返回远程 URL（如 S3/COS）替代本地存储",
+      "description": "图片上传过滤器，插件可拦截上传并返回远程 URL 或 presign 委托上传",
       "trigger_point": "src/api/upload.rs",
       "input_schema": {
         "filename": "string",
+        "original_filename": "string",
         "content_type": "string",
         "size": "number",
-        "data_base64": "string"
+        "data_base64": "string (legacy, may be empty if presign-only)",
+        "timestamp": "string"
       },
       "output_schema": {
-        "url": "string | null",
-        "filename": "string",
-        "handled": "boolean"
+        "handled": "boolean",
+        "url": "string | null (direct upload result)",
+        "presign": "object | null ({ url, method, headers } for delegated upload)"
       },
       "scope": "backend",
       "available_since": "0.1.4-beta"
+    },
+    {
+      "name": "file_upload_filter",
+      "type": "filter",
+      "description": "通用文件上传过滤器，插件可通过 presign 委托上传到远程存储（不传文件内容给 WASM）",
+      "trigger_point": "src/api/upload.rs",
+      "input_schema": {
+        "filename": "string",
+        "original_filename": "string",
+        "content_type": "string",
+        "size": "number",
+        "timestamp": "string"
+      },
+      "output_schema": {
+        "handled": "boolean",
+        "url": "string | null",
+        "presign": "object | null ({ url, method, headers })"
+      },
+      "scope": "backend",
+      "available_since": "0.1.6-beta"
     }
   ]
 }

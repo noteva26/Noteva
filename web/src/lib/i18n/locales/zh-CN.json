@@ -26,7 +26,8 @@
     "less": "收起",
     "show": "显示",
     "hide": "隐藏",
-    "refresh": "刷新"
+    "refresh": "刷新",
+    "done": "完成"
   },
   "nav": {
     "home": "首页",
@@ -200,6 +201,9 @@
     "siteFooter": "页脚内容",
     "siteFooterDesc": "支持 HTML，可用于备案号链接、多行排版等",
     "siteFooterPlaceholder": "© 2025 My Blog | <a href=\"https://beian.miit.gov.cn\">京ICP备XXXXXXXX号</a>",
+    "siteUrl": "站点地址",
+    "siteUrlDesc": "站点的公开访问地址，用于 SEO、授权验证等",
+    "siteUrlPlaceholder": "https://myblog.com",
     "saveSettings": "保存设置",
     "saveSuccess": "设置已保存",
     "saveFailed": "保存失败",
@@ -289,7 +293,10 @@
     "customJs": "自定义 JavaScript",
     "customJsDesc": "注入到页面底部的自定义脚本，如统计代码、第三方组件等",
     "customJsPlaceholder": "// 在此输入自定义 JavaScript\nconsole.log('Hello Noteva');",
-    "savingCustomCode": "保存中..."
+    "savingCustomCode": "保存中...",
+    "siteNameRequired": "站点名称不能为空",
+    "siteUrlInvalid": "站点地址必须以 http:// 或 https:// 开头",
+    "passwordRequired": "请输入当前密码和新密码"
   },
   "theme": {
     "light": "浅色",
@@ -313,7 +320,16 @@
     "store": "集市",
     "officialStore": "官方主题集市",
     "storeDesc": "浏览并安装官方主题",
-    "noStoreThemes": "暂无可用主题"
+    "noStoreThemes": "暂无可用主题",
+    "checkUpdates": "检查更新",
+    "updatesFound": "发现 {count} 个主题更新",
+    "allUpToDate": "所有主题都是最新版本",
+    "checkUpdateFailed": "检查更新失败",
+    "updateFailed": "更新失败",
+    "updateTo": "更新到 {version}",
+    "update": "更新",
+    "confirmUpdateActive": "当前主题正在使用中，更新后需要刷新页面。是否继续？",
+    "updateRefreshHint": "主题已更新，请刷新页面查看效果"
   },
   "pagination": {
     "page": "第 {current} / {total} 页",
@@ -438,7 +454,14 @@
     "store": "集市",
     "officialStore": "官方插件集市",
     "storeDesc": "浏览并安装官方插件",
-    "noStorePlugins": "暂无可用插件"
+    "noStorePlugins": "暂无可用插件",
+    "checkUpdates": "检查更新",
+    "updatesFound": "发现 {count} 个插件更新",
+    "allUpToDate": "所有插件都是最新版本",
+    "checkUpdateFailed": "检查更新失败",
+    "updateFailed": "更新失败",
+    "updateTo": "更新到 {version}",
+    "update": "更新"
   },
   "user": {
     "title": "用户管理",
@@ -506,5 +529,17 @@
     "failureReason": "失败原因",
     "time": "时间",
     "showing": "显示 {from} - {to} 条，共 {total} 条"
+  },
+  "editor": {
+    "plugins": "插件",
+    "emoji": "表情",
+    "searchEmoji": "搜索表情...",
+    "preview": "预览",
+    "edit": "编辑",
+    "fullscreen": "全屏",
+    "previewEmpty": "暂无内容可预览",
+    "upload": "上传图片/文件（支持粘贴和拖拽）",
+    "dropzoneTitle": "拖拽文件到此处，或点击选择",
+    "dropzoneHint": "支持图片、文档及其他文件"
   }
 }

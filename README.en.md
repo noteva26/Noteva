@@ -189,7 +189,7 @@ Noteva.ready(async () => {
 });
 ```
 
-See [Theme Development Guide](docs/主题开发文档.md)
+See [Theme Development Guide](docs/theme-development.md)
 
 ## 🔌 Plugin Development
 
@@ -211,7 +211,7 @@ plugins/my-plugin/
 - **friendlinks** - Friend links plugin
 - **profile** - Profile page plugin
 
-See [Plugin Development Guide](docs/插件开发文档.md)
+See [Plugin Development Guide](docs/plugin-development.md)
 
 ## 🚢 Deployment
 

@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { TopLoader, TopLoaderFallback } from "@/components/ui/top-loader";
 
 // Layout loaded eagerly (shared shell)
 import ManageLayout from "@/pages/manage/layout";
@@ -31,7 +32,8 @@ export default function App() {
       enableSystem
       disableTransitionOnChange
     >
-      <Suspense>
+      <TopLoader />
+      <Suspense fallback={<TopLoaderFallback />}>
         <Routes>
           {/* Root redirect */}
           <Route path="/" element={<Navigate to="/manage" replace />} />

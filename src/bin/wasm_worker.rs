@@ -50,10 +50,21 @@ struct MetaOp {
     data: String, // JSON string
 }
 
+/// A database operation recorded during WASM execution.
+/// Returned to the main process for actual database execution.
+#[derive(Clone)]
+enum DbOp {
+    /// SELECT query returning JSON rows
+    Query { sql: String, params: String },
+    /// INSERT/UPDATE/DELETE returning affected rows
+    Execute { sql: String, params: String },
+}
+
 /// Shared state between host functions and the main execution.
 struct WorkerState {
     has_network: bool,
     has_storage: bool,
+    has_database: bool,
     has_read_articles: bool,
     has_read_comments: bool,
     has_write_articles: bool,
@@ -68,6 +79,8 @@ struct WorkerState {
     storage_ops: Arc<Mutex<Vec<StorageOp>>>,
     /// Collected meta update operations (returned to main process)
     meta_ops: Arc<Mutex<Vec<MetaOp>>>,
+    /// Collected database operations (returned to main process)
+    db_ops: Arc<Mutex<Vec<DbOp>>>,
 }
 
 /// Cached WASM engine + compiled modules for reuse across requests.
@@ -167,6 +180,7 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
 
     let has_network = permissions.iter().any(|p| p == "network");
     let has_storage = permissions.iter().any(|p| p == "storage");
+    let has_database = permissions.iter().any(|p| p == "database" || p == "db");
     let has_read_articles = permissions.iter().any(|p| p == "read_articles" || p == "read-articles");
     let has_read_comments = permissions.iter().any(|p| p == "read_comments" || p == "read-comments");
     let has_write_articles = permissions.iter().any(|p| p == "write_articles" || p == "write-articles");
@@ -196,10 +210,12 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
 
     let storage_ops = Arc::new(Mutex::new(Vec::new()));
     let meta_ops = Arc::new(Mutex::new(Vec::new()));
+    let db_ops = Arc::new(Mutex::new(Vec::new()));
 
     let state = WorkerState {
         has_network,
         has_storage,
+        has_database,
         has_read_articles,
         has_read_comments,
         has_write_articles,
@@ -209,6 +225,7 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
         comments_json,
         storage_ops: storage_ops.clone(),
         meta_ops: meta_ops.clone(),
+        db_ops: db_ops.clone(),
     };
 
     match execute_wasm(wasm_path, func_name, &input_bytes, state, cache) {
@@ -232,11 +249,23 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
                 })
             }).collect();
 
+            let dops: Vec<serde_json::Value> = db_ops.lock().unwrap().iter().map(|op| {
+                match op {
+                    DbOp::Query { sql, params } => serde_json::json!({
+                        "op": "query", "sql": sql, "params": params
+                    }),
+                    DbOp::Execute { sql, params } => serde_json::json!({
+                        "op": "execute", "sql": sql, "params": params
+                    }),
+                }
+            }).collect();
+
             serde_json::json!({
                 "success": true,
                 "output": output_b64,
                 "storage_ops": ops,
                 "meta_ops": mops,
+                "db_ops": dops,
             })
         }
         Err(e) => {
@@ -616,6 +645,71 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
             write_to_wasm_memory(&mut caller, hex.as_bytes())
         },
     ).map_err(|e| format!("Failed to register host_sha256: {}", e))?;
+
+    // ---- host_db_query (database permission) ----
+    // Plugin calls host_db_query(sql_ptr, sql_len, params_ptr, params_len) -> result_ptr
+    // Returns JSON string of rows, or empty on error/no permission.
+    linker.func_wrap(
+        "env", "host_db_query",
+        |mut caller: wasmtime::Caller<'_, WorkerState>,
+         sql_ptr: i32, sql_len: i32,
+         params_ptr: i32, params_len: i32| -> i32 {
+
+            if !caller.data().has_database { return 0; }
+
+            let memory = match caller.get_export("memory") {
+                Some(wasmtime::Extern::Memory(mem)) => mem,
+                _ => return 0,
+            };
+            let mem_data = memory.data(&caller);
+            let sql = match read_wasm_string(mem_data, sql_ptr, sql_len) {
+                Some(s) => s,
+                None => return 0,
+            };
+            let params = read_wasm_string(mem_data, params_ptr, params_len)
+                .unwrap_or_else(|| "[]".to_string());
+
+            // Collect the operation — actual execution happens in the bridge
+            if let Ok(mut ops) = caller.data().db_ops.lock() {
+                ops.push(DbOp::Query { sql, params });
+            }
+
+            // Return a placeholder — the bridge will replace with real results
+            // For now, return empty array as the WASM side gets results asynchronously
+            let placeholder = b"[]";
+            write_to_wasm_memory(&mut caller, placeholder)
+        },
+    ).map_err(|e| format!("Failed to register host_db_query: {}", e))?;
+
+    // ---- host_db_execute (database permission) ----
+    // Plugin calls host_db_execute(sql_ptr, sql_len, params_ptr, params_len) -> i32
+    // Returns 1 on success (op queued), 0 on no permission.
+    linker.func_wrap(
+        "env", "host_db_execute",
+        |mut caller: wasmtime::Caller<'_, WorkerState>,
+         sql_ptr: i32, sql_len: i32,
+         params_ptr: i32, params_len: i32| -> i32 {
+
+            if !caller.data().has_database { return 0; }
+
+            let memory = match caller.get_export("memory") {
+                Some(wasmtime::Extern::Memory(mem)) => mem,
+                _ => return 0,
+            };
+            let mem_data = memory.data(&caller);
+            let sql = match read_wasm_string(mem_data, sql_ptr, sql_len) {
+                Some(s) => s,
+                None => return 0,
+            };
+            let params = read_wasm_string(mem_data, params_ptr, params_len)
+                .unwrap_or_else(|| "[]".to_string());
+
+            if let Ok(mut ops) = caller.data().db_ops.lock() {
+                ops.push(DbOp::Execute { sql, params });
+            }
+            1
+        },
+    ).map_err(|e| format!("Failed to register host_db_execute: {}", e))?;
 
     // ---- WASI stubs (for wasm32-wasip1 compiled modules) ----
     let _ = linker.func_wrap("wasi_snapshot_preview1", "fd_write",

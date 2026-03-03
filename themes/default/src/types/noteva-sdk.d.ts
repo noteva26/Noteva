@@ -137,6 +137,7 @@ interface NotevaSDK {
     getInfo(): Promise<NotevaSiteInfo>;
     getNav(): Promise<NotevaNavItem[]>;
     getThemeConfig(key?: string): any;
+    getThemeSettings(key?: string): Promise<Record<string, string> | string | undefined>;
     getArticleUrl(article: { id: number | string; slug?: string }): string;
   };
   
@@ -282,6 +283,27 @@ interface NotevaSDK {
     autoRender(): void;
   };
   
+  // Emoji / Twemoji
+  emoji: {
+    categories: Array<{
+      id: string;
+      label: Record<string, string>;
+      icon: string;
+      emojis: Record<string, string>;
+    }>;
+    getCategories(locale?: string): Array<{
+      id: string;
+      label: string;
+      icon: string;
+      emojis: Record<string, string>;
+    }>;
+    getMap(): Record<string, string>;
+    loadTwemoji(): Promise<any>;
+    parse(element: HTMLElement, options?: Record<string, any>): Promise<void>;
+    parseSync(element: HTMLElement, options?: Record<string, any>): void;
+    isLoaded(): boolean;
+  };
+
   // 调试
   debug: {
     enable(): void;

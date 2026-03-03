@@ -26,7 +26,8 @@
     "less": "Less",
     "show": "Show",
     "hide": "Hide",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "done": "Done"
   },
   "nav": {
     "home": "Home",
@@ -200,6 +201,9 @@
     "siteFooter": "Footer Content",
     "siteFooterDesc": "Supports HTML for links, multi-line layout, etc.",
     "siteFooterPlaceholder": "© 2025 My Blog | <a href=\"https://example.com\">ICP License</a>",
+    "siteUrl": "Site URL",
+    "siteUrlDesc": "Public URL of your site, used for SEO, license verification, etc.",
+    "siteUrlPlaceholder": "https://myblog.com",
     "saveSettings": "Save Settings",
     "saveSuccess": "Settings saved",
     "saveFailed": "Save failed",
@@ -289,7 +293,10 @@
     "customJs": "Custom JavaScript",
     "customJsDesc": "Custom scripts injected at the bottom of the page, e.g. analytics, third-party widgets",
     "customJsPlaceholder": "// Enter custom JavaScript here\nconsole.log('Hello Noteva');",
-    "savingCustomCode": "Saving..."
+    "savingCustomCode": "Saving...",
+    "siteNameRequired": "Site name is required",
+    "siteUrlInvalid": "Site URL must start with http:// or https://",
+    "passwordRequired": "Please enter current and new password"
   },
   "theme": {
     "light": "Light",
@@ -313,7 +320,16 @@
     "store": "Store",
     "officialStore": "Official Theme Store",
     "storeDesc": "Browse and install official themes",
-    "noStoreThemes": "No themes available"
+    "noStoreThemes": "No themes available",
+    "checkUpdates": "Check Updates",
+    "updatesFound": "Found {count} theme update(s)",
+    "allUpToDate": "All themes are up to date",
+    "checkUpdateFailed": "Failed to check for updates",
+    "updateFailed": "Update failed",
+    "updateTo": "Update to {version}",
+    "update": "Update",
+    "confirmUpdateActive": "The current theme is in use. You need to refresh the page after updating. Continue?",
+    "updateRefreshHint": "Theme updated, please refresh the page to see the changes"
   },
   "pagination": {
     "page": "Page {current} of {total}",
@@ -438,7 +454,14 @@
     "store": "Store",
     "officialStore": "Official Plugin Store",
     "storeDesc": "Browse and install official plugins",
-    "noStorePlugins": "No plugins available"
+    "noStorePlugins": "No plugins available",
+    "checkUpdates": "Check Updates",
+    "updatesFound": "Found {count} plugin update(s)",
+    "allUpToDate": "All plugins are up to date",
+    "checkUpdateFailed": "Failed to check for updates",
+    "updateFailed": "Update failed",
+    "updateTo": "Update to {version}",
+    "update": "Update"
   },
   "user": {
     "title": "User Management",
@@ -506,5 +529,17 @@
     "failureReason": "Failure Reason",
     "time": "Time",
     "showing": "Showing {from} - {to} of {total}"
+  },
+  "editor": {
+    "plugins": "Plugins",
+    "emoji": "Emoji",
+    "searchEmoji": "Search emoji...",
+    "preview": "Preview",
+    "edit": "Edit",
+    "fullscreen": "Fullscreen",
+    "previewEmpty": "Nothing to preview",
+    "upload": "Upload image / file (supports paste & drag)",
+    "dropzoneTitle": "Drag files here, or click to browse",
+    "dropzoneHint": "Supports images, documents, and other files"
   }
 }

@@ -142,6 +142,7 @@ pub struct HasAdminResponse {
 /// - 4.2: User registration
 async fn register(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::db::repositories::SqlxSettingsRepository;
@@ -204,17 +205,39 @@ async fn register(
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
+    // Detect if behind HTTPS
+    let is_secure = headers.get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok())
+        .map(|p| p == "https")
+        .unwrap_or(false);
+    let secure_flag = if is_secure { "; Secure" } else { "" };
+
+    // Generate CSRF token
+    let csrf_token = crate::api::middleware::generate_csrf_token();
+
     // Set session cookie
-    let cookie = format!(
-        "session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
+    let session_cookie = format!(
+        "session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
         session.id,
-        7 * 24 * 60 * 60 // 7 days
+        7 * 24 * 60 * 60, // 7 days
+        secure_flag,
+    );
+    // CSRF cookie (NOT httpOnly — JS needs to read it)
+    let csrf_cookie = format!(
+        "csrf_token={}; Path=/; SameSite=Lax; Max-Age={}{}",
+        csrf_token,
+        7 * 24 * 60 * 60,
+        secure_flag,
     );
 
     let mut headers = HeaderMap::new();
     headers.insert(
         header::SET_COOKIE,
-        HeaderValue::from_str(&cookie).unwrap(),
+        HeaderValue::from_str(&session_cookie).unwrap(),
+    );
+    headers.append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&csrf_cookie).unwrap(),
     );
 
     Ok((
@@ -255,13 +278,13 @@ async fn login(
         state.rate_limiter.record_ip_request(ip).await;
     }
     
-    // Check username rate limit (5 attempts per 15 minutes)
-    if state.rate_limiter.is_username_limited(&body.username_or_email).await {
+    // Check username rate limit (progressive tiers)
+    if let Some(lockout_secs) = state.rate_limiter.check_username_limit(&body.username_or_email).await {
         log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), false, Some("Username rate limit exceeded")).await;
         return Err(ApiError::with_details(
             "RATE_LIMIT",
-            "登录失败次数过多，请15分钟后再试",
-            serde_json::json!({"retry_after": 900})
+            "登录失败次数过多，请稍后再试",
+            serde_json::json!({"retry_after": lockout_secs})
         ));
     }
     
@@ -321,17 +344,39 @@ async fn login(
     // Log successful login
     log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), true, None).await;
 
+    // Detect if behind HTTPS (for Secure flag on cookies)
+    let is_secure = headers.get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok())
+        .map(|p| p == "https")
+        .unwrap_or(false);
+    let secure_flag = if is_secure { "; Secure" } else { "" };
+
+    // Generate CSRF token
+    let csrf_token = crate::api::middleware::generate_csrf_token();
+
     // Set session cookie (httpOnly for security)
-    let cookie = format!(
-        "session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
+    let session_cookie = format!(
+        "session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
         session.id,
-        7 * 24 * 60 * 60 // 7 days
+        7 * 24 * 60 * 60, // 7 days
+        secure_flag,
+    );
+    // CSRF cookie (NOT httpOnly — JS needs to read it)
+    let csrf_cookie = format!(
+        "csrf_token={}; Path=/; SameSite=Lax; Max-Age={}{}",
+        csrf_token,
+        7 * 24 * 60 * 60,
+        secure_flag,
     );
 
     let mut response_headers = HeaderMap::new();
     response_headers.insert(
         header::SET_COOKIE,
-        HeaderValue::from_str(&cookie).unwrap(),
+        HeaderValue::from_str(&session_cookie).unwrap(),
+    );
+    response_headers.append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&csrf_cookie).unwrap(),
     );
 
     Ok((
@@ -374,12 +419,17 @@ async fn logout(
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
-    // Clear the session cookie
-    let clear_cookie = "session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+    // Clear the session cookie and CSRF cookie
+    let clear_session = "session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+    let clear_csrf = "csrf_token=; Path=/; SameSite=Lax; Max-Age=0";
     let mut response_headers = HeaderMap::new();
     response_headers.insert(
         header::SET_COOKIE,
-        HeaderValue::from_static(clear_cookie),
+        HeaderValue::from_static(clear_session),
+    );
+    response_headers.append(
+        header::SET_COOKIE,
+        HeaderValue::from_static(clear_csrf),
     );
 
     Ok((StatusCode::NO_CONTENT, response_headers))
@@ -522,7 +572,7 @@ async fn send_verification_code(
 
 use crate::db::DynDatabasePool;
 use crate::config::DatabaseDriver;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
 
 async fn save_email_code(pool: &DynDatabasePool, email: &str, code: &str) -> Result<()> {
@@ -540,7 +590,7 @@ async fn save_email_code(pool: &DynDatabasePool, email: &str, code: &str) -> Res
             .bind(code)
             .bind(expires_at)
             .bind(Utc::now())
-            .execute(pool.as_sqlite().unwrap())
+            .execute(pool.as_sqlite().context("expected sqlite pool")?)
             .await?;
         }
         DatabaseDriver::Mysql => {
@@ -551,7 +601,7 @@ async fn save_email_code(pool: &DynDatabasePool, email: &str, code: &str) -> Res
             .bind(code)
             .bind(expires_at)
             .bind(Utc::now())
-            .execute(pool.as_mysql().unwrap())
+            .execute(pool.as_mysql().context("expected mysql pool")?)
             .await?;
         }
     }
@@ -569,7 +619,7 @@ async fn verify_email_code(pool: &DynDatabasePool, email: &str, code: &str) -> R
             .bind(email)
             .bind(code)
             .bind(now)
-            .fetch_one(pool.as_sqlite().unwrap())
+            .fetch_one(pool.as_sqlite().context("expected sqlite pool")?)
             .await?
         }
         DatabaseDriver::Mysql => {
@@ -579,7 +629,7 @@ async fn verify_email_code(pool: &DynDatabasePool, email: &str, code: &str) -> R
             .bind(email)
             .bind(code)
             .bind(now)
-            .fetch_one(pool.as_mysql().unwrap())
+            .fetch_one(pool.as_mysql().context("expected mysql pool")?)
             .await?
         }
     };
@@ -592,13 +642,13 @@ async fn delete_email_code(pool: &DynDatabasePool, email: &str) -> Result<()> {
         DatabaseDriver::Sqlite => {
             sqlx::query("DELETE FROM email_verifications WHERE email = ?")
                 .bind(email)
-                .execute(pool.as_sqlite().unwrap())
+                .execute(pool.as_sqlite().context("expected sqlite pool")?)
                 .await?;
         }
         DatabaseDriver::Mysql => {
             sqlx::query("DELETE FROM email_verifications WHERE email = ?")
                 .bind(email)
-                .execute(pool.as_mysql().unwrap())
+                .execute(pool.as_mysql().context("expected mysql pool")?)
                 .await?;
         }
     }
@@ -654,7 +704,7 @@ async fn log_login_attempt(
             .bind(user_agent)
             .bind(success_int)
             .bind(failure_reason)
-            .execute(pool.as_sqlite().unwrap())
+            .execute(pool.as_sqlite().expect("expected sqlite pool"))
             .await
             .map(|_| ())
         }
@@ -667,7 +717,7 @@ async fn log_login_attempt(
             .bind(user_agent)
             .bind(success_int)
             .bind(failure_reason)
-            .execute(pool.as_mysql().unwrap())
+            .execute(pool.as_mysql().expect("expected mysql pool"))
             .await
             .map(|_| ())
         }

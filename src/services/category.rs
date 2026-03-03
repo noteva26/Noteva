@@ -452,7 +452,7 @@ impl CategoryService {
 
         match self.pool.driver() {
             DatabaseDriver::Sqlite => {
-                let pool = self.pool.as_sqlite().unwrap();
+                let pool = self.pool.as_sqlite_or_err()?;
                 for category_id in from_category_ids {
                     sqlx::query("UPDATE articles SET category_id = ? WHERE category_id = ?")
                         .bind(to_category_id)
@@ -463,7 +463,7 @@ impl CategoryService {
                 }
             }
             DatabaseDriver::Mysql => {
-                let pool = self.pool.as_mysql().unwrap();
+                let pool = self.pool.as_mysql_or_err()?;
                 for category_id in from_category_ids {
                     sqlx::query("UPDATE articles SET category_id = ? WHERE category_id = ?")
                         .bind(to_category_id)

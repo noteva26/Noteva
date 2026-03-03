@@ -43,12 +43,23 @@ pub async fn serve_static(
     
     // /themes/* -> serve theme static files (preview images, etc.)
     if path.starts_with("/themes/") {
-        return serve_theme_static(path).await;
+        return serve_theme_static(path, &state).await;
     }
     
     // /noteva-sdk.js and /noteva-sdk.css -> serve SDK files
     if path == "/noteva-sdk.js" || path == "/noteva-sdk.css" {
         return serve_sdk_file(path).await;
+    }
+    
+    // Root-level static files (e.g. /logo.png, /favicon.ico) -> try admin assets first
+    // These are public resources used by both admin panel and themes
+    {
+        let asset_path = path.trim_start_matches('/');
+        if asset_path.contains('.') && !asset_path.contains('/') {
+            if let Some(content) = AdminAssets::get(asset_path) {
+                return build_response(asset_path, &content.data);
+            }
+        }
     }
     
     // /manage/* -> admin assets
@@ -86,14 +97,19 @@ pub async fn serve_static(
 
 /// Serve theme static files (preview images, etc.) from disk
 /// Path format: /themes/{theme_name}/{file}
-async fn serve_theme_static(path: &str) -> Response {
+async fn serve_theme_static(path: &str, state: &AppState) -> Response {
     // path = /themes/default/preview.png
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     
-    // For default theme preview, try embedded assets first
-    if parts.len() >= 3 && parts[1] == "default" {
-        let file_name = parts[2..].join("/");
-        // Try to serve from embedded dist folder
+    if parts.len() < 3 {
+        return not_found();
+    }
+    
+    let theme_name = parts[1]; // e.g. "pixel" or "default"
+    let file_name = parts[2..].join("/");
+    
+    // For default theme, try embedded assets first
+    if theme_name == "default" {
         if let Some(content) = DefaultThemeAssets::get(&file_name) {
             let content_type = get_content_type(&file_name);
             return Response::builder()
@@ -105,21 +121,39 @@ async fn serve_theme_static(path: &str) -> Response {
         }
     }
     
-    // Fall back to disk for all themes
-    let file_path = PathBuf::from(".").join(path.trim_start_matches('/'));
+    // Resolve actual directory name via ThemeEngine (handles short name -> dir name mapping)
+    let actual_dir = if let Ok(engine) = state.theme_engine.read() {
+        let theme_path = engine.get_theme_path(theme_name);
+        theme_path
+    } else {
+        PathBuf::from("themes").join(theme_name)
+    };
     
-    match fs::read(&file_path).await {
-        Ok(contents) => {
-            let content_type = get_content_type(path);
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, content_type)
-                .header(header::CACHE_CONTROL, "public, max-age=3600")
-                .body(Body::from(contents))
-                .unwrap()
-        }
-        Err(_) => not_found(),
+    // Try serving from theme root directory (e.g. themes/Pixel Art/preview.png)
+    let file_path = actual_dir.join(&file_name);
+    if let Ok(contents) = fs::read(&file_path).await {
+        let content_type = get_content_type(&file_name);
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::CACHE_CONTROL, "public, max-age=3600")
+            .body(Body::from(contents))
+            .unwrap();
     }
+    
+    // Also try from dist/ subdirectory
+    let dist_file_path = actual_dir.join("dist").join(&file_name);
+    if let Ok(contents) = fs::read(&dist_file_path).await {
+        let content_type = get_content_type(&file_name);
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::CACHE_CONTROL, "public, max-age=3600")
+            .body(Body::from(contents))
+            .unwrap();
+    }
+    
+    not_found()
 }
 
 /// Serve uploaded files from disk
@@ -237,7 +271,13 @@ async fn serve_theme(path: &str, state: &AppState) -> Response {
 
 /// Try to serve from user theme directory
 async fn try_user_theme(theme: &str, asset_path: &str, state: &AppState) -> Option<Response> {
-    let theme_dir = PathBuf::from("themes").join(theme).join("dist");
+    // Resolve actual directory name via ThemeEngine
+    let theme_base = if let Ok(engine) = state.theme_engine.read() {
+        engine.get_theme_path(theme)
+    } else {
+        PathBuf::from("themes").join(theme)
+    };
+    let theme_dir = theme_base.join("dist");
     
     // Try exact file match (static assets like JS, CSS, images)
     let file_path = theme_dir.join(asset_path);
@@ -248,6 +288,12 @@ async fn try_user_theme(theme: &str, asset_path: &str, state: &AppState) -> Opti
             }
         }
         return Some(build_response(asset_path, &contents));
+    }
+    
+    // If the path looks like a static file (has extension), don't SPA fallback
+    // This prevents returning index.html for missing images/fonts/etc.
+    if asset_path.contains('.') && !asset_path.ends_with(".html") {
+        return None;
     }
     
     // SPA fallback: serve index.html for all routes
@@ -277,6 +323,12 @@ async fn serve_default_theme(asset_path: &str, state: Option<&AppState>) -> Resp
         return build_response(asset_path, &content.data);
     }
 
+    // If the path looks like a static file (has extension), don't SPA fallback
+    // This prevents returning index.html for missing images/fonts/etc.
+    if asset_path.contains('.') && !asset_path.ends_with(".html") {
+        return not_found();
+    }
+
     // SPA fallback: serve index.html for all routes
     // React Router handles client-side routing
     if let Some(content) = DefaultThemeAssets::get("index.html") {
@@ -297,23 +349,21 @@ async fn serve_default_theme(asset_path: &str, state: Option<&AppState>) -> Resp
 async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &str) -> Option<Vec<u8>> {
     let html = String::from_utf8_lossy(html_bytes);
     
-    // Get settings from database
+    // Get settings from database in a single batch query (was 8 individual queries)
     let settings_repo = SqlxSettingsRepository::new(state.pool.clone());
-    let site_name = settings_repo.get("site_name").await.ok().flatten()
-        .map(|s| s.value).unwrap_or_else(|| "Noteva".to_string());
-    let site_description = settings_repo.get("site_description").await.ok().flatten()
-        .map(|s| s.value).unwrap_or_default();
-    let site_subtitle = settings_repo.get("site_subtitle").await.ok().flatten()
-        .map(|s| s.value).unwrap_or_default();
-    let site_logo = settings_repo.get("site_logo").await.ok().flatten()
-        .map(|s| s.value).unwrap_or_else(|| "/logo.png".to_string());
-    let site_footer = settings_repo.get("site_footer").await.ok().flatten()
-        .map(|s| s.value).unwrap_or_default();
+    let settings = settings_repo.get_many(&[
+        "site_name", "site_description", "site_subtitle", "site_logo",
+        "site_footer", "custom_css", "custom_js", "site_url",
+    ]).await.unwrap_or_default();
     
-    let custom_css = settings_repo.get("custom_css").await.ok().flatten()
-        .map(|s| s.value).unwrap_or_default();
-    let custom_js = settings_repo.get("custom_js").await.ok().flatten()
-        .map(|s| s.value).unwrap_or_default();
+    let site_name = settings.get("site_name").cloned().unwrap_or_else(|| "Noteva".to_string());
+    let site_description = settings.get("site_description").cloned().unwrap_or_default();
+    let site_subtitle = settings.get("site_subtitle").cloned().unwrap_or_default();
+    let site_logo = settings.get("site_logo").cloned().unwrap_or_else(|| "/logo.png".to_string());
+    let site_footer = settings.get("site_footer").cloned().unwrap_or_default();
+    let custom_css = settings.get("custom_css").cloned().unwrap_or_default();
+    let custom_js = settings.get("custom_js").cloned().unwrap_or_default();
+    let site_url = settings.get("site_url").cloned().unwrap_or_default();
     
     // Build config JSON
     let config_json = serde_json::json!({
@@ -325,6 +375,8 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
     });
     
     let version = env!("CARGO_PKG_VERSION");
+    
+    let base_url = site_url.trim_end_matches('/');
     
     // Try to fetch article data for SEO if this is a post page
     let article_seo = if asset_path.starts_with("posts/") && !asset_path.contains('.') {
@@ -338,25 +390,125 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
         None
     };
     
+    // Try to fetch page data for SEO (e.g. /about, /links)
+    let page_seo = if article_seo.is_none()
+        && !asset_path.is_empty()
+        && asset_path != "index.html"
+        && !asset_path.starts_with("posts/")
+        && !asset_path.starts_with("categories/")
+        && !asset_path.starts_with("tags/")
+        && !asset_path.starts_with("manage/")
+        && !asset_path.contains('.')
+    {
+        let slug = asset_path.trim_end_matches('/');
+        if !slug.is_empty() {
+            fetch_page_seo(slug, &state.pool).await
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
     // Build meta tags for SEO
     let (title_tag, meta_tags, body_content) = if let Some(ref seo) = article_seo {
         let title = format!("{} - {}", seo.title, site_name);
         let description = seo.excerpt.replace('"', "&quot;");
-        let meta = format!(
+        let canonical_url = if base_url.is_empty() {
+            String::new()
+        } else {
+            format!("{}/posts/{}", base_url, seo.slug)
+        };
+        let og_image = seo.thumbnail.as_deref().unwrap_or("").to_string();
+        let og_image_full = if og_image.is_empty() {
+            String::new()
+        } else if og_image.starts_with("http") {
+            og_image.clone()
+        } else if !base_url.is_empty() {
+            format!("{}{}", base_url, og_image)
+        } else {
+            og_image.clone()
+        };
+        
+        let mut meta = format!(
             r#"<title>{}</title>
 <meta name="description" content="{}">
+<link rel="canonical" href="{}">"#,
+            html_escape(&title),
+            html_escape(&description),
+            html_escape(&canonical_url),
+        );
+        // Open Graph
+        meta.push_str(&format!(
+            r#"
 <meta property="og:title" content="{}">
 <meta property="og:description" content="{}">
 <meta property="og:type" content="article">
-<meta property="article:published_time" content="{}">
-<meta property="article:author" content="{}">"#,
-            html_escape(&title),
-            html_escape(&description),
+<meta property="og:site_name" content="{}">"#,
             html_escape(&seo.title),
             html_escape(&description),
-            seo.published_at,
             html_escape(&site_name),
-        );
+        ));
+        if !canonical_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<meta property=\"og:url\" content=\"{}\">",
+                html_escape(&canonical_url)
+            ));
+        }
+        if !og_image_full.is_empty() {
+            meta.push_str(&format!(
+                "\n<meta property=\"og:image\" content=\"{}\">",
+                html_escape(&og_image_full)
+            ));
+        }
+        meta.push_str(&format!(
+            r#"
+<meta property="article:published_time" content="{}">
+<meta property="article:modified_time" content="{}">"#,
+            seo.published_at,
+            seo.updated_at,
+        ));
+        // Twitter Card
+        meta.push_str(&format!(
+            r#"
+<meta name="twitter:card" content="{}">
+<meta name="twitter:title" content="{}">
+<meta name="twitter:description" content="{}">"#,
+            if og_image_full.is_empty() { "summary" } else { "summary_large_image" },
+            html_escape(&seo.title),
+            html_escape(&description),
+        ));
+        if !og_image_full.is_empty() {
+            meta.push_str(&format!(
+                "\n<meta name=\"twitter:image\" content=\"{}\">",
+                html_escape(&og_image_full)
+            ));
+        }
+        // JSON-LD structured data
+        let json_ld_image = if og_image_full.is_empty() {
+            "null".to_string()
+        } else {
+            format!("\"{}\"", og_image_full.replace('"', "\\\""))
+        };
+        meta.push_str(&format!(
+            r#"
+<script type="application/ld+json">
+{{"@context":"https://schema.org","@type":"BlogPosting","headline":"{}","description":"{}","datePublished":"{}","dateModified":"{}","image":{},"url":"{}","author":{{"@type":"Organization","name":"{}"}}}}</script>"#,
+            seo.title.replace('"', "\\\""),
+            seo.excerpt.replace('"', "\\\"").chars().take(160).collect::<String>(),
+            seo.published_at,
+            seo.updated_at,
+            json_ld_image,
+            canonical_url.replace('"', "\\\""),
+            site_name.replace('"', "\\\""),
+        ));
+        // RSS feed discovery
+        if !base_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<link rel=\"alternate\" type=\"application/rss+xml\" title=\"{}\" href=\"{}/feed.xml\">",
+                html_escape(&site_name), base_url
+            ));
+        }
         // Inject article content into <div id="root"> for crawlers
         let body = format!(
             r#"<article style="display:none" data-noteva-seo="true"><h1>{}</h1><div>{}</div></article>"#,
@@ -364,13 +516,111 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
             seo.content_html,
         );
         (Some(title), meta, body)
+    } else if let Some(ref seo) = page_seo {
+        // Page SEO (e.g. /about)
+        let title = format!("{} - {}", seo.title, site_name);
+        let description = seo.excerpt.replace('"', "&quot;");
+        let canonical_url = if base_url.is_empty() {
+            String::new()
+        } else {
+            format!("{}/{}", base_url, seo.slug)
+        };
+        let mut meta = format!(
+            r#"<title>{}</title>
+<meta name="description" content="{}">
+<link rel="canonical" href="{}">
+<meta property="og:title" content="{}">
+<meta property="og:description" content="{}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="{}">"#,
+            html_escape(&title),
+            html_escape(&description),
+            html_escape(&canonical_url),
+            html_escape(&seo.title),
+            html_escape(&description),
+            html_escape(&site_name),
+        );
+        if !canonical_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<meta property=\"og:url\" content=\"{}\">",
+                html_escape(&canonical_url)
+            ));
+        }
+        meta.push_str(&format!(
+            r#"
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{}">
+<meta name="twitter:description" content="{}">"#,
+            html_escape(&seo.title),
+            html_escape(&description),
+        ));
+        if !base_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<link rel=\"alternate\" type=\"application/rss+xml\" title=\"{}\" href=\"{}/feed.xml\">",
+                html_escape(&site_name), base_url
+            ));
+        }
+        let body = format!(
+            r#"<article style="display:none" data-noteva-seo="true"><h1>{}</h1><div>{}</div></article>"#,
+            html_escape(&seo.title),
+            seo.content_html,
+        );
+        (Some(title), meta, body)
     } else {
-        let meta = format!(
+        // Homepage / list pages
+        let canonical_url = if base_url.is_empty() {
+            String::new()
+        } else if asset_path.is_empty() || asset_path == "index.html" {
+            format!("{}/", base_url)
+        } else {
+            format!("{}/{}", base_url, asset_path.trim_end_matches('/'))
+        };
+        let mut meta = format!(
             r#"<title>{}</title>
 <meta name="description" content="{}">"#,
             html_escape(&site_name),
             html_escape(&site_description),
         );
+        if !canonical_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<link rel=\"canonical\" href=\"{}\">",
+                html_escape(&canonical_url)
+            ));
+            meta.push_str(&format!(
+                r#"
+<meta property="og:title" content="{}">
+<meta property="og:description" content="{}">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{}">
+<meta property="og:site_name" content="{}">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{}">
+<meta name="twitter:description" content="{}">"#,
+                html_escape(&site_name),
+                html_escape(&site_description),
+                html_escape(&canonical_url),
+                html_escape(&site_name),
+                html_escape(&site_name),
+                html_escape(&site_description),
+            ));
+        }
+        // JSON-LD for website
+        if !base_url.is_empty() {
+            meta.push_str(&format!(
+                r#"
+<script type="application/ld+json">
+{{"@context":"https://schema.org","@type":"WebSite","name":"{}","description":"{}","url":"{}"}}</script>"#,
+                site_name.replace('"', "\\\""),
+                site_description.replace('"', "\\\""),
+                base_url.replace('"', "\\\""),
+            ));
+        }
+        if !base_url.is_empty() {
+            meta.push_str(&format!(
+                "\n<link rel=\"alternate\" type=\"application/rss+xml\" title=\"{}\" href=\"{}/feed.xml\">",
+                html_escape(&site_name), base_url
+            ));
+        }
         (None, meta, String::new())
     };
     
@@ -435,6 +685,17 @@ struct ArticleSeo {
     excerpt: String,
     content_html: String,
     published_at: String,
+    updated_at: String,
+    thumbnail: Option<String>,
+    slug: String,
+}
+
+/// Page SEO data
+struct PageSeo {
+    title: String,
+    excerpt: String,
+    content_html: String,
+    slug: String,
 }
 
 /// Fetch article data for SEO injection
@@ -473,11 +734,44 @@ async fn fetch_article_seo(slug: &str, pool: &crate::db::DynDatabasePool, _site_
         .map(|d| d.to_rfc3339())
         .unwrap_or_default();
     
+    let updated_at = article.updated_at.to_rfc3339();
+    
     Some(ArticleSeo {
         title: article.title,
         excerpt,
         content_html: article.content_html,
         published_at,
+        updated_at,
+        thumbnail: article.thumbnail,
+        slug: article.slug,
+    })
+}
+
+/// Fetch page data for SEO injection
+async fn fetch_page_seo(slug: &str, pool: &crate::db::DynDatabasePool) -> Option<PageSeo> {
+    use crate::db::repositories::{PageRepository, SqlxPageRepository};
+    
+    let repo = SqlxPageRepository::new(pool.clone());
+    let page = repo.get_by_slug(slug).await.ok().flatten()?;
+    
+    if page.status != crate::models::PageStatus::Published {
+        return None;
+    }
+    
+    let excerpt = page.content
+        .replace('#', "")
+        .replace('*', "")
+        .replace('`', "")
+        .replace('\n', " ")
+        .chars()
+        .take(200)
+        .collect::<String>();
+    
+    Some(PageSeo {
+        title: page.title,
+        excerpt,
+        content_html: page.content_html,
+        slug: page.slug,
     })
 }
 
@@ -494,7 +788,7 @@ fn build_response(path: &str, data: &[u8]) -> Response {
     let content_type = get_content_type(path);
     let cache_control = if is_immutable(path) {
         "public, max-age=31536000, immutable"
-    } else if content_type == "text/html" {
+    } else if content_type.starts_with("text/html") {
         "no-cache"
     } else {
         "public, max-age=3600"

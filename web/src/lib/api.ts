@@ -10,6 +10,24 @@ export const api = axios.create({
   withCredentials: true, // Enable cookie-based authentication
 });
 
+// Helper: read a cookie value by name
+function getCookie(name: string): string | undefined {
+  const match = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+// Request interceptor: attach CSRF token on mutation requests
+api.interceptors.request.use((config) => {
+  const method = (config.method || "get").toLowerCase();
+  if (method !== "get" && method !== "head" && method !== "options") {
+    const csrfToken = getCookie("csrf_token");
+    if (csrfToken) {
+      config.headers["X-CSRF-Token"] = csrfToken;
+    }
+  }
+  return config;
+});
+
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => response,
@@ -19,9 +37,9 @@ api.interceptors.response.use(
       // and it's not an auth-related request
       const isManagePage = window.location.pathname.startsWith("/manage");
       const isAuthRequest = error.config?.url?.includes("/auth/");
-      const isAuthPage = window.location.pathname === "/manage/login" || 
-                         window.location.pathname === "/manage/setup";
-      
+      const isAuthPage = window.location.pathname === "/manage/login" ||
+        window.location.pathname === "/manage/setup";
+
       if (isManagePage && !isAuthRequest && !isAuthPage) {
         window.location.href = "/manage/login";
       }
@@ -66,16 +84,16 @@ export interface ListParams {
 export const authApi = {
   login: (usernameOrEmail: string, password: string) =>
     api.post<{ token: string; user: User }>("/auth/login", { username_or_email: usernameOrEmail, password }),
-  
+
   register: (username: string, email: string, password: string) =>
     api.post<{ user: User }>("/auth/register", { username, email, password }),
-  
+
   logout: () => api.post("/auth/logout"),
-  
+
   me: () => api.get<User>("/auth/me"),
-  
+
   hasAdmin: () => api.get<{ has_admin: boolean }>("/auth/has-admin"),
-  
+
   updateProfile: (data: { display_name?: string | null; avatar?: string | null }) =>
     api.put<User>("/auth/profile", data),
 
@@ -87,104 +105,111 @@ export const authApi = {
 export const articlesApi = {
   list: (params?: ListParams) =>
     api.get<ArticleListResult>("/articles", { params }),
-  
+
   get: (slug: string) => api.get<Article>(`/articles/${slug}`),
-  
+
   // Get article by ID (for admin editing - can access drafts)
   getById: (id: number) => api.get<Article>(`/admin/articles/${id}`),
-  
+
   create: (data: CreateArticleInput) =>
     api.post<Article>("/articles", data),
-  
+
   update: (id: number, data: UpdateArticleInput) =>
     api.put<Article>(`/admin/articles/${id}`, data),
-  
+
   delete: (id: number) => api.delete(`/admin/articles/${id}`),
 };
 
 // Categories API
 export const categoriesApi = {
   list: () => api.get<{ categories: Category[] }>("/categories"),
-  
+
   tree: () => api.get<{ categories: CategoryTree[] }>("/categories/tree"),
-  
+
   create: (data: CreateCategoryInput) =>
     api.post<Category>("/admin/categories", data),
-  
+
   update: (id: number, data: UpdateCategoryInput) =>
     api.put<Category>(`/admin/categories/${id}`, data),
-  
+
   delete: (id: number) => api.delete(`/admin/categories/${id}`),
 };
 
 // Tags API
 export const tagsApi = {
   list: () => api.get<{ tags: Tag[] }>("/tags"),
-  
+
   cloud: (limit?: number) =>
     api.get<{ tags: TagWithCount[] }>("/tags", { params: { cloud: true, limit } }),
-  
+
   create: (name: string) =>
     api.post<Tag>("/admin/tags", { name }),
-  
+
   delete: (id: number) => api.delete(`/admin/tags/${id}`),
 };
 
 // Admin API
 export const adminApi = {
   dashboard: () => api.get<DashboardStats>("/admin/dashboard"),
-  
+
   systemStats: () => api.get<SystemStats>("/admin/stats"),
-  
+
   themes: () => api.get<ThemeListResponse>("/admin/themes"),
-  
+
   reloadThemes: () => api.post<{ success: boolean; message: string; plugin_count: number }>("/admin/themes/reload"),
-  
+
   switchTheme: (theme: string) =>
     api.post<ThemeResponse>("/admin/themes/switch", { theme }),
-  
+
   // Theme installation
   uploadTheme: (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
     return api.post<ThemeInstallResponse>("/admin/themes/upload", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      headers: { "Content-Type": undefined as any },
     });
   },
-  
+
   listGitHubReleases: (repo: string) =>
     api.get<GitHubReleaseInfo[]>("/admin/themes/github/releases", { params: { repo } }),
-  
+
   installGitHubTheme: (downloadUrl: string) =>
     api.post<ThemeInstallResponse>("/admin/themes/github/install", { download_url: downloadUrl }),
-  
-  installThemeFromRepo: (repo: string) =>
-    api.post<ThemeInstallResponse>("/admin/themes/install-from-repo", { repo }),
-  
+
+  installThemeFromRepo: (repo: string, slug?: string) =>
+    api.post<ThemeInstallResponse>("/admin/themes/install-from-repo", { repo, slug }),
+
   deleteTheme: (name: string) =>
     api.delete(`/admin/themes/${name}`),
-  
+
   // Theme store
   getThemeStore: () => api.get<ThemeStoreResponse>("/admin/themes/store"),
-  
+
   // Check for theme updates
   checkThemeUpdates: () => api.get<ThemeUpdatesResponse>("/admin/themes/updates"),
-  
+
   // Update theme
   updateTheme: (name: string) =>
     api.post<ThemeInstallResponse>(`/admin/themes/${name}/update`),
-  
+
+  // Theme settings
+  getThemeSettings: (name: string) =>
+    api.get<PluginSettingsResponse>(`/admin/themes/${name}/settings`),
+
+  updateThemeSettings: (name: string, settings: Record<string, unknown>) =>
+    api.put<{ success: boolean }>(`/admin/themes/${name}/settings`, settings),
+
   getSettings: () => api.get<SiteSettings>("/admin/settings"),
-  
+
   updateSettings: (data: SiteSettingsInput) =>
     api.put<SiteSettings>("/admin/settings", data),
-  
+
   checkUpdate: (beta: boolean = false) =>
     api.get<UpdateCheckResponse>("/admin/update-check", { params: { beta } }),
-  
+
   performUpdate: (version: string, beta: boolean = false) =>
     api.post<PerformUpdateResponse>("/admin/update-perform", { version, beta }),
-  
+
   // Login logs (security)
   getLoginLogs: (params?: { page?: number; per_page?: number; username?: string; ip_address?: string; success?: boolean }) =>
     api.get<LoginLogsResponse>("/admin/login-logs", { params }),
@@ -198,48 +223,48 @@ export const siteApi = {
 // Plugins API
 export const pluginsApi = {
   list: () => api.get<PluginListResponse>("/admin/plugins"),
-  
+
   reload: () => api.post<{ success: boolean; message: string; plugin_count: number }>("/admin/plugins/reload"),
-  
+
   get: (id: string) => api.get<Plugin>(`/admin/plugins/${id}`),
-  
+
   toggle: (id: string, enabled: boolean) =>
     api.post<Plugin>(`/admin/plugins/${id}/toggle`, { enabled }),
-  
+
   getSettings: (id: string) =>
     api.get<PluginSettingsResponse>(`/admin/plugins/${id}/settings`),
-  
+
   updateSettings: (id: string, settings: Record<string, unknown>) =>
     api.post<{ success: boolean; settings: Record<string, unknown> }>(`/admin/plugins/${id}/settings`, settings),
-  
+
   // Plugin installation
   uploadPlugin: (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
     return api.post<PluginInstallResponse>("/admin/plugins/upload", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      headers: { "Content-Type": undefined as any },
     });
   },
-  
+
   listGitHubReleases: (repo: string) =>
     api.get<GitHubReleaseInfo[]>("/admin/plugins/github/releases", { params: { repo } }),
-  
+
   installGitHubPlugin: (downloadUrl: string) =>
     api.post<PluginInstallResponse>("/admin/plugins/github/install", { download_url: downloadUrl }),
-  
+
   uninstall: (id: string) =>
     api.delete(`/admin/plugins/${id}/uninstall`),
-  
+
   // Plugin store
   getStore: () => api.get<PluginStoreResponse>("/admin/plugins/store"),
-  
+
   // Check for plugin updates
   checkUpdates: () => api.get<PluginUpdatesResponse>("/admin/plugins/updates"),
-  
+
   // Install plugin from repo
   installFromRepo: (data: { repo: string; pluginId: string }) =>
     api.post<PluginInstallResponse>("/admin/plugins/install-from-repo", { repo: data.repo, plugin_id: data.pluginId }),
-  
+
   // Update plugin
   updatePlugin: (id: string) =>
     api.post<PluginInstallResponse>(`/admin/plugins/${id}/update`),
@@ -250,16 +275,25 @@ export const uploadApi = {
   image: (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
+    // Don't set Content-Type manually — let browser set it with correct boundary
     return api.post<UploadResponse>("/upload/image", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      headers: { "Content-Type": undefined as any },
     });
   },
-  
+
+  file: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<UploadResponse>("/upload/file", formData, {
+      headers: { "Content-Type": undefined as any },
+    });
+  },
+
   images: (files: File[]) => {
     const formData = new FormData();
     files.forEach((file) => formData.append("files", file));
     return api.post<MultiUploadResponse>("/upload/images", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      headers: { "Content-Type": undefined as any },
     });
   },
 };
@@ -391,6 +425,7 @@ export interface ThemeResponse {
   requires_noteva: string;
   compatible: boolean;
   compatibility_message: string | null;
+  has_settings: boolean;
 }
 
 export interface ThemeListResponse {
@@ -404,6 +439,7 @@ export interface StoreThemeInfo {
   version: string;
   description: string | null;
   author: string | null;
+  cover_image: string | null;
   github_url: string | null;
   external_url: string | null;
   license_type: string;
@@ -449,9 +485,12 @@ export interface SiteSettings {
   site_subtitle: string;
   site_logo: string;
   site_footer: string;
+  site_url?: string;
   comment_moderation?: string;
   moderation_keywords?: string;
   permalink_structure?: string;
+  custom_css?: string;
+  custom_js?: string;
   demo_mode?: boolean;
   [key: string]: string | boolean | undefined;
 }
@@ -485,6 +524,7 @@ export interface StorePluginInfo {
   version: string;
   description: string;
   author: string;
+  cover_image: string | null;
   github_url: string | null;
   external_url: string | null;
   license_type: string;
@@ -633,9 +673,9 @@ export interface LoginLogsResponse {
 export const commentsApi = {
   listPending: (params?: { page?: number; per_page?: number }) =>
     api.get<PendingCommentsResponse>("/admin/comments/pending", { params }),
-  
+
   approve: (id: number) => api.post(`/admin/comments/${id}/approve`),
-  
+
   reject: (id: number) => api.post(`/admin/comments/${id}/reject`),
 };
 

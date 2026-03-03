@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use sqlx::{Row, SqlitePool, MySqlPool};
 
-use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
 use crate::models::{Comment, CommentStatus, CommentWithMeta, CreateCommentInput, LikeTargetType};
 
@@ -64,73 +63,43 @@ impl CommentRepository for SqlxCommentRepository {
     }
     
     async fn create_with_status(&self, input: CreateCommentInput, user_id: Option<i64>, ip: Option<String>, ua: Option<String>, status: CommentStatus) -> Result<Comment> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => create_sqlite(self.pool.as_sqlite().unwrap(), input, user_id, ip, ua, status).await,
-            DatabaseDriver::Mysql => create_mysql(self.pool.as_mysql().unwrap(), input, user_id, ip, ua, status).await,
-        }
+        dispatch!(self, create, input, user_id, ip, ua, status)
     }
     
     async fn get_by_id(&self, id: i64) -> Result<Option<Comment>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => get_by_id_sqlite(self.pool.as_sqlite().unwrap(), id).await,
-            DatabaseDriver::Mysql => get_by_id_mysql(self.pool.as_mysql().unwrap(), id).await,
-        }
+        dispatch!(self, get_by_id, id)
     }
     
     async fn get_by_article(&self, article_id: i64, fingerprint: Option<&str>) -> Result<Vec<CommentWithMeta>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => get_by_article_sqlite(self.pool.as_sqlite().unwrap(), article_id, fingerprint).await,
-            DatabaseDriver::Mysql => get_by_article_mysql(self.pool.as_mysql().unwrap(), article_id, fingerprint).await,
-        }
+        dispatch!(self, get_by_article, article_id, fingerprint)
     }
     
     async fn list_pending(&self, page: i64, per_page: i64) -> Result<(Vec<CommentWithMeta>, i64)> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => list_pending_sqlite(self.pool.as_sqlite().unwrap(), page, per_page).await,
-            DatabaseDriver::Mysql => list_pending_mysql(self.pool.as_mysql().unwrap(), page, per_page).await,
-        }
+        dispatch!(self, list_pending, page, per_page)
     }
     
     async fn delete(&self, id: i64) -> Result<bool> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => delete_sqlite(self.pool.as_sqlite().unwrap(), id).await,
-            DatabaseDriver::Mysql => delete_mysql(self.pool.as_mysql().unwrap(), id).await,
-        }
+        dispatch!(self, delete, id)
     }
     
     async fn update_status(&self, id: i64, status: CommentStatus) -> Result<bool> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => update_status_sqlite(self.pool.as_sqlite().unwrap(), id, status).await,
-            DatabaseDriver::Mysql => update_status_mysql(self.pool.as_mysql().unwrap(), id, status).await,
-        }
+        dispatch!(self, update_status, id, status)
     }
     
     async fn add_like(&self, target_type: LikeTargetType, target_id: i64, user_id: Option<i64>, fingerprint: Option<String>) -> Result<bool> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => add_like_sqlite(self.pool.as_sqlite().unwrap(), target_type, target_id, user_id, fingerprint).await,
-            DatabaseDriver::Mysql => add_like_mysql(self.pool.as_mysql().unwrap(), target_type, target_id, user_id, fingerprint).await,
-        }
+        dispatch!(self, add_like, target_type, target_id, user_id, fingerprint)
     }
     
     async fn remove_like(&self, target_type: LikeTargetType, target_id: i64, user_id: Option<i64>, fingerprint: Option<String>) -> Result<bool> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => remove_like_sqlite(self.pool.as_sqlite().unwrap(), target_type, target_id, user_id, fingerprint).await,
-            DatabaseDriver::Mysql => remove_like_mysql(self.pool.as_mysql().unwrap(), target_type, target_id, user_id, fingerprint).await,
-        }
+        dispatch!(self, remove_like, target_type, target_id, user_id, fingerprint)
     }
     
     async fn is_liked(&self, target_type: LikeTargetType, target_id: i64, user_id: Option<i64>, fingerprint: Option<&str>) -> Result<bool> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => is_liked_sqlite(self.pool.as_sqlite().unwrap(), target_type, target_id, user_id, fingerprint).await,
-            DatabaseDriver::Mysql => is_liked_mysql(self.pool.as_mysql().unwrap(), target_type, target_id, user_id, fingerprint).await,
-        }
+        dispatch!(self, is_liked, target_type, target_id, user_id, fingerprint)
     }
     
     async fn increment_view(&self, article_id: i64) -> Result<()> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => increment_view_sqlite(self.pool.as_sqlite().unwrap(), article_id).await,
-            DatabaseDriver::Mysql => increment_view_mysql(self.pool.as_mysql().unwrap(), article_id).await,
-        }
+        dispatch!(self, increment_view, article_id)
     }
 }
 

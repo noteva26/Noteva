@@ -1,6 +1,6 @@
 {
   "name": "noteva-theme-default",
-  "version": "0.1.4-beta",
+  "version": "0.1.7-beta",
   "private": true,
   "type": "module",
   "scripts": {

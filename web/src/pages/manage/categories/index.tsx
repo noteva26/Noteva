@@ -1,17 +1,10 @@
 ﻿import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { categoriesApi, Category, CreateCategoryInput } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -30,15 +23,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
-import { Plus, Edit, Trash2, FolderTree, ChevronRight } from "lucide-react";
+import { Plus, Edit, Trash2, FolderTree } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 import { EmptyState } from "@/components/ui/empty-state";
-
-interface CategoryWithChildren extends Category {
-  children?: CategoryWithChildren[];
-}
 
 export default function CategoriesPage() {
   const { t } = useTranslation();
@@ -48,19 +36,16 @@ export default function CategoriesPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [deletingCategory, setDeletingCategory] = useState<Category | null>(null);
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   const [form, setForm] = useState({
     name: "",
     slug: "",
     description: "",
-    parent_id: null as number | null,
   });
 
   const fetchCategories = async () => {
     try {
       const response = await categoriesApi.list();
-      // 鍚庣杩斿洖 { categories: [...] }
       const cats = response.data?.categories || [];
       setCategories(Array.isArray(cats) ? cats : []);
     } catch (error) {
@@ -75,40 +60,9 @@ export default function CategoriesPage() {
     fetchCategories();
   }, []);
 
-  const buildTree = (items: Category[]): CategoryWithChildren[] => {
-    if (!items || !Array.isArray(items)) return [];
-    
-    const map = new Map<number, CategoryWithChildren>();
-    const roots: CategoryWithChildren[] = [];
-
-    items.forEach((item) => {
-      map.set(item.id, { ...item, children: [] });
-    });
-
-    items.forEach((item) => {
-      const node = map.get(item.id)!;
-      if (item.parent_id && map.has(item.parent_id)) {
-        map.get(item.parent_id)!.children!.push(node);
-      } else {
-        roots.push(node);
-      }
-    });
-
-    return roots;
-  };
-
-  const toggleExpand = (id: number) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const openCreateDialog = (parentId?: number) => {
+  const openCreateDialog = () => {
     setEditingCategory(null);
-    setForm({ name: "", slug: "", description: "", parent_id: parentId || null });
+    setForm({ name: "", slug: "", description: "" });
     setDialogOpen(true);
   };
 
@@ -118,7 +72,6 @@ export default function CategoriesPage() {
       name: category.name,
       slug: category.slug,
       description: category.description || "",
-      parent_id: category.parent_id,
     });
     setDialogOpen(true);
   };
@@ -128,7 +81,6 @@ export default function CategoriesPage() {
       toast.error(t("category.name"));
       return;
     }
-
     try {
       if (editingCategory) {
         await categoriesApi.update(editingCategory.id, form);
@@ -157,94 +109,6 @@ export default function CategoriesPage() {
     }
   };
 
-
-  const renderCategory = (category: CategoryWithChildren, level = 0, index = 0) => {
-    const hasChildren = category.children && category.children.length > 0;
-    const isExpanded = expandedIds.has(category.id);
-    const isDefaultCategory = category.slug === "uncategorized";
-
-    return (
-      <motion.div
-        key={category.id}
-        initial={{ opacity: 0, x: -10 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: index * 0.03 }}
-      >
-        <motion.div
-          className={cn(
-            "flex items-center gap-2 p-3 hover:bg-muted/50 rounded-lg transition-colors",
-            level > 0 && "ml-6"
-          )}
-          whileHover={{ x: 2 }}
-          transition={{ type: "spring", stiffness: 400, damping: 25 }}
-        >
-          <button
-            className={cn(
-              "p-1 rounded hover:bg-muted transition-colors",
-              !hasChildren && "invisible"
-            )}
-            onClick={() => toggleExpand(category.id)}
-          >
-            <ChevronRight
-              className={cn(
-                "h-4 w-4 transition-transform",
-                isExpanded && "rotate-90"
-              )}
-            />
-          </button>
-          <FolderTree className="h-4 w-4 text-muted-foreground" />
-          <span className="flex-1 font-medium">
-            {isDefaultCategory ? t("category.uncategorized") : category.name}
-          </span>
-          <span className="text-sm text-muted-foreground">{category.slug}</span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => openEditDialog(category)}
-            >
-              <Edit className="h-4 w-4" />
-            </Button>
-            {!isDefaultCategory && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  setDeletingCategory(category);
-                  setDeleteDialogOpen(true);
-                }}
-              >
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => openCreateDialog(category.id)}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
-        </motion.div>
-        <AnimatePresence>
-          {hasChildren && isExpanded && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2 }}
-              className="border-l ml-5 overflow-hidden"
-            >
-              {category.children!.map((child, i) => renderCategory(child, level + 1, i))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-    );
-  };
-
-  const tree = buildTree(categories);
-
   return (
     <div className="space-y-6">
       <motion.div
@@ -258,7 +122,7 @@ export default function CategoriesPage() {
           <p className="text-muted-foreground">{t("category.totalCategories")}</p>
         </div>
         <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-          <Button onClick={() => openCreateDialog()}>
+          <Button onClick={openCreateDialog}>
             <Plus className="h-4 w-4 mr-2" />
             {t("category.newCategory")}
           </Button>
@@ -278,16 +142,47 @@ export default function CategoriesPage() {
                   <div key={i} className="h-12 w-full skeleton-shimmer rounded" />
                 ))}
               </div>
-            ) : tree.length === 0 ? (
+            ) : categories.length === 0 ? (
               <EmptyState
                 icon={FolderTree}
                 title={t("category.noCategories")}
                 actionText={t("category.createFirst")}
-                onAction={() => openCreateDialog()}
+                onAction={openCreateDialog}
               />
             ) : (
               <div className="space-y-1">
-                {tree.map((category, i) => renderCategory(category, 0, i))}
+                {categories.map((category, i) => {
+                  const isDefault = category.slug === "uncategorized";
+                  return (
+                    <motion.div
+                      key={category.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.03 }}
+                      className="flex items-center gap-2 p-3 hover:bg-muted/50 rounded-lg transition-colors"
+                    >
+                      <FolderTree className="h-4 w-4 text-muted-foreground" />
+                      <span className="flex-1 font-medium">
+                        {isDefault ? t("category.uncategorized") : category.name}
+                      </span>
+                      <span className="text-sm text-muted-foreground">{category.slug}</span>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(category)}>
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        {!isDefault && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => { setDeletingCategory(category); setDeleteDialogOpen(true); }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </div>
             )}
           </CardContent>
@@ -319,29 +214,6 @@ export default function CategoriesPage() {
                 onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
                 placeholder="url-friendly-slug"
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="parent">{t("category.parent")}</Label>
-              <Select
-                value={form.parent_id?.toString() || "none"}
-                onValueChange={(v) =>
-                  setForm((f) => ({ ...f, parent_id: v === "none" ? null : parseInt(v) }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t("category.parent")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t("category.noParent")}</SelectItem>
-                  {Array.isArray(categories) && categories
-                    .filter((c) => c.id !== editingCategory?.id)
-                    .map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id.toString()}>
-                        {cat.name}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="description">{t("category.description")}</Label>
@@ -381,4 +253,3 @@ export default function CategoriesPage() {
     </div>
   );
 }
-

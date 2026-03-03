@@ -10,7 +10,6 @@
 //! - 3.1: WHEN 用户为文章添加标签 THEN Tag_Service SHALL 创建或复用已有标签并建立关联
 //! - 3.4: THE Tag_Service SHALL 提供标签云功能，按使用频率排序
 
-use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
 use crate::models::{Tag, TagWithCount};
 use anyhow::{Context, Result};
@@ -77,107 +76,43 @@ impl SqlxTagRepository {
 #[async_trait]
 impl TagRepository for SqlxTagRepository {
     async fn create(&self, tag: &Tag) -> Result<Tag> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                create_tag_sqlite(self.pool.as_sqlite().unwrap(), tag).await
-            }
-            DatabaseDriver::Mysql => {
-                create_tag_mysql(self.pool.as_mysql().unwrap(), tag).await
-            }
-        }
+        dispatch!(self, create_tag, tag)
     }
 
     async fn get_by_id(&self, id: i64) -> Result<Option<Tag>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_tag_by_id_sqlite(self.pool.as_sqlite().unwrap(), id).await
-            }
-            DatabaseDriver::Mysql => {
-                get_tag_by_id_mysql(self.pool.as_mysql().unwrap(), id).await
-            }
-        }
+        dispatch!(self, get_tag_by_id, id)
     }
 
     async fn get_by_slug(&self, slug: &str) -> Result<Option<Tag>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_tag_by_slug_sqlite(self.pool.as_sqlite().unwrap(), slug).await
-            }
-            DatabaseDriver::Mysql => {
-                get_tag_by_slug_mysql(self.pool.as_mysql().unwrap(), slug).await
-            }
-        }
+        dispatch!(self, get_tag_by_slug, slug)
     }
 
     async fn get_by_name(&self, name: &str) -> Result<Option<Tag>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_tag_by_name_sqlite(self.pool.as_sqlite().unwrap(), name).await
-            }
-            DatabaseDriver::Mysql => {
-                get_tag_by_name_mysql(self.pool.as_mysql().unwrap(), name).await
-            }
-        }
+        dispatch!(self, get_tag_by_name, name)
     }
 
     async fn list(&self) -> Result<Vec<Tag>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => list_tags_sqlite(self.pool.as_sqlite().unwrap()).await,
-            DatabaseDriver::Mysql => list_tags_mysql(self.pool.as_mysql().unwrap()).await,
-        }
+        dispatch!(self, list_tags)
     }
 
     async fn get_with_counts(&self, limit: usize) -> Result<Vec<TagWithCount>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_tags_with_counts_sqlite(self.pool.as_sqlite().unwrap(), limit).await
-            }
-            DatabaseDriver::Mysql => {
-                get_tags_with_counts_mysql(self.pool.as_mysql().unwrap(), limit).await
-            }
-        }
+        dispatch!(self, get_tags_with_counts, limit)
     }
 
     async fn delete(&self, id: i64) -> Result<()> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => delete_tag_sqlite(self.pool.as_sqlite().unwrap(), id).await,
-            DatabaseDriver::Mysql => delete_tag_mysql(self.pool.as_mysql().unwrap(), id).await,
-        }
+        dispatch!(self, delete_tag, id)
     }
 
     async fn add_to_article(&self, tag_id: i64, article_id: i64) -> Result<()> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                add_tag_to_article_sqlite(self.pool.as_sqlite().unwrap(), tag_id, article_id).await
-            }
-            DatabaseDriver::Mysql => {
-                add_tag_to_article_mysql(self.pool.as_mysql().unwrap(), tag_id, article_id).await
-            }
-        }
+        dispatch!(self, add_tag_to_article, tag_id, article_id)
     }
 
     async fn remove_from_article(&self, tag_id: i64, article_id: i64) -> Result<()> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                remove_tag_from_article_sqlite(self.pool.as_sqlite().unwrap(), tag_id, article_id)
-                    .await
-            }
-            DatabaseDriver::Mysql => {
-                remove_tag_from_article_mysql(self.pool.as_mysql().unwrap(), tag_id, article_id)
-                    .await
-            }
-        }
+        dispatch!(self, remove_tag_from_article, tag_id, article_id)
     }
     
     async fn get_by_article_id(&self, article_id: i64) -> Result<Vec<Tag>> {
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                get_tags_by_article_sqlite(self.pool.as_sqlite().unwrap(), article_id).await
-            }
-            DatabaseDriver::Mysql => {
-                get_tags_by_article_mysql(self.pool.as_mysql().unwrap(), article_id).await
-            }
-        }
+        dispatch!(self, get_tags_by_article, article_id)
     }
 }
 

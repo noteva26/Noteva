@@ -40,6 +40,18 @@ pub trait DatabasePool: Send + Sync {
 
     /// Get the underlying MySQL pool if this is a MySQL connection
     fn as_mysql(&self) -> Option<&MySqlPool>;
+
+    /// Get the underlying SQLite pool, or return an error if this is not a SQLite connection
+    fn as_sqlite_or_err(&self) -> Result<&SqlitePool> {
+        self.as_sqlite()
+            .ok_or_else(|| anyhow::anyhow!("Expected SQLite pool but got {:?}", self.driver()))
+    }
+
+    /// Get the underlying MySQL pool, or return an error if this is not a MySQL connection
+    fn as_mysql_or_err(&self) -> Result<&MySqlPool> {
+        self.as_mysql()
+            .ok_or_else(|| anyhow::anyhow!("Expected MySQL pool but got {:?}", self.driver()))
+    }
 }
 
 /// SQLite connection pool implementation

@@ -21,6 +21,7 @@ pub struct SiteInfoResponse {
     pub site_subtitle: String,
     pub site_logo: String,
     pub site_footer: String,
+    pub site_url: String,
     pub email_verification_enabled: String,
     pub permalink_structure: String,
     pub demo_mode: bool,
@@ -101,6 +102,15 @@ async fn get_site_info(
         .flatten()
         .unwrap_or_default();
 
+    // Get site_url
+    let site_url = state
+        .settings_service
+        .get("site_url")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
     Json(SiteInfoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         site_name: settings.site_name,
@@ -108,6 +118,7 @@ async fn get_site_info(
         site_subtitle: settings.site_subtitle,
         site_logo: settings.site_logo,
         site_footer: settings.site_footer,
+        site_url,
         email_verification_enabled,
         permalink_structure,
         demo_mode: crate::api::middleware::is_demo_mode(),

@@ -59,17 +59,34 @@ cargo run --release
 # 后台: http://localhost:8080/manage
 ```
 
-或者下载预编译的二进制文件：
+### 一键脚本部署（推荐）
+
+适用于 Linux / macOS，自动下载最新版、交互式配置、注册系统服务：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/noteva26/Noteva/main/install.sh | bash
+```
+
+脚本会自动完成：
+1. 🔍 检测系统架构（x86_64 / arm64）
+2. 📦 下载最新 Release 二进制文件
+3. ⚙️ 交互式配置（数据库、缓存、端口等）
+4. 🔧 注册 systemd / launchd 系统服务（可选）
+5. 🚀 启动 Noteva
+
+已安装过？再次运行脚本会进入**升级模式**，仅更新二进制文件，保留配置和数据。
+
+### 手动下载二进制
 
 ```bash
 # 下载最新版本
-wget https://github.com/noteva26/noteva/releases/latest/download/noteva-linux-x64
+wget https://github.com/noteva26/Noteva/releases/latest/download/noteva-linux-x86_64.tar.gz
 
-# 赋予执行权限
-chmod +x noteva-linux-x64
+# 解压
+tar -xzf noteva-linux-x86_64.tar.gz
 
 # 运行
-./noteva-linux-x64
+chmod +x noteva && ./noteva
 ```
 
 ### Docker 部署
@@ -191,7 +208,7 @@ Noteva.ready(async () => {
 });
 ```
 
-详见 [主题开发文档](docs/主题开发文档.md)
+详见 [主题开发文档](docs/theme-development.md)
 
 ## 🔌 插件开发
 
@@ -213,7 +230,7 @@ plugins/my-plugin/
 - **friendlinks** - 友情链接插件
 - **profile** - 个人主页插件
 
-详见 [插件开发文档](docs/插件开发文档.md)
+详见 [插件开发文档](docs/plugin-development.md)
 
 ## 🚢 部署
 

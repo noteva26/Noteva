@@ -1,6 +1,6 @@
 {
   "name": "noteva",
-  "version": "0.0.9-beta",
+  "version": "0.1.7-beta",
   "private": true,
   "description": "A lightweight modern blog system",
   "scripts": {
@@ -12,7 +12,11 @@
     "dev:web": "cd web && pnpm run dev",
     "dev:theme": "cd themes/default && pnpm run dev"
   },
-  "keywords": ["blog", "cms", "rust"],
+  "keywords": [
+    "blog",
+    "cms",
+    "rust"
+  ],
   "author": "Noteva Team",
   "license": "MIT"
 }
