@@ -8,6 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
+use serde_json::json;
 
 /// Request for creating/updating a category
 #[derive(Debug, Deserialize)]
@@ -93,6 +94,12 @@ pub async fn create_category(
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
+    // Hook: category_after_create
+    state.hook_manager.trigger(
+        "category_after_create",
+        json!({ "id": category.id, "name": category.name, "slug": category.slug }),
+    );
+
     Ok((StatusCode::CREATED, Json(category.into())))
 }
 
@@ -139,6 +146,12 @@ pub async fn delete_category(
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
+    // Hook: category_after_delete
+    state.hook_manager.trigger(
+        "category_after_delete",
+        json!({ "id": id }),
+    );
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -156,6 +169,12 @@ pub async fn create_tag(
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
+    // Hook: tag_after_create
+    state.hook_manager.trigger(
+        "tag_after_create",
+        json!({ "id": tag.id, "name": tag.name, "slug": tag.slug }),
+    );
+
     Ok((StatusCode::CREATED, Json(tag.into())))
 }
 
@@ -172,6 +191,12 @@ pub async fn delete_tag(
         .delete(id)
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    // Hook: tag_after_delete
+    state.hook_manager.trigger(
+        "tag_after_delete",
+        json!({ "id": id }),
+    );
 
     Ok(StatusCode::NO_CONTENT)
 }

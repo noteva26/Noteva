@@ -1,5 +1,5 @@
 {
-  "version": "0.1.6-beta",
+  "version": "0.1.8-beta",
   "hooks": [
     {
       "name": "article_before_create",
@@ -113,6 +113,23 @@
       "output_schema": null,
       "scope": "backend",
       "available_since": "0.1.3-beta"
+    },
+    {
+      "name": "article_status_change",
+      "type": "action",
+      "description": "文章状态变化时触发（草稿→发布、发布→归档等），可用于推送通知、Webhook、SEO 提交",
+      "trigger_point": "src/services/article.rs",
+      "input_schema": {
+        "id": "number",
+        "title": "string",
+        "slug": "string",
+        "old_status": "string",
+        "new_status": "string",
+        "trigger": "string"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
     },
     {
       "name": "article_before_display",
@@ -667,6 +684,304 @@
       },
       "scope": "backend",
       "available_since": "0.1.6-beta"
+    },
+    {
+      "name": "page_before_create",
+      "type": "filter",
+      "description": "页面创建前触发，可修改页面数据",
+      "trigger_point": "src/services/page.rs",
+      "input_schema": {
+        "title": "string",
+        "slug": "string",
+        "content": "string"
+      },
+      "output_schema": {
+        "title": "string",
+        "slug": "string",
+        "content": "string"
+      },
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "page_after_create",
+      "type": "action",
+      "description": "页面创建成功后触发",
+      "trigger_point": "src/services/page.rs",
+      "input_schema": {
+        "id": "number",
+        "title": "string",
+        "slug": "string"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "page_before_update",
+      "type": "filter",
+      "description": "页面更新前触发，可修改更新数据",
+      "trigger_point": "src/services/page.rs",
+      "input_schema": {
+        "id": "number",
+        "title": "string",
+        "slug": "string",
+        "content": "string"
+      },
+      "output_schema": {
+        "id": "number",
+        "title": "string",
+        "slug": "string",
+        "content": "string"
+      },
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "page_after_update",
+      "type": "action",
+      "description": "页面更新成功后触发",
+      "trigger_point": "src/services/page.rs",
+      "input_schema": {
+        "id": "number",
+        "title": "string",
+        "slug": "string"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "page_before_delete",
+      "type": "filter",
+      "description": "页面删除前触发",
+      "trigger_point": "src/services/page.rs",
+      "input_schema": {
+        "id": "number",
+        "title": "string"
+      },
+      "output_schema": {
+        "id": "number",
+        "title": "string"
+      },
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "page_after_delete",
+      "type": "action",
+      "description": "页面删除成功后触发",
+      "trigger_point": "src/services/page.rs",
+      "input_schema": {
+        "id": "number",
+        "success": "boolean"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "category_after_create",
+      "type": "action",
+      "description": "分类创建成功后触发",
+      "trigger_point": "src/services/category.rs",
+      "input_schema": {
+        "id": "number",
+        "name": "string",
+        "slug": "string"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "category_after_delete",
+      "type": "action",
+      "description": "分类删除成功后触发",
+      "trigger_point": "src/services/category.rs",
+      "input_schema": {
+        "id": "number",
+        "success": "boolean"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "tag_after_create",
+      "type": "action",
+      "description": "标签创建成功后触发",
+      "trigger_point": "src/services/tag.rs",
+      "input_schema": {
+        "id": "number",
+        "name": "string",
+        "slug": "string"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "tag_after_delete",
+      "type": "action",
+      "description": "标签删除成功后触发",
+      "trigger_point": "src/services/tag.rs",
+      "input_schema": {
+        "id": "number",
+        "success": "boolean"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "comment_approve",
+      "type": "action",
+      "description": "评论审核通过时触发",
+      "trigger_point": "src/services/comment.rs",
+      "input_schema": {
+        "id": "number",
+        "article_id": "number",
+        "content": "string"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "comment_reject",
+      "type": "action",
+      "description": "评论审核拒绝时触发",
+      "trigger_point": "src/services/comment.rs",
+      "input_schema": {
+        "id": "number",
+        "article_id": "number"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "user_profile_update",
+      "type": "action",
+      "description": "用户修改个人资料时触发",
+      "trigger_point": "src/services/user.rs",
+      "input_schema": {
+        "user_id": "number",
+        "changes": "object"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "user_password_change",
+      "type": "action",
+      "description": "用户修改密码时触发",
+      "trigger_point": "src/services/user.rs",
+      "input_schema": {
+        "user_id": "number",
+        "timestamp": "string"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "settings_before_save",
+      "type": "filter",
+      "description": "站点设置保存前触发，可修改或拦截设置",
+      "trigger_point": "src/services/settings.rs",
+      "input_schema": {
+        "settings": "object"
+      },
+      "output_schema": {
+        "settings": "object"
+      },
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "settings_after_save",
+      "type": "action",
+      "description": "站点设置保存成功后触发",
+      "trigger_point": "src/services/settings.rs",
+      "input_schema": {
+        "settings": "object"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "feed_filter",
+      "type": "filter",
+      "description": "RSS Feed XML 输出前触发，插件可修改 Feed 内容",
+      "trigger_point": "src/api/seo.rs",
+      "input_schema": {
+        "xml": "string"
+      },
+      "output_schema": {
+        "xml": "string"
+      },
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "sitemap_filter",
+      "type": "filter",
+      "description": "Sitemap XML 输出前触发，插件可修改 Sitemap 内容",
+      "trigger_point": "src/api/seo.rs",
+      "input_schema": {
+        "xml": "string"
+      },
+      "output_schema": {
+        "xml": "string"
+      },
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "article_list_filter",
+      "type": "filter",
+      "description": "文章列表返回前触发，插件可修改列表结果",
+      "trigger_point": "src/api/articles.rs",
+      "input_schema": {
+        "articles": "array",
+        "total": "number"
+      },
+      "output_schema": {
+        "articles": "array",
+        "total": "number"
+      },
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "cron_register",
+      "type": "action",
+      "description": "系统启动时触发，通知插件定时任务间隔",
+      "trigger_point": "src/main.rs",
+      "input_schema": {
+        "interval_seconds": "number",
+        "timestamp": "string"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
+    },
+    {
+      "name": "cron_tick",
+      "type": "action",
+      "description": "每 60 秒触发一次，插件可执行周期性任务",
+      "trigger_point": "src/main.rs",
+      "input_schema": {
+        "timestamp": "string",
+        "tick_count": "number"
+      },
+      "output_schema": null,
+      "scope": "backend",
+      "available_since": "0.1.8-beta"
     }
   ]
 }

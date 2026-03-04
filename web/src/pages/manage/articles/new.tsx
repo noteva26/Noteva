@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Save, X, Loader2, Check } from "lucide-react";
+import { ArrowLeft, Save, X, Loader2, Check, Clock, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import MarkdownEditor, { type MarkdownEditorRef } from "@/components/ui/markdown-editor";
@@ -41,6 +41,8 @@ interface EnabledPluginInfo {
   };
 }
 
+const DRAFT_KEY = "noteva_new_article_draft";
+
 export default function NewArticlePage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -53,6 +55,7 @@ export default function NewArticlePage() {
   const [pluginButtons, setPluginButtons] = useState<PluginEditorButton[]>([]);
   const [dataReady, setDataReady] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [hasDraftRecovery, setHasDraftRecovery] = useState(false);
 
   const [form, setForm] = useState({
     title: "",
@@ -60,6 +63,7 @@ export default function NewArticlePage() {
     content: "",
     status: "draft" as "draft" | "published",
     category_id: null as number | null,
+    scheduled_at: "",
   });
 
   useEffect(() => {
@@ -77,6 +81,53 @@ export default function NewArticlePage() {
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasUnsavedChanges]);
+
+  // Recover draft from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const draft = JSON.parse(saved);
+        if (draft.title || draft.content) {
+          setHasDraftRecovery(true);
+        }
+      }
+    } catch { }
+  }, []);
+
+  const recoverDraft = () => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const draft = JSON.parse(saved);
+        setForm((f) => ({ ...f, ...draft }));
+        if (draft.selectedTags) setSelectedTags(draft.selectedTags);
+        setHasDraftRecovery(false);
+        toast.success(t("article.draftRecovered"));
+      }
+    } catch { }
+  };
+
+  const dismissDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+    setHasDraftRecovery(false);
+  };
+
+  // Auto-save to localStorage every 5 seconds
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const timer = setTimeout(() => {
+      try {
+        const editorContent = editorRef.current?.getValue() || form.content;
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({
+          title: form.title, slug: form.slug, content: editorContent,
+          category_id: form.category_id, scheduled_at: form.scheduled_at,
+          selectedTags,
+        }));
+      } catch { }
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [hasUnsavedChanges, form, selectedTags]);
 
   useEffect(() => {
     Promise.all([
@@ -141,10 +192,12 @@ export default function NewArticlePage() {
         status,
         category_id: currentForm.category_id,
         tag_ids: selectedTags,
+        scheduled_at: currentForm.scheduled_at ? new Date(currentForm.scheduled_at).toISOString() : undefined,
       };
       const response = await articlesApi.create(data);
       setSaveSuccess(true);
       setHasUnsavedChanges(false);
+      localStorage.removeItem(DRAFT_KEY);
       toast.success(status === "published" ? t("article.publishSuccess") : t("article.saveSuccess"));
       setTimeout(() => {
         if (status === "published") {
@@ -183,6 +236,19 @@ export default function NewArticlePage() {
           </Button>
         </div>
       </div>
+
+      {hasDraftRecovery && (
+        <div className="flex items-center justify-between p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+          <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400">
+            <RotateCcw className="h-4 w-4" />
+            {t("article.draftFound")}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={dismissDraft}>{t("common.dismiss")}</Button>
+            <Button size="sm" onClick={recoverDraft}>{t("article.recoverDraft")}</Button>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
@@ -261,6 +327,25 @@ export default function NewArticlePage() {
                 ))}
                 {tags.length === 0 && <p className="text-sm text-muted-foreground">{t("tag.noTags")}</p>}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle className="text-base flex items-center gap-2"><Clock className="h-4 w-4" />{t("article.scheduledPublish")}</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <Input
+                type="datetime-local"
+                value={form.scheduled_at}
+                onChange={(e) => setForm((f) => ({ ...f, scheduled_at: e.target.value }))}
+              />
+              {form.scheduled_at && (
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">{t("article.scheduledHint")}</p>
+                  <Button variant="ghost" size="sm" onClick={() => setForm((f) => ({ ...f, scheduled_at: "" }))}>
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

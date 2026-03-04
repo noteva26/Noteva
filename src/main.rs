@@ -110,7 +110,7 @@ async fn main() -> Result<()> {
         markdown_renderer,
         hook_manager.clone(),
     ));
-    let page_service = Arc::new(PageService::new(page_repo, cache.clone()));
+    let page_service = Arc::new(PageService::with_hooks(page_repo, cache.clone(), hook_manager.clone()));
     let nav_service = Arc::new(NavItemService::new(nav_repo, cache.clone()));
 
     // Create comment service with hooks and settings support
@@ -313,6 +313,48 @@ async fn main() -> Result<()> {
             }
         });
     }
+    // Start scheduled publish checker + cron tick (runs every 60 seconds)
+    {
+        let article_svc = state.article_service.clone();
+        let db_pool = pool.clone();
+        let cron_hm = hook_manager.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                // Find draft articles scheduled for publication
+                let now = chrono::Utc::now();
+                let article_repo = noteva::db::repositories::SqlxArticleRepository::new(db_pool.clone());
+                use noteva::db::repositories::ArticleRepository;
+                let params = noteva::models::ListParams::new(1, 10000);
+                if let Ok(all) = article_repo.list(params.offset(), params.limit()).await {
+                    for article in all {
+                        if article.status == noteva::models::ArticleStatus::Draft {
+                            if let Some(scheduled) = article.scheduled_at {
+                                if scheduled <= now {
+                                    tracing::info!(article_id = article.id, title = %article.title, "auto-publishing scheduled article");
+                                    let mut update = noteva::models::UpdateArticleInput::new();
+                                    update.status = Some(noteva::models::ArticleStatus::Published);
+                                    if let Err(e) = article_svc.update(article.id, update, None).await {
+                                        tracing::error!(article_id = article.id, error = %e, "failed to auto-publish scheduled article");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Hook: cron_tick — fire every 60s for plugins with periodic tasks
+                cron_hm.trigger(
+                    "cron_tick",
+                    serde_json::json!({
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    }),
+                );
+            }
+        });
+    }
 
     // Trigger system_init hook
     hook_manager.trigger(
@@ -321,6 +363,15 @@ async fn main() -> Result<()> {
             "version": env!("CARGO_PKG_VERSION"),
             "theme": config.theme.active,
         })
+    );
+
+    // Hook: cron_register — let plugins declare periodic tasks at startup
+    hook_manager.trigger(
+        "cron_register",
+        serde_json::json!({
+            "interval_seconds": 60,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        }),
     );
 
     // Build router

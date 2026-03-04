@@ -395,6 +395,16 @@ impl UserService {
             .update(&user)
             .await
             .context("Failed to update user")?;
+
+        // Hook: user_profile_update
+        self.trigger_hook(
+            "user_profile_update",
+            json!({
+                "id": updated.id,
+                "username": updated.username,
+                "display_name": updated.display_name,
+            }),
+        );
         
         Ok(updated)
     }

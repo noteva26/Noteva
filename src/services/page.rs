@@ -4,7 +4,9 @@ use crate::cache::{Cache, CacheLayer};
 use crate::db::repositories::PageRepository;
 use crate::models::{Page, PageStatus};
 use crate::services::MarkdownRenderer;
+use crate::plugin::HookManager;
 use anyhow::{Context, Result};
+use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,6 +24,7 @@ pub struct PageService {
     markdown: MarkdownRenderer,
     cache: Arc<Cache>,
     cache_ttl: Duration,
+    hook_manager: Option<Arc<HookManager>>,
 }
 
 impl PageService {
@@ -31,10 +34,37 @@ impl PageService {
             markdown: MarkdownRenderer::new(),
             cache,
             cache_ttl: Duration::from_secs(PAGE_CACHE_TTL_SECS),
+            hook_manager: None,
+        }
+    }
+
+    pub fn with_hooks(repo: Arc<dyn PageRepository>, cache: Arc<Cache>, hook_manager: Arc<HookManager>) -> Self {
+        Self {
+            repo,
+            markdown: MarkdownRenderer::new(),
+            cache,
+            cache_ttl: Duration::from_secs(PAGE_CACHE_TTL_SECS),
+            hook_manager: Some(hook_manager),
+        }
+    }
+
+    fn trigger_hook(&self, name: &str, data: serde_json::Value) -> serde_json::Value {
+        if let Some(ref manager) = self.hook_manager {
+            manager.trigger(name, data.clone())
+        } else {
+            data
         }
     }
 
     pub async fn create(&self, slug: String, title: String, content: String, status: Option<String>) -> Result<Page> {
+        // Hook: page_before_create
+        let hook_data = self.trigger_hook(
+            "page_before_create",
+            json!({ "slug": slug, "title": title }),
+        );
+        let slug = hook_data["slug"].as_str().map(String::from).unwrap_or(slug);
+        let title = hook_data["title"].as_str().map(String::from).unwrap_or(title);
+
         // Check slug uniqueness
         if self.repo.exists_by_slug(&slug).await? {
             anyhow::bail!("Page with slug '{}' already exists", slug);
@@ -48,8 +78,14 @@ impl PageService {
 
         let created = self.repo.create(&page).await.context("Failed to create page")?;
 
-        // Invalidate cache - CRITICAL: must clear all page caches
+        // Invalidate cache
         self.invalidate_cache().await?;
+
+        // Hook: page_after_create
+        self.trigger_hook(
+            "page_after_create",
+            json!({ "id": created.id, "slug": created.slug, "title": created.title }),
+        );
 
         Ok(created)
     }
@@ -128,6 +164,12 @@ impl PageService {
     pub async fn update(&self, id: i64, slug: Option<String>, title: Option<String>, content: Option<String>, status: Option<String>) -> Result<Page> {
         let mut page = self.repo.get_by_id(id).await?.ok_or_else(|| anyhow::anyhow!("Page not found"))?;
 
+        // Hook: page_before_update
+        self.trigger_hook(
+            "page_before_update",
+            json!({ "id": id, "slug": page.slug, "title": page.title }),
+        );
+
         let old_slug = page.slug.clone();
 
         if let Some(new_slug) = slug {
@@ -152,23 +194,40 @@ impl PageService {
 
         let updated = self.repo.update(&page).await?;
 
-        // Invalidate cache - CRITICAL: must clear all page caches
+        // Invalidate cache
         self.invalidate_page_cache(id, &old_slug).await?;
         if page.slug != old_slug {
             self.invalidate_page_cache(id, &page.slug).await?;
         }
 
+        // Hook: page_after_update
+        self.trigger_hook(
+            "page_after_update",
+            json!({ "id": id, "slug": updated.slug, "title": updated.title }),
+        );
+
         Ok(updated)
     }
 
     pub async fn delete(&self, id: i64) -> Result<()> {
-        // Get page to know its slug for cache invalidation
         let page = self.repo.get_by_id(id).await?.ok_or_else(|| anyhow::anyhow!("Page not found"))?;
+
+        // Hook: page_before_delete
+        self.trigger_hook(
+            "page_before_delete",
+            json!({ "id": id, "slug": page.slug, "title": page.title }),
+        );
 
         self.repo.delete(id).await?;
 
-        // Invalidate cache - CRITICAL: must clear all page caches
+        // Invalidate cache
         self.invalidate_page_cache(id, &page.slug).await?;
+
+        // Hook: page_after_delete
+        self.trigger_hook(
+            "page_after_delete",
+            json!({ "id": id, "slug": page.slug, "title": page.title }),
+        );
 
         Ok(())
     }

@@ -30,14 +30,17 @@
 
 ## 🎨 特性
 
-- 🔌 **插件系统** - 灵活的插件机制，支持前端 JS/CSS 注入、Shortcode、钩子
+- 🔌 **插件系统** - 灵活的插件机制，支持前端 JS/CSS 注入、Shortcode、钩子（WASM）
 - 🎨 **多主题** - 支持任意前端框架开发主题（React、Vue、原生 JS）
-- 📝 **Markdown** - 完整的 Markdown 支持，含代码高亮和 Shortcode
-- 💬 **评论系统** - 内置评论功能，支持嵌套回复、表情、Markdown
+- 📝 **Markdown** - 完整的 Markdown 支持，含代码高亮、数学公式、Shortcode
+- 💬 **评论系统** - 内置评论功能，支持嵌套回复、表情、Markdown、审核
 - 🔐 **用户系统** - 注册、登录、权限管理、安全日志
 - 🌍 **国际化** - 支持中文、英文、繁体中文
-- 📊 **缓存优化** - 智能缓存策略，提升性能
+- 📊 **缓存优化** - 智能缓存策略（内存 / Redis），ETag 支持
 - 🔄 **热重载** - 插件和主题支持动态加载
+- 💾 **备份恢复** - 一键备份/恢复，支持 Markdown 导出导入、WordPress XML 导入
+- 🌐 **SEO** - 自动生成 Sitemap、RSS Feed、robots.txt
+- 📄 **自定义页面** - 独立页面管理，支持自定义导航
 
 ## 🚀 快速开始
 
@@ -146,18 +149,10 @@ noteva/
 │   ├── plugin/            # 插件系统
 │   └── theme/             # 主题系统
 ├── themes/                 # 主题目录
-│   ├── default/           # 默认主题 (Vite + React)
-│   └── prose/             # Prose 主题 (Vite + React)
-├── plugins/                # 插件目录
-│   ├── hide-until-reply/  # 回复可见插件
-│   ├── music-player/      # 音乐播放器插件
-│   ├── video-embed/       # 视频嵌入插件
-│   ├── friendlinks/       # 友情链接插件
-│   └── profile/           # 个人主页插件
+│   └── default/           # 默认主题 (Vite + React)
+├── plugins/                # 插件目录（可从商城安装）
 ├── web/                    # 管理后台 (Vite + React)
-├── data/                   # 数据目录
-│   └── noteva.db          # SQLite 数据库
-├── uploads/                # 上传文件目录
+├── uploads/                # 上传文件目录（运行时生成）
 ├── docs/                   # 文档
 └── config.yml              # 配置文件
 ```
@@ -232,7 +227,16 @@ plugins/my-plugin/
 
 详见 [插件开发文档](docs/plugin-development.md)
 
-## 🚢 部署
+## � 文档
+
+| 文档 | 说明 |
+|------|------|
+| [API 参考](docs/api.md) | 完整 API 端点文档（50+ 端点） |
+| [插件开发](docs/plugin-development.md) | 前端/WASM 插件开发指南，含 38+ 钩子参考表 |
+| [主题开发](docs/theme-development.md) | 主题开发指南，SDK API 说明 |
+| [v0.1.8 更新日志](docs/v0.1.8-beta.md) | 当前版本开发进度 |
+
+## �🚢 部署
 
 ### 直接运行
 
@@ -312,14 +316,27 @@ server {
 | 方法 | 路径 | 说明 |
 |-----|------|------|
 | GET | `/api/v1/site/info` | 站点信息 |
-| GET | `/api/v1/articles` | 文章列表 |
+| GET | `/api/v1/articles` | 文章列表（分页、分类筛选） |
 | GET | `/api/v1/articles/:slug` | 文章详情 |
-| GET | `/api/v1/page/:slug` | 页面详情 |
+| GET | `/api/v1/articles/resolve` | 通过查询条件解析文章 |
 | GET | `/api/v1/categories` | 分类列表 |
 | GET | `/api/v1/tags` | 标签列表 |
-| GET | `/api/v1/comments/:article_id` | 评论列表 |
+| GET | `/api/v1/comments/:article_id` | 文章评论列表 |
+| GET | `/api/v1/comments/recent` | 全站最近评论 |
 | POST | `/api/v1/comments` | 发表评论 |
+| POST | `/api/v1/like` | 点赞/取消点赞 |
+| GET | `/api/v1/like/check` | 检查点赞状态 |
+| POST | `/api/v1/view/:article_id` | 文章浏览计数 |
+| GET | `/api/v1/pages` | 页面列表 |
+| GET | `/api/v1/page/:slug` | 页面详情 |
+| GET | `/api/v1/nav` | 导航菜单 |
+| GET | `/api/v1/theme/config` | 主题配置 |
+| GET | `/api/v1/theme/info` | 主题信息 |
+| GET | `/api/v1/theme/settings` | 主题设置 |
 | GET | `/api/v1/plugins/enabled` | 已启用插件列表 |
+| GET | `/sitemap.xml` | 站点地图 |
+| GET | `/feed.xml` | RSS 订阅 |
+| GET | `/robots.txt` | 爬虫规则 |
 
 ### 认证 API
 
@@ -329,19 +346,41 @@ server {
 | POST | `/api/v1/auth/register` | 注册 |
 | POST | `/api/v1/auth/logout` | 退出登录 |
 | GET | `/api/v1/auth/me` | 当前用户信息 |
+| PUT | `/api/v1/auth/profile` | 更新用户资料 |
+| PUT | `/api/v1/auth/password` | 修改密码 |
 
-### 管理 API（需要认证）
+### 管理 API（需要管理员权限）
 
 | 方法 | 路径 | 说明 |
 |-----|------|------|
-| GET | `/api/v1/admin/articles` | 管理文章列表 |
-| POST | `/api/v1/admin/articles` | 创建文章 |
+| GET | `/api/v1/admin/dashboard` | 仪表盘数据 |
+| GET | `/api/v1/admin/stats` | 系统统计 |
+| GET | `/api/v1/admin/articles/:id` | 获取文章（按ID） |
 | PUT | `/api/v1/admin/articles/:id` | 更新文章 |
 | DELETE | `/api/v1/admin/articles/:id` | 删除文章 |
-| GET | `/api/v1/admin/plugins` | 插件列表 |
-| POST | `/api/v1/admin/plugins/:id/toggle` | 启用/禁用插件 |
+| POST | `/api/v1/articles` | 创建文章 |
+| GET | `/api/v1/admin/categories` | 分类管理 |
+| POST | `/api/v1/admin/categories` | 创建分类 |
+| PUT | `/api/v1/admin/categories/:id` | 更新分类 |
+| DELETE | `/api/v1/admin/categories/:id` | 删除分类 |
+| POST | `/api/v1/admin/tags` | 创建标签 |
+| DELETE | `/api/v1/admin/tags/:id` | 删除标签 |
+| GET | `/api/v1/admin/comments` | 评论管理列表 |
+| GET | `/api/v1/admin/comments/pending` | 待审核评论 |
+| POST | `/api/v1/admin/comments/:id/approve` | 审核通过评论 |
+| POST | `/api/v1/admin/comments/:id/reject` | 拒绝评论 |
+| DELETE | `/api/v1/admin/comments/:id` | 删除评论 |
 | GET | `/api/v1/admin/themes` | 主题列表 |
 | POST | `/api/v1/admin/themes/switch` | 切换主题 |
+| GET | `/api/v1/admin/settings` | 站点设置 |
+| PUT | `/api/v1/admin/settings` | 更新设置 |
+| GET | `/api/v1/admin/backup` | 下载完整备份 |
+| POST | `/api/v1/admin/backup/restore` | 恢复备份 |
+| GET | `/api/v1/admin/backup/export-markdown` | 导出 Markdown |
+| POST | `/api/v1/admin/backup/import` | 导入文章 |
+| GET | `/api/v1/admin/login-logs` | 登录安全日志 |
+
+详细 API 文档请参见 [API 参考文档](docs/api.md)。
 
 ## 🛠️ 技术栈
 
@@ -370,75 +409,13 @@ cd themes/default
 pnpm install
 pnpm dev
 
-# Prose 主题开发
-cd themes/prose
-pnpm install
-pnpm dev
-
 # 管理后台开发
 cd web
 pnpm install
 pnpm dev
 ```
 
-## 🗺️ 路线图
 
-### v0.1.0 ✅
-- [x] 基础博客功能
-- [x] 主题系统
-- [x] 插件系统（实验性）
-- [x] 评论系统
-- [x] 用户系统
-- [x] 缓存优化
-- [x] 国际化支持
-- [x] 热重载机制
-
-### v0.1.1-beta ✅
-- [x] 插件数据存储能力
-- [x] 友链 & 个人主页插件
-- [x] 视频嵌入插件
-- [x] SEO 优化（Rust 后端注入 meta 标签）
-- [x] 前端从 Next.js 迁移至 Vite
-
-### v0.1.4-beta（当前版本）
-- [x] 独立商城平台（插件/主题商城）
-- [x] S3/COS 图床插件（WASM）
-- [x] 在线安装统一策略（Release 优先 + 仓库验证回退）
-- [x] 插件设置敏感字段脱敏
-- [x] 前后端协同性优化
-- [x] 性能优化（WASM 预编译缓存、子进程池化、前端 code splitting）
-- [x] 自定义 CSS/JS 注入
-- [x] 页脚增强
-
-### v0.1.2-beta
-- [x] Prose 主题（三栏布局，参考安知鱼视觉风格）
-- [x] 主题列表修复 & 元数据读取优化
-- [x] 插件兼容性修复（视频嵌入、友链、个人主页）
-- [x] TLS 依赖切换至 rustls（支持交叉编译）
-- [ ] 代码清理 & 文档更新
-- [ ] 稳定性优化
-
-### v0.1.3-beta
-- [x] 管理后台插件集成
-- [x] 编辑器扩展 API
-- [ ] 更多编辑器功能
-
-### v0.1.4-beta（计划中）
-- [ ] 插件 API 路由
-- [ ] 生命周期钩子
-- [ ] 前台路由注册
-
-### v0.1.5（正式版）
-- [ ] 插件生态完善
-- [ ] 官方插件库
-- [ ] 完整文档
-
-### 未来版本
-- [ ] 全文搜索
-- [ ] RSS 订阅
-- [ ] 站点地图
-- [ ] 邮件通知
-- [ ] 更多主题
 
 ## 💝 赞助支持
 

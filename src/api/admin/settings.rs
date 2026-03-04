@@ -67,6 +67,12 @@ pub async fn update_settings(
     _user: AuthenticatedUser,
     Json(body): Json<SiteSettingsRequest>,
 ) -> Result<Json<SiteSettingsResponse>, ApiError> {
+    // Hook: settings_before_save
+    state.hook_manager.trigger(
+        "settings_before_save",
+        serde_json::json!({ "keys": body.keys().collect::<Vec<_>>() }),
+    );
+
     // Update each setting from the request
     for (key, value) in body.iter() {
         state
@@ -96,6 +102,12 @@ pub async fn update_settings(
         .into_iter()
         .filter(|(k, _)| !main_keys.contains(&k.as_str()))
         .collect();
+
+    // Hook: settings_after_save
+    state.hook_manager.trigger(
+        "settings_after_save",
+        serde_json::json!({ "site_name": settings.site_name }),
+    );
 
     Ok(Json(SiteSettingsResponse {
         site_name: settings.site_name,

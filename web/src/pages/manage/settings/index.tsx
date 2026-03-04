@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { adminApi, UpdateCheckResponse, authApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/store/auth";
@@ -27,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2, Link, RotateCw, Code } from "lucide-react";
+import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2, Link, RotateCw, Code, Database, Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import ReactMarkdown from "react-markdown";
@@ -89,6 +89,13 @@ export default function SettingsPage() {
   // 榛樿寮€鍚?Beta 妫€鏌ワ紝鍥犱负褰撳墠鐗堟湰鏄?beta
   const [checkBeta, setCheckBeta] = useState(true);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+
+  // Backup state
+  const [backingUp, setBackingUp] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [exportingMd, setExportingMd] = useState(false);
+  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
+  const restoreFileRef = useRef<File | null>(null);
 
   useEffect(() => {
     adminApi.getSettings()
@@ -275,6 +282,33 @@ export default function SettingsPage() {
     }
   };
 
+  // Auto-refresh: poll server after update restart
+  useEffect(() => {
+    if (!updateRestarting) return;
+    let cancelled = false;
+    const poll = async () => {
+      // Wait a few seconds for server to actually shut down
+      await new Promise(r => setTimeout(r, 5000));
+      while (!cancelled) {
+        try {
+          await fetch("/api/v1/site/info", { cache: "no-store" });
+          // Server is back! Reload after a brief pause
+          if (!cancelled) {
+            toast.success(t("settings.updateRestartDone") || "Update complete! Reloading...");
+            await new Promise(r => setTimeout(r, 1500));
+            window.location.reload();
+          }
+          return;
+        } catch {
+          // Server still down, wait and retry
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+    };
+    poll();
+    return () => { cancelled = true; };
+  }, [updateRestarting]);
+
 
   return (
     <div className="space-y-6">
@@ -313,6 +347,10 @@ export default function SettingsPage() {
             <TabsTrigger value="customCode" className="gap-2">
               <Code className="h-4 w-4" />
               {t("settings.customCode")}
+            </TabsTrigger>
+            <TabsTrigger value="data" className="gap-2">
+              <Database className="h-4 w-4" />
+              {t("settings.dataManagement")}
             </TabsTrigger>
           </TabsList>
 
@@ -773,6 +811,101 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="data" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>{t("settings.backupRestore")}</CardTitle>
+                <CardDescription>{t("settings.backupDescription")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between p-4 rounded-lg border">
+                    <div>
+                      <p className="font-medium">{t("settings.downloadBackup")}</p>
+                      <p className="text-sm text-muted-foreground">{t("settings.downloadBackupDesc")}</p>
+                    </div>
+                    <Button
+                      onClick={async () => {
+                        setBackingUp(true);
+                        try {
+                          const res = await adminApi.downloadBackup();
+                          const blob = new Blob([res.data as any], { type: "application/zip" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `noteva-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                          toast.success(t("settings.backupSuccess"));
+                        } catch { toast.error(t("settings.backupFailed")); }
+                        finally { setBackingUp(false); }
+                      }}
+                      disabled={backingUp}
+                    >
+                      {backingUp ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                      {t("settings.downloadBackup")}
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 rounded-lg border">
+                    <div>
+                      <p className="font-medium">{t("settings.restoreBackup")}</p>
+                      <p className="text-sm text-muted-foreground">{t("settings.restoreBackupDesc")}</p>
+                    </div>
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        const input = document.createElement("input");
+                        input.type = "file";
+                        input.accept = ".zip";
+                        input.onchange = (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (!file) return;
+                          restoreFileRef.current = file;
+                          setRestoreDialogOpen(true);
+                        };
+                        input.click();
+                      }}
+                      disabled={restoring}
+                    >
+                      {restoring ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                      {t("settings.restoreBackup")}
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 rounded-lg border">
+                    <div>
+                      <p className="font-medium">{t("settings.exportMarkdown")}</p>
+                      <p className="text-sm text-muted-foreground">{t("settings.exportMarkdownDesc")}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        setExportingMd(true);
+                        try {
+                          const res = await adminApi.exportMarkdown();
+                          const blob = new Blob([res.data as any], { type: "application/zip" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `noteva-articles-${new Date().toISOString().slice(0, 10)}.zip`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                          toast.success(t("settings.exportSuccess"));
+                        } catch { toast.error(t("settings.exportFailed")); }
+                        finally { setExportingMd(false); }
+                      }}
+                      disabled={exportingMd}
+                    >
+                      {exportingMd ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
+                      {t("settings.exportMarkdown")}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </motion.div>
 
@@ -800,6 +933,53 @@ export default function SettingsPage() {
             <AlertDialogAction onClick={doPerformUpdate}>
               <RotateCw className="h-4 w-4 mr-2" />
               {t("settings.performUpdate")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Restore Backup Confirmation Dialog */}
+      <AlertDialog open={restoreDialogOpen} onOpenChange={setRestoreDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-destructive" />
+              {t("settings.restoreBackup")}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>{t("settings.restoreConfirm")}</p>
+                {restoreFileRef.current && (
+                  <div className="flex items-center gap-2 p-2 rounded bg-muted text-sm">
+                    <Upload className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-mono">{restoreFileRef.current.name}</span>
+                    <span className="text-muted-foreground">
+                      ({(restoreFileRef.current.size / 1024 / 1024).toFixed(1)} MB)
+                    </span>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                const file = restoreFileRef.current;
+                if (!file) return;
+                setRestoring(true);
+                setRestoreDialogOpen(false);
+                try {
+                  await adminApi.restoreBackup(file);
+                  toast.success(t("settings.restoreSuccess"));
+                  setTimeout(() => window.location.reload(), 2000);
+                } catch { toast.error(t("settings.restoreFailed")); }
+                finally { setRestoring(false); }
+              }}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              {t("settings.restoreBackup")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

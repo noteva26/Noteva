@@ -2,6 +2,7 @@
   "common": {
     "save": "保存",
     "cancel": "取消",
+    "dismiss": "忽略",
     "delete": "删除",
     "edit": "编辑",
     "create": "创建",
@@ -151,7 +152,13 @@
     "selectThumbnail": "从文章图片中选择",
     "noImages": "文章中暂无图片",
     "autoSaved": "已自动保存",
-    "unsavedChanges": "有未保存的更改"
+    "unsavedChanges": "有未保存的更改",
+    "scheduledPublish": "定时发布",
+    "scheduledHint": "到达指定时间后文章将自动发布",
+    "draftFound": "检测到上次未保存的草稿",
+    "recoverDraft": "恢复",
+    "draftRecovered": "草稿已恢复",
+    "scheduled": "定时发布中"
   },
   "category": {
     "name": "名称",
@@ -259,7 +266,8 @@
     "updateSuccess": "更新成功，系统即将重启...",
     "updateFailed": "更新失败",
     "confirmUpdate": "确定要更新到 v{version} 吗？更新完成后系统将自动重启。",
-    "updateRestarting": "系统正在重启，请稍后刷新页面...",
+    "updateRestarting": "系统正在重启，页面将自动刷新...",
+    "updateRestartDone": "更新完成！正在刷新页面...",
     "howToUpdate": "如何更新",
     "updateStep1": "从 GitHub Releases 下载最新版本的二进制文件",
     "updateStep2": "停止当前运行的 Noteva 服务",
@@ -296,7 +304,23 @@
     "savingCustomCode": "保存中...",
     "siteNameRequired": "站点名称不能为空",
     "siteUrlInvalid": "站点地址必须以 http:// 或 https:// 开头",
-    "passwordRequired": "请输入当前密码和新密码"
+    "passwordRequired": "请输入当前密码和新密码",
+    "dataManagement": "数据管理",
+    "backupRestore": "备份与恢复",
+    "backupDescription": "备份全部数据（文章、分类、标签、设置、上传文件）或从备份文件恢复",
+    "downloadBackup": "下载备份",
+    "downloadBackupDesc": "导出全部数据为 ZIP 文件（含上传文件）",
+    "restoreBackup": "恢复备份",
+    "restoreBackupDesc": "上传 ZIP 备份文件恢复数据（将覆盖现有数据）",
+    "restoreConfirm": "确定要恢复备份吗？这将覆盖现有所有数据！",
+    "exportMarkdown": "导出 Markdown",
+    "exportMarkdownDesc": "将所有文章导出为 Markdown 文件（含 frontmatter）",
+    "backupSuccess": "备份成功",
+    "backupFailed": "备份失败",
+    "restoreSuccess": "恢复成功，页面即将刷新",
+    "restoreFailed": "恢复失败",
+    "exportSuccess": "导出成功",
+    "exportFailed": "导出失败"
   },
   "theme": {
     "light": "浅色",
@@ -541,5 +565,27 @@
     "upload": "上传图片/文件（支持粘贴和拖拽）",
     "dropzoneTitle": "拖拽文件到此处，或点击选择",
     "dropzoneHint": "支持图片、文档及其他文件"
+  },
+  "apiError": {
+    "UNAUTHORIZED": "认证失败",
+    "FORBIDDEN": "权限不足",
+    "NOT_FOUND": "资源未找到",
+    "VALIDATION_ERROR": "输入有误",
+    "INTERNAL_ERROR": "服务器内部错误",
+    "CONFLICT": "资源冲突",
+    "RATE_LIMIT": "请求过于频繁，请稍后再试",
+    "USER_BANNED": "该账号已被封禁",
+    "Admin account already exists, registration is closed": "管理员账号已存在，注册功能已关闭",
+    "Too many requests, please try again later": "请求过于频繁，请稍后再试",
+    "Too many failed login attempts, please try again later": "登录失败次数过多，请稍后再试",
+    "Invalid username or password": "用户名或密码错误",
+    "Login failed": "登录失败",
+    "themeInstalled": "主题「{name}」安装成功",
+    "themeUpdated": "主题「{name}」已从 {from} 更新到 {to}",
+    "pluginInstalled": "插件「{name}」安装成功",
+    "pluginInstalledFrom": "插件「{name}」安装成功（来自 {repo}）",
+    "pluginUpdated": "插件「{name}」已从 {from} 更新到 {to}",
+    "No usable theme files found in repository. Requires theme.json, and theme must be pre-compiled (not source code)": "仓库中没有可用的主题文件，需要 theme.json 且必须是编译好的",
+    "No usable plugin files found in repository. Requires plugin.json, and WASM plugins must include compiled .wasm files": "仓库中没有可用的插件文件，需要 plugin.json 且 WASM 插件必须包含 .wasm 文件"
   }
 }

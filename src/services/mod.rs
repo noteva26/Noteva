@@ -7,6 +7,7 @@
 //! - Handling validation and error cases
 
 pub mod article;
+pub mod backup;
 pub mod category;
 pub mod comment;
 pub mod email;

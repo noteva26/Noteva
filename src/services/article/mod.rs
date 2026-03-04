@@ -628,6 +628,23 @@ impl ArticleService {
             })
         );
 
+        // Trigger article_status_change hook if status actually changed
+        let old_status = format!("{:?}", existing.status);
+        let new_status = format!("{:?}", updated.status);
+        if old_status != new_status {
+            self.trigger_hook(
+                hook_names::ARTICLE_STATUS_CHANGE,
+                json!({
+                    "id": updated.id,
+                    "title": updated.title,
+                    "slug": updated.slug,
+                    "old_status": old_status,
+                    "new_status": new_status,
+                    "trigger": "manual",
+                })
+            );
+        }
+
         Ok(updated)
     }
 

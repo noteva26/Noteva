@@ -77,8 +77,11 @@ pub async fn serve_static(
         
         // Try current user theme from disk
         let current_theme = {
-            let engine = state.theme_engine.read().unwrap();
-            engine.get_current_theme().to_string()
+            if let Ok(engine) = state.theme_engine.read() {
+                engine.get_current_theme().to_string()
+            } else {
+                "default".to_string()
+            }
         };
         
         if current_theme != "default" {
@@ -254,8 +257,11 @@ async fn serve_theme(path: &str, state: &AppState) -> Response {
     
     // Get current theme
     let current_theme = {
-        let engine = state.theme_engine.read().unwrap();
-        engine.get_current_theme().to_string()
+        if let Ok(engine) = state.theme_engine.read() {
+            engine.get_current_theme().to_string()
+        } else {
+            "default".to_string()
+        }
     };
     
     // Try user theme first (non-default)

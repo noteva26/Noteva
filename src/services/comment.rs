@@ -208,22 +208,39 @@ impl CommentService {
         self.repo.list_pending(page, per_page).await
     }
 
+    /// List all comments with optional status filter (for admin management)
+    pub async fn list_all(&self, status: Option<&str>, page: i64, per_page: i64) -> Result<(Vec<CommentWithMeta>, i64)> {
+        self.repo.list_all(status, page, per_page).await
+    }
+
     /// Approve a comment
     pub async fn approve(&self, id: i64) -> Result<bool> {
         let result = self.repo.update_status(id, CommentStatus::Approved).await?;
         
-        // Invalidate all comment caches - CRITICAL: we don't know which article without extra query
+        // Invalidate all comment caches
         let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_COMMENT_BY_ARTICLE)).await;
+
+        // Hook: comment_approve
+        self.trigger_hook(
+            "comment_approve",
+            serde_json::json!({ "id": id, "approved": result }),
+        );
         
         Ok(result)
     }
 
-    /// Reject a comment (delete it)
+    /// Reject a comment (mark as spam)
     pub async fn reject(&self, id: i64) -> Result<bool> {
-        let result = self.repo.delete(id).await?;
+        let result = self.repo.update_status(id, CommentStatus::Spam).await?;
         
-        // Invalidate all comment caches - CRITICAL: we don't know which article without extra query
+        // Invalidate all comment caches
         let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_COMMENT_BY_ARTICLE)).await;
+
+        // Hook: comment_reject
+        self.trigger_hook(
+            "comment_reject",
+            serde_json::json!({ "id": id, "rejected": result }),
+        );
         
         Ok(result)
     }
@@ -290,6 +307,11 @@ impl CommentService {
     /// Increment view count
     pub async fn increment_view(&self, article_id: i64) -> Result<()> {
         self.repo.increment_view(article_id).await
+    }
+
+    /// Get recent approved comments across all articles
+    pub async fn list_recent(&self, limit: i64) -> Result<Vec<CommentWithMeta>> {
+        self.repo.list_recent(limit).await
     }
 }
 

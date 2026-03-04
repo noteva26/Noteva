@@ -123,7 +123,7 @@ pub async fn upload_plugin(
             return Ok(Json(PluginInstallResponse {
                 success: true,
                 plugin_name: plugin_name.clone(),
-                message: format!("插件「{}」安装成功", display_name),
+                message: format!("Plugin '{}' installed successfully", display_name),
             }));
         }
     }
@@ -243,7 +243,7 @@ pub async fn install_from_repo(
     // 2) Fallback: download repo ZIP, validate contents first
     if !validate_repo_for_plugin(&client, &repo).await {
         return Err(ApiError::validation_error(
-            "仓库中没有可用的插件文件。需要 plugin.json，且 WASM 插件必须包含编译好的 .wasm 文件"
+            "No usable plugin files found in repository. Requires plugin.json, and WASM plugins must include compiled .wasm files"
         ));
     }
 
@@ -567,7 +567,7 @@ pub async fn update_plugin(
     Ok(Json(PluginInstallResponse {
         success: true,
         plugin_name: id,
-        message: format!("插件「{}」已从 {} 更新到 {}", display_name, old_version, new_version),
+        message: format!("Plugin '{}' updated from {} to {}", display_name, old_version, new_version),
     }))
 }
 
@@ -780,8 +780,8 @@ async fn reload_and_register_plugin(
 
         let display_name = &plugin.metadata.name;
         let msg = match repo {
-            Some(r) => format!("插件「{}」安装成功（来自 {}）", display_name, r),
-            None => format!("插件「{}」安装成功", display_name),
+            Some(r) => format!("Plugin '{}' installed successfully (from {})", display_name, r),
+            None => format!("Plugin '{}' installed successfully", display_name),
         };
         return Ok(Json(PluginInstallResponse {
             success: true,

@@ -44,6 +44,8 @@ pub struct ListArticlesQuery {
     pub category: Option<String>,
     /// Filter by tag (ID or slug)
     pub tag: Option<String>,
+    /// Sort order: "views", "comments", "latest" (default)
+    pub sort: Option<String>,
 }
 
 /// Query parameters for resolving article path
@@ -65,6 +67,7 @@ pub struct CreateArticleRequest {
     pub status: Option<String>,
     #[serde(default)]
     pub tag_ids: Option<Vec<i64>>,
+    pub scheduled_at: Option<String>,
 }
 
 /// Request body for updating an article
@@ -80,12 +83,14 @@ pub struct UpdateArticleRequest {
     pub thumbnail: Option<String>,
     pub is_pinned: Option<bool>,
     pub pin_order: Option<i32>,
+    pub scheduled_at: Option<String>,
 }
 
 /// Build the public articles router (read-only)
 pub fn public_router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_articles))
+        .route("/archives", get(get_archives))
         .route("/{slug}", get(get_article))
 }
 
@@ -217,6 +222,23 @@ pub async fn list_articles(
         articles.push(response.with_category(category).with_tags(tags));
     }
 
+    // Apply sort if specified (post-fetch sorting)
+    match query.sort.as_deref() {
+        Some("views") => articles.sort_by(|a, b| b.view_count.cmp(&a.view_count)),
+        Some("comments") => articles.sort_by(|a, b| b.comment_count.cmp(&a.comment_count)),
+        _ => {} // default: already sorted by date from DB
+    }
+
+    // Hook: article_list_filter — allow plugins to modify article list
+    state.hook_manager.trigger(
+        "article_list_filter",
+        serde_json::json!({
+            "count": articles.len(),
+            "page": page,
+            "per_page": per_page,
+        }),
+    );
+
     Ok(Json(PaginatedArticlesResponse {
         articles,
         total,
@@ -224,6 +246,46 @@ pub async fn list_articles(
         page_size: per_page,
         total_pages,
     }))
+}
+
+/// Archive entry for monthly aggregation
+#[derive(Debug, serde::Serialize)]
+pub struct ArchiveEntry {
+    /// Month in "YYYY-MM" format
+    pub month: String,
+    /// Number of articles published that month
+    pub count: usize,
+}
+
+/// GET /api/v1/articles/archives - Get article archive by month
+///
+/// Returns monthly article counts for building archive pages.
+pub async fn get_archives(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ArchiveEntry>>, ApiError> {
+    // Fetch all published articles (we only need dates)
+    let params = ListParams::new(1, 10000);
+    let result = state.article_service
+        .list_published(&params)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    // Group by month
+    let mut month_counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for article in &result.items {
+        if let Some(pub_at) = article.published_at {
+            let month = pub_at.format("%Y-%m").to_string();
+            *month_counts.entry(month).or_insert(0) += 1;
+        }
+    }
+
+    // Convert to sorted vec (newest first)
+    let archives: Vec<ArchiveEntry> = month_counts.into_iter()
+        .rev()
+        .map(|(month, count)| ArchiveEntry { month, count })
+        .collect();
+
+    Ok(Json(archives))
 }
 
 /// GET /api/v1/articles/:slug - Get article by slug
@@ -273,13 +335,62 @@ pub async fn get_article(
         .await
         .unwrap_or_default();
 
+    let article_id = article.id;
+    let article_category_id = article.category_id;
+    let _article_published_at = article.published_at;
+
     let mut response: ArticleResponse = article.into();
-    response = response.with_category(category).with_tags(tags);
+    response = response.with_category(category).with_tags(tags.clone());
     
     // Extract table of contents from markdown content
     let toc = state.article_service.extract_toc(&response.content);
     response = response.with_toc(toc);
-    
+
+    // Fetch prev/next articles (adjacent published articles by date)
+    {
+        use crate::api::responses::ArticleLink;
+        let params = crate::models::ListParams::new(1, 100);
+        if let Ok(all_published) = state.article_service.list_published(&params).await {
+            let articles = all_published.items;
+            // Articles are ordered by published_at DESC (newest first)
+            // Find current article's position
+            if let Some(pos) = articles.iter().position(|a| a.id == article_id) {
+                // Next = older article (pos + 1)
+                let next_link = articles.get(pos + 1).map(|a| ArticleLink {
+                    id: a.id,
+                    slug: a.slug.clone(),
+                    title: a.title.clone(),
+                    thumbnail: a.thumbnail.clone(),
+                });
+                // Prev = newer article (pos - 1)
+                let prev_link = if pos > 0 {
+                    articles.get(pos - 1).map(|a| ArticleLink {
+                        id: a.id,
+                        slug: a.slug.clone(),
+                        title: a.title.clone(),
+                        thumbnail: a.thumbnail.clone(),
+                    })
+                } else {
+                    None
+                };
+                response = response.with_prev_next(prev_link, next_link);
+
+                // Related articles: same category, excluding self, limit 5
+                let related: Vec<ArticleLink> = articles.iter()
+                    .filter(|a| a.id != article_id && a.category_id == article_category_id)
+                    .take(5)
+                    .map(|a| ArticleLink {
+                        id: a.id,
+                        slug: a.slug.clone(),
+                        title: a.title.clone(),
+                        thumbnail: a.thumbnail.clone(),
+                    })
+                    .collect();
+                response = response.with_related(related);
+            }
+        }
+    }
+
     // Trigger article_before_display hook (can modify article data)
     let hook_data = serde_json::json!({
         "article": &response,
@@ -366,6 +477,10 @@ pub async fn create_article(
         .as_ref()
         .and_then(|s| ArticleStatus::from_str(s));
 
+    let scheduled_at = body.scheduled_at.as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+
     let input = crate::models::CreateArticleInput {
         title: body.title,
         content: body.content,
@@ -374,6 +489,7 @@ pub async fn create_article(
         author_id: user.0.id,
         category_id: body.category_id.unwrap_or(1), // Default category
         status,
+        scheduled_at,
     };
 
     let article = state
@@ -421,6 +537,10 @@ pub async fn update_article(
 
     let status = body.status.as_ref().and_then(|s| ArticleStatus::from_str(s));
 
+    let scheduled_at = body.scheduled_at.as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+
     let input = crate::models::UpdateArticleInput {
         title: body.title,
         content: body.content,
@@ -431,6 +551,7 @@ pub async fn update_article(
         thumbnail: body.thumbnail,
         is_pinned: body.is_pinned,
         pin_order: body.pin_order,
+        scheduled_at,
     };
 
     let article = state

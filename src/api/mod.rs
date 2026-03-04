@@ -136,7 +136,8 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .route("/plugins/:id/data/:key", axum::routing::get(plugins::get_plugin_data))
         // Plugin custom API routes (public, proxied to WASM)
         .route("/plugins/:id/api/*path", axum::routing::any(plugins::plugin_api_handler))
-        // Comment routes
+        // Comment routes (order matters: /recent before /:article_id)
+        .route("/comments/recent", axum::routing::get(comments::get_recent_comments))
         .route("/comments/:article_id", axum::routing::get(comments::get_comments))
         .route("/comments", axum::routing::post(comments::create_comment))
         .route("/like", axum::routing::post(comments::like))

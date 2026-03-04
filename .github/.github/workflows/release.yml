@@ -141,6 +141,70 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release notes
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          # Extract section between ## [vX.Y.Z...] and the next ## [
+          NOTES=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
+          
+          cat > /tmp/release_body.md << 'HEADER'
+          ## Noteva ${VERSION}
+          HEADER
+          
+          # Rewrite header with actual version  
+          echo "## Noteva ${VERSION}" > /tmp/release_body.md
+          echo "" >> /tmp/release_body.md
+          
+          if [ -n "$NOTES" ]; then
+            echo "$NOTES" >> /tmp/release_body.md
+            echo "" >> /tmp/release_body.md
+            echo "---" >> /tmp/release_body.md
+            echo "" >> /tmp/release_body.md
+          fi
+          
+          cat >> /tmp/release_body.md << 'EOF'
+          ### Downloads
+
+          **Linux**
+          - x86_64 (Intel/AMD): `noteva-linux-x86_64.tar.gz`
+          - ARM64 (树莓派/ARM服务器): `noteva-linux-arm64.tar.gz`
+
+          **Windows**
+          - x86_64 (Intel/AMD): `noteva-windows-x86_64.zip`
+          - ARM64: `noteva-windows-arm64.zip`
+
+          **macOS**
+          - x86_64 (Intel): `noteva-macos-x86_64.tar.gz`
+          - ARM64 (Apple Silicon M1/M2/M3): `noteva-macos-arm64.tar.gz`
+
+          ### Quick Start
+          ```bash
+          # Linux / macOS
+          tar -xzf noteva-*.tar.gz
+          cp config.example.yml config.yml
+          ./noteva
+
+          # Windows
+          # 解压 noteva-windows-*.zip
+          # 复制 config.example.yml 为 config.yml
+          # 运行 noteva.exe
+          ```
+
+          ### First Time Setup
+          1. Visit http://localhost:8080
+          2. Go to `/manage` to create your admin account
+          3. Start blogging!
+
+          ---
+          **Full Changelog**: [CHANGELOG.md](https://github.com/noteva26/Noteva/blob/main/CHANGELOG.md)
+          EOF
+          
+          # Remove leading spaces from heredoc
+          sed -i 's/^          //' /tmp/release_body.md
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -154,40 +218,5 @@ jobs:
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
-          body: |
-            ## Noteva ${{ github.ref_name }}
-            
-            ### Downloads
-            
-            **Linux**
-            - x86_64 (Intel/AMD): `noteva-linux-x86_64.tar.gz`
-            - ARM64 (树莓派/ARM服务器): `noteva-linux-arm64.tar.gz`
-            
-            **Windows**
-            - x86_64 (Intel/AMD): `noteva-windows-x86_64.zip`
-            - ARM64: `noteva-windows-arm64.zip`
-            
-            **macOS**
-            - x86_64 (Intel): `noteva-macos-x86_64.tar.gz`
-            - ARM64 (Apple Silicon M1/M2/M3): `noteva-macos-arm64.tar.gz`
-            
-            ### Quick Start
-            ```bash
-            # Linux / macOS
-            tar -xzf noteva-*.tar.gz
-            cp config.example.yml config.yml
-            ./noteva
-            
-            # Windows
-            # 解压 noteva-windows-*.zip
-            # 复制 config.example.yml 为 config.yml
-            # 运行 noteva.exe
-            ```
-            
-            ### First Time Setup
-            1. Visit http://localhost:8080
-            2. Go to `/manage` to create your admin account
-            3. Start blogging!
-            
-            ### What's New
-            See [CHANGELOG](https://github.com/noteva26/Noteva/releases) for details.
+          body_path: /tmp/release_body.md
+

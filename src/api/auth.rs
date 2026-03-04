@@ -19,7 +19,8 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-
+use crate::db::DynDatabasePool;
+use crate::config::DatabaseDriver;
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 use crate::services::user::{LoginInput, RegisterInput, UserServiceError};
 
@@ -29,13 +30,6 @@ pub struct RegisterRequest {
     pub username: String,
     pub email: String,
     pub password: String,
-    pub verification_code: Option<String>,
-}
-
-/// Request body for sending verification code
-#[derive(Debug, Deserialize)]
-pub struct SendCodeRequest {
-    pub email: String,
 }
 
 /// Request body for user login
@@ -89,7 +83,7 @@ pub fn router() -> Router<AppState> {
         .route("/me", get(get_current_user))
         .route("/profile", put(update_profile))
         .route("/password", put(change_password))
-        .route("/send-code", post(send_verification_code))
+
         .route("/has-admin", get(has_admin))
 }
 
@@ -107,7 +101,7 @@ pub fn public_router() -> Router<AppState> {
     Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
-        .route("/send-code", post(send_verification_code))
+
         .route("/has-admin", get(has_admin))
 }
 
@@ -145,10 +139,6 @@ async fn register(
     headers: HeaderMap,
     Json(body): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use crate::db::repositories::SqlxSettingsRepository;
-    use crate::services::EmailService;
-    use std::sync::Arc;
-
     // Check if admin already exists - block registration if true (security measure)
     let is_first = state
         .user_service
@@ -157,29 +147,7 @@ async fn register(
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
     
     if !is_first {
-        return Err(ApiError::forbidden("管理员账号已存在，注册功能已关闭"));
-    }
-
-    // Check if email verification is enabled
-    let settings_repo = Arc::new(SqlxSettingsRepository::new(state.pool.clone()));
-    let email_service = EmailService::new(settings_repo.clone());
-    
-    if email_service.is_verification_enabled().await {
-        // Verify the code
-        let code = body.verification_code.as_ref()
-            .ok_or_else(|| ApiError::validation_error("Verification code is required"))?;
-        
-        // Check code in database
-        let valid = verify_email_code(&state.pool, &body.email, code).await
-            .map_err(|e| ApiError::internal_error(e.to_string()))?;
-        
-        if !valid {
-            return Err(ApiError::validation_error("Invalid or expired verification code"));
-        }
-        
-        // Delete used code
-        delete_email_code(&state.pool, &body.email).await
-            .map_err(|e| ApiError::internal_error(e.to_string()))?;
+        return Err(ApiError::forbidden("Admin account already exists, registration is closed"));
     }
 
     let password = body.password.clone();
@@ -233,11 +201,11 @@ async fn register(
     let mut headers = HeaderMap::new();
     headers.insert(
         header::SET_COOKIE,
-        HeaderValue::from_str(&session_cookie).unwrap(),
+        HeaderValue::from_str(&session_cookie).expect("session cookie contains invalid header chars"),
     );
     headers.append(
         header::SET_COOKIE,
-        HeaderValue::from_str(&csrf_cookie).unwrap(),
+        HeaderValue::from_str(&csrf_cookie).expect("csrf cookie contains invalid header chars"),
     );
 
     Ok((
@@ -271,7 +239,7 @@ async fn login(
             log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), false, Some("IP rate limit exceeded")).await;
             return Err(ApiError::with_details(
                 "RATE_LIMIT",
-                "请求过于频繁，请稍后再试",
+                "Too many requests, please try again later",
                 serde_json::json!({"retry_after": 60})
             ));
         }
@@ -283,7 +251,7 @@ async fn login(
         log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), false, Some("Username rate limit exceeded")).await;
         return Err(ApiError::with_details(
             "RATE_LIMIT",
-            "登录失败次数过多，请稍后再试",
+            "Too many failed login attempts, please try again later",
             serde_json::json!({"retry_after": lockout_secs})
         ));
     }
@@ -324,10 +292,10 @@ async fn login(
                     if msg.contains("banned") || msg.contains("封禁") {
                         ApiError::with_details("USER_BANNED", msg, serde_json::json!({}))
                     } else {
-                        ApiError::unauthorized("用户名或密码错误")
+                        ApiError::unauthorized("Invalid username or password")
                     }
                 }
-                _ => ApiError::internal_error("登录失败"),
+                _ => ApiError::internal_error("Login failed"),
             }
         })?;
 
@@ -372,11 +340,11 @@ async fn login(
     let mut response_headers = HeaderMap::new();
     response_headers.insert(
         header::SET_COOKIE,
-        HeaderValue::from_str(&session_cookie).unwrap(),
+        HeaderValue::from_str(&session_cookie).expect("session cookie contains invalid header chars"),
     );
     response_headers.append(
         header::SET_COOKIE,
-        HeaderValue::from_str(&csrf_cookie).unwrap(),
+        HeaderValue::from_str(&csrf_cookie).expect("csrf cookie contains invalid header chars"),
     );
 
     Ok((
@@ -515,6 +483,7 @@ async fn change_password(
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
     
     // Update user
+    let user_id = user.0.id;
     let mut updated_user = user.0;
     updated_user.password_hash = new_hash;
     
@@ -523,137 +492,17 @@ async fn change_password(
         .update_user(updated_user)
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    // Hook: user_password_change
+    state.hook_manager.trigger(
+        "user_password_change",
+        serde_json::json!({ "user_id": user_id }),
+    );
     
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// POST /api/v1/auth/send-code - Send verification code to email
-async fn send_verification_code(
-    State(state): State<AppState>,
-    Json(body): Json<SendCodeRequest>,
-) -> Result<impl IntoResponse, ApiError> {
-    use crate::db::repositories::SqlxSettingsRepository;
-    use crate::services::{EmailService, generate_verification_code};
-    use std::sync::Arc;
 
-    // Validate email format
-    if !body.email.contains('@') {
-        return Err(ApiError::validation_error("Invalid email format"));
-    }
-
-    // Check if email verification is enabled
-    let settings_repo = Arc::new(SqlxSettingsRepository::new(state.pool.clone()));
-    let email_service = EmailService::new(settings_repo);
-    
-    if !email_service.is_verification_enabled().await {
-        return Err(ApiError::validation_error("Email verification is not enabled"));
-    }
-
-    // Check if email is already registered
-    if let Some(_) = state.user_repo.get_by_email(&body.email).await
-        .map_err(|e| ApiError::internal_error(e.to_string()))? 
-    {
-        return Err(ApiError::validation_error("Email is already registered"));
-    }
-
-    // Generate and save verification code
-    let code = generate_verification_code();
-    save_email_code(&state.pool, &body.email, &code).await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?;
-
-    // Send email
-    email_service.send_verification_code(&body.email, &code).await
-        .map_err(|e| ApiError::internal_error(format!("Failed to send email: {}", e)))?;
-
-    Ok(Json(serde_json::json!({ "message": "Verification code sent" })))
-}
-
-// Helper functions for email verification codes
-
-use crate::db::DynDatabasePool;
-use crate::config::DatabaseDriver;
-use anyhow::{Context, Result};
-use chrono::{Duration, Utc};
-
-async fn save_email_code(pool: &DynDatabasePool, email: &str, code: &str) -> Result<()> {
-    let expires_at = Utc::now() + Duration::minutes(10);
-    
-    // Delete any existing codes for this email first
-    delete_email_code(pool, email).await?;
-    
-    match pool.driver() {
-        DatabaseDriver::Sqlite => {
-            sqlx::query(
-                "INSERT INTO email_verifications (email, code, expires_at, created_at) VALUES (?, ?, ?, ?)"
-            )
-            .bind(email)
-            .bind(code)
-            .bind(expires_at)
-            .bind(Utc::now())
-            .execute(pool.as_sqlite().context("expected sqlite pool")?)
-            .await?;
-        }
-        DatabaseDriver::Mysql => {
-            sqlx::query(
-                "INSERT INTO email_verifications (email, code, expires_at, created_at) VALUES (?, ?, ?, ?)"
-            )
-            .bind(email)
-            .bind(code)
-            .bind(expires_at)
-            .bind(Utc::now())
-            .execute(pool.as_mysql().context("expected mysql pool")?)
-            .await?;
-        }
-    }
-    Ok(())
-}
-
-async fn verify_email_code(pool: &DynDatabasePool, email: &str, code: &str) -> Result<bool> {
-    let now = Utc::now();
-    
-    let count: i64 = match pool.driver() {
-        DatabaseDriver::Sqlite => {
-            sqlx::query_scalar(
-                "SELECT COUNT(*) FROM email_verifications WHERE email = ? AND code = ? AND expires_at > ?"
-            )
-            .bind(email)
-            .bind(code)
-            .bind(now)
-            .fetch_one(pool.as_sqlite().context("expected sqlite pool")?)
-            .await?
-        }
-        DatabaseDriver::Mysql => {
-            sqlx::query_scalar(
-                "SELECT COUNT(*) FROM email_verifications WHERE email = ? AND code = ? AND expires_at > ?"
-            )
-            .bind(email)
-            .bind(code)
-            .bind(now)
-            .fetch_one(pool.as_mysql().context("expected mysql pool")?)
-            .await?
-        }
-    };
-    
-    Ok(count > 0)
-}
-
-async fn delete_email_code(pool: &DynDatabasePool, email: &str) -> Result<()> {
-    match pool.driver() {
-        DatabaseDriver::Sqlite => {
-            sqlx::query("DELETE FROM email_verifications WHERE email = ?")
-                .bind(email)
-                .execute(pool.as_sqlite().context("expected sqlite pool")?)
-                .await?;
-        }
-        DatabaseDriver::Mysql => {
-            sqlx::query("DELETE FROM email_verifications WHERE email = ?")
-                .bind(email)
-                .execute(pool.as_mysql().context("expected mysql pool")?)
-                .await?;
-        }
-    }
-    Ok(())
-}
 
 
 // ============================================================================

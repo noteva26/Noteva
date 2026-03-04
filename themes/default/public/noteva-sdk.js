@@ -2,7 +2,7 @@
  * Noteva SDK
  * 为主题和插件提供统一的 API 接口
  */
-(function(window) {
+(function (window) {
   'use strict';
 
   // API 基础路径
@@ -13,7 +13,7 @@
   // ============================================
   const hooks = {
     _hooks: {},
-    
+
     /**
      * 注册钩子
      * @param {string} name - 钩子名称
@@ -27,7 +27,7 @@
       this._hooks[name].push({ callback, priority });
       this._hooks[name].sort((a, b) => a.priority - b.priority);
     },
-    
+
     /**
      * 移除钩子
      */
@@ -35,7 +35,7 @@
       if (!this._hooks[name]) return;
       this._hooks[name] = this._hooks[name].filter(h => h.callback !== callback);
     },
-    
+
     /**
      * 触发钩子
      * @param {string} name - 钩子名称
@@ -51,7 +51,7 @@
       }
       return result;
     },
-    
+
     /**
      * 异步触发钩子
      */
@@ -71,14 +71,14 @@
   // ============================================
   const events = {
     _listeners: {},
-    
+
     on(event, callback) {
       if (!this._listeners[event]) {
         this._listeners[event] = [];
       }
       this._listeners[event].push(callback);
     },
-    
+
     once(event, callback) {
       const wrapper = (...args) => {
         this.off(event, wrapper);
@@ -86,12 +86,12 @@
       };
       this.on(event, wrapper);
     },
-    
+
     off(event, callback) {
       if (!this._listeners[event]) return;
       this._listeners[event] = this._listeners[event].filter(cb => cb !== callback);
     },
-    
+
     emit(event, data) {
       if (!this._listeners[event]) return;
       for (const callback of this._listeners[event]) {
@@ -116,28 +116,28 @@
       },
       credentials: 'include',
     };
-    
+
     if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
       config.body = JSON.stringify(data);
     }
-    
+
     // 触发请求前钩子
     hooks.trigger('api_request_before', { method, url, data });
-    
+
     try {
       const response = await fetch(API_BASE + url, config);
       const result = await response.json().catch(() => ({}));
-      
+
       // 触发请求后钩子
       hooks.trigger('api_request_after', { method, url, response, result });
-      
+
       if (!response.ok) {
         const error = new Error(result.error || `HTTP ${response.status}`);
         error.status = response.status;
         error.data = result;
         throw error;
       }
-      
+
       return result;
     } catch (error) {
       hooks.trigger('api_error', error);
@@ -155,8 +155,8 @@
             filtered[key] = value;
           }
         }
-        const query = Object.keys(filtered).length > 0 
-          ? '?' + new URLSearchParams(filtered).toString() 
+        const query = Object.keys(filtered).length > 0
+          ? '?' + new URLSearchParams(filtered).toString()
           : '';
         return request('GET', url + query);
       }
@@ -176,7 +176,7 @@
     _nav: null,
     _themeConfig: {},
     _permalinkStructure: '/posts/{slug}',
-    
+
     async getInfo() {
       if (this._info) return this._info;
       const data = await api.get('/site/info');
@@ -201,7 +201,7 @@
       };
       return this._info;
     },
-    
+
     /**
      * 生成文章 URL
      * @param {object} article - 文章对象，需要包含 id 和 slug
@@ -214,14 +214,14 @@
         .replace('{id}', article.id)
         .replace('{slug}', article.slug || article.id);
     },
-    
+
     async getNav() {
       if (this._nav) return this._nav;
       const result = await api.get('/nav');
       this._nav = result.items || [];
       return this._nav;
     },
-    
+
     async loadThemeConfig() {
       try {
         const result = await api.get('/theme/config');
@@ -233,12 +233,12 @@
         return {};
       }
     },
-    
+
     getThemeConfig(key) {
       if (key) return this._themeConfig[key];
       return this._themeConfig;
     },
-    
+
     _setThemeConfig(config) {
       this._themeConfig = config || {};
       events.emit('theme:config:change', this._themeConfig);
@@ -281,7 +281,7 @@
       if (params.category) queryParams.category = params.category;
       if (params.tag) queryParams.tag = params.tag;
       if (params.keyword) queryParams.keyword = params.keyword;
-      
+
       const result = await api.get('/articles', queryParams);
       return {
         articles: result.articles || [],
@@ -291,7 +291,7 @@
         hasMore: (result.page || 1) * (result.page_size || 10) < (result.total || 0),
       };
     },
-    
+
     async get(slug) {
       const article = await api.get(`/articles/${slug}`);
       // 触发文章查看钩子
@@ -299,11 +299,11 @@
       events.emit('article:view', article);
       return article;
     },
-    
+
     async getRelated(slug, params = {}) {
       return api.get(`/articles/${slug}/related`, { limit: params.limit || 5 });
     },
-    
+
     async getArchives() {
       return api.get('/articles/archives');
     },
@@ -317,7 +317,7 @@
       const result = await api.get('/pages');
       return result.pages || [];
     },
-    
+
     async get(slug) {
       const result = await api.get(`/page/${slug}`);
       return result.page || result;
@@ -332,7 +332,7 @@
       const result = await api.get('/categories');
       return result.categories || [];
     },
-    
+
     async get(slug) {
       return api.get(`/categories/${slug}`);
     },
@@ -346,7 +346,7 @@
       const result = await api.get('/tags');
       return result.tags || [];
     },
-    
+
     async get(slug) {
       return api.get(`/tags/${slug}`);
     },
@@ -362,28 +362,33 @@
       // 触发评论显示前钩子
       return hooks.trigger('comment_before_display', commentList);
     },
-    
+
     async create(data) {
       // 触发评论创建前钩子
       const processedData = hooks.trigger('comment_before_create', data);
-      
+
       const comment = await api.post(`/comments`, {
         article_id: processedData.articleId,
         content: processedData.content,
         parent_id: processedData.parentId,
       });
-      
+
       // 触发评论创建后钩子
       hooks.trigger('comment_after_create', comment, { articleId: data.articleId });
       events.emit('comment:create', comment);
-      
+
       return comment;
     },
-    
+
     async delete(commentId) {
       hooks.trigger('comment_before_delete', commentId);
       await api.delete(`/admin/comments/${commentId}`);
       hooks.trigger('comment_after_delete', commentId);
+    },
+
+    async recent(limit = 10) {
+      const result = await api.get(`/comments/recent`, { limit });
+      return result.comments || result || [];
     },
   };
 
@@ -393,25 +398,25 @@
   const user = {
     _current: null,
     _checked: false,
-    
+
     isLoggedIn() {
       return this._current !== null;
     },
-    
+
     getCurrent() {
       return this._current;
     },
-    
+
     // Promise 锁，防止并发调用
     _checkPromise: null,
-    
+
     async check() {
       // 如果已经检查过，直接返回
       if (this._checked) return this._current;
-      
+
       // 如果正在检查中，等待现有的 Promise
       if (this._checkPromise) return this._checkPromise;
-      
+
       // 创建新的检查 Promise
       this._checkPromise = (async () => {
         try {
@@ -426,10 +431,10 @@
           this._checkPromise = null;
         }
       })();
-      
+
       return this._checkPromise;
     },
-    
+
     async login(credentials) {
       hooks.trigger('user_login_before', credentials);
       try {
@@ -448,7 +453,7 @@
         throw error;
       }
     },
-    
+
     async register(data) {
       hooks.trigger('user_register_before', data);
       const result = await api.post('/auth/register', data);
@@ -457,7 +462,7 @@
       events.emit('user:login', this._current);
       return result;
     },
-    
+
     async logout() {
       const currentUser = this._current;
       hooks.trigger('user_logout', currentUser);
@@ -465,7 +470,7 @@
       this._current = null;
       events.emit('user:logout');
     },
-    
+
     async updateProfile(data) {
       const result = await api.put('/auth/profile', data);
       // 更新本地缓存的用户信息
@@ -475,14 +480,14 @@
       events.emit('user:update', this._current);
       return result;
     },
-    
+
     async changePassword(currentPassword, newPassword) {
       await api.put('/auth/password', {
         current_password: currentPassword,
         new_password: newPassword,
       });
     },
-    
+
     hasPermission(permission) {
       if (!this._current) return false;
       if (this._current.role === 'admin') return true;
@@ -498,12 +503,12 @@
     getPath() {
       return window.location.pathname;
     },
-    
+
     getQuery(key) {
       const params = new URLSearchParams(window.location.search);
       return params.get(key);
     },
-    
+
     getQueryAll() {
       const params = new URLSearchParams(window.location.search);
       const result = {};
@@ -512,7 +517,7 @@
       }
       return result;
     },
-    
+
     /**
      * 匹配路由模式
      * @param {string} pattern - 路由模式，如 "/posts/:slug"
@@ -522,11 +527,11 @@
       const path = this.getPath();
       const patternParts = pattern.split('/').filter(Boolean);
       const pathParts = path.split('/').filter(Boolean);
-      
+
       if (patternParts.length !== pathParts.length) {
         return { matched: false, params: {} };
       }
-      
+
       const params = {};
       for (let i = 0; i < patternParts.length; i++) {
         if (patternParts[i].startsWith(':')) {
@@ -535,10 +540,10 @@
           return { matched: false, params: {} };
         }
       }
-      
+
       return { matched: true, params };
     },
-    
+
     /**
      * 从路径中提取参数
      */
@@ -550,7 +555,7 @@
         '/tags/:slug',
         '/:slug',
       ];
-      
+
       for (const pattern of patterns) {
         const result = this.match(pattern);
         if (result.matched && result.params[name]) {
@@ -559,14 +564,14 @@
       }
       return null;
     },
-    
+
     push(path) {
       const oldPath = this.getPath();
       window.history.pushState({}, '', path);
       events.emit('route:before', { from: oldPath, to: path });
       events.emit('route:change', path);
     },
-    
+
     replace(path) {
       const oldPath = this.getPath();
       window.history.replaceState({}, '', path);
@@ -590,18 +595,18 @@
     formatDate(date, format = 'YYYY-MM-DD') {
       const d = new Date(date);
       if (isNaN(d.getTime())) return '';
-      
+
       if (format === 'relative') {
         return this.timeAgo(date);
       }
-      
+
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
       const hours = String(d.getHours()).padStart(2, '0');
       const minutes = String(d.getMinutes()).padStart(2, '0');
       const seconds = String(d.getSeconds()).padStart(2, '0');
-      
+
       return format
         .replace('YYYY', year)
         .replace('MM', month)
@@ -613,7 +618,7 @@
         .replace('月', '月')
         .replace('日', '日');
     },
-    
+
     /**
      * 相对时间
      */
@@ -621,7 +626,7 @@
       const now = new Date();
       const d = new Date(date);
       const diff = Math.floor((now - d) / 1000);
-      
+
       if (diff < 60) return '刚刚';
       if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
       if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
@@ -629,7 +634,7 @@
       if (diff < 31536000) return `${Math.floor(diff / 2592000)} 个月前`;
       return `${Math.floor(diff / 31536000)} 年前`;
     },
-    
+
     /**
      * HTML 转义
      */
@@ -638,7 +643,7 @@
       div.textContent = str;
       return div.innerHTML;
     },
-    
+
     /**
      * 截断文本
      */
@@ -646,7 +651,7 @@
       if (!text || text.length <= length) return text;
       return text.slice(0, length) + suffix;
     },
-    
+
     /**
      * 从 Markdown 生成摘要
      */
@@ -662,24 +667,24 @@
         .trim();
       return this.truncate(text, length);
     },
-    
+
     /**
      * 防抖
      */
     debounce(fn, delay) {
       let timer = null;
-      return function(...args) {
+      return function (...args) {
         clearTimeout(timer);
         timer = setTimeout(() => fn.apply(this, args), delay);
       };
     },
-    
+
     /**
      * 节流
      */
     throttle(fn, delay) {
       let last = 0;
-      return function(...args) {
+      return function (...args) {
         const now = Date.now();
         if (now - last >= delay) {
           last = now;
@@ -687,7 +692,7 @@
         }
       };
     },
-    
+
     /**
      * 复制到剪贴板
      */
@@ -708,21 +713,21 @@
         return true;
       }
     },
-    
+
     /**
      * 生成唯一 ID
      */
     uniqueId(prefix = 'noteva') {
       return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     },
-    
+
     /**
      * 检测深色模式偏好
      */
     prefersDarkMode() {
       return window.matchMedia('(prefers-color-scheme: dark)').matches;
     },
-    
+
     /**
      * 图片懒加载
      */
@@ -753,20 +758,20 @@
       // 触发钩子，允许插件自定义 toast
       const handled = hooks.trigger('ui_toast', { message, type, duration, handled: false });
       if (handled.handled) return;
-      
+
       // 默认实现
       const container = this._getToastContainer();
       const toast = document.createElement('div');
       toast.className = `noteva-toast noteva-toast-${type}`;
       toast.textContent = message;
       container.appendChild(toast);
-      
+
       setTimeout(() => {
         toast.classList.add('noteva-toast-hide');
         setTimeout(() => toast.remove(), 300);
       }, duration);
     },
-    
+
     _getToastContainer() {
       let container = document.getElementById('noteva-toast-container');
       if (!container) {
@@ -776,7 +781,7 @@
       }
       return container;
     },
-    
+
     /**
      * 确认对话框
      */
@@ -784,9 +789,9 @@
       if (typeof options === 'string') {
         options = { message: options };
       }
-      
+
       const { title = '确认', message, confirmText = '确定', cancelText = '取消' } = options;
-      
+
       return new Promise((resolve) => {
         const overlay = document.createElement('div');
         overlay.className = 'noteva-modal-overlay';
@@ -800,19 +805,19 @@
             </div>
           </div>
         `;
-        
+
         document.body.appendChild(overlay);
-        
+
         overlay.querySelector('.noteva-btn-cancel').onclick = () => {
           overlay.remove();
           resolve(false);
         };
-        
+
         overlay.querySelector('.noteva-btn-confirm').onclick = () => {
           overlay.remove();
           resolve(true);
         };
-        
+
         overlay.onclick = (e) => {
           if (e.target === overlay) {
             overlay.remove();
@@ -821,7 +826,7 @@
         };
       });
     },
-    
+
     /**
      * 加载状态
      */
@@ -835,18 +840,18 @@
       }
       loader.style.display = 'flex';
     },
-    
+
     hideLoading() {
       const loader = document.getElementById('noteva-loading');
       if (loader) loader.style.display = 'none';
     },
-    
+
     /**
      * 模态框
      */
     modal(options) {
       const { title = '', content = '', onClose } = options;
-      
+
       const overlay = document.createElement('div');
       overlay.className = 'noteva-modal-overlay';
       overlay.innerHTML = `
@@ -855,22 +860,22 @@
           <div class="noteva-modal-body">${content}</div>
         </div>
       `;
-      
+
       document.body.appendChild(overlay);
-      
+
       const close = () => {
         overlay.remove();
         if (onClose) onClose();
       };
-      
+
       overlay.querySelector('.noteva-modal-close')?.addEventListener('click', close);
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) close();
       });
-      
+
       return { close, element: overlay };
     },
-    
+
     _escape(str) {
       return utils.escapeHtml(str);
     },
@@ -881,7 +886,7 @@
   // ============================================
   const storage = {
     _prefix: 'noteva_',
-    
+
     get(key, defaultValue = null) {
       try {
         const value = localStorage.getItem(this._prefix + key);
@@ -891,7 +896,7 @@
         return defaultValue;
       }
     },
-    
+
     set(key, value) {
       try {
         localStorage.setItem(this._prefix + key, JSON.stringify(value));
@@ -899,11 +904,11 @@
         console.warn('[Noteva] Storage set failed:', e);
       }
     },
-    
+
     remove(key) {
       localStorage.removeItem(this._prefix + key);
     },
-    
+
     clear() {
       const keys = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -928,21 +933,21 @@
     async image(file) {
       const formData = new FormData();
       formData.append('file', file);
-      
+
       const response = await fetch('/api/v1/upload/image', {
         method: 'POST',
         body: formData,
         credentials: 'include',
       });
-      
+
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.error?.message || 'Upload failed');
       }
-      
+
       return response.json();
     },
-    
+
     /**
      * 上传插件文件
      * @param {string} pluginId - 插件 ID
@@ -952,18 +957,18 @@
     async file(pluginId, file) {
       const formData = new FormData();
       formData.append('file', file);
-      
+
       const response = await fetch(`/api/v1/upload/plugin/${pluginId}/file`, {
         method: 'POST',
         body: formData,
         credentials: 'include',
       });
-      
+
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.error?.message || 'Upload failed');
       }
-      
+
       return response.json();
     },
   };
@@ -984,7 +989,7 @@
         throw e;
       }
     },
-    
+
     /**
      * 设置缓存值
      * @param {string} key - 缓存键
@@ -994,7 +999,7 @@
     async set(key, value, ttl = 3600) {
       await api.put(`/cache/${key}`, { value, ttl });
     },
-    
+
     /**
      * 删除缓存值
      */
@@ -1010,7 +1015,7 @@
     setTitle(title) {
       document.title = title;
     },
-    
+
     setMeta(meta) {
       Object.entries(meta).forEach(([name, content]) => {
         let el = document.querySelector(`meta[name="${name}"]`);
@@ -1022,7 +1027,7 @@
         el.content = content;
       });
     },
-    
+
     setOpenGraph(og) {
       Object.entries(og).forEach(([property, content]) => {
         const prop = `og:${property}`;
@@ -1035,7 +1040,7 @@
         el.content = content;
       });
     },
-    
+
     setTwitterCard(twitter) {
       Object.entries(twitter).forEach(([name, content]) => {
         const prop = `twitter:${name}`;
@@ -1048,13 +1053,13 @@
         el.content = content;
       });
     },
-    
+
     set(options) {
       if (options.title) this.setTitle(options.title);
       if (options.meta) this.setMeta(options.meta);
       if (options.og) this.setOpenGraph(options.og);
       if (options.twitter) this.setTwitterCard(options.twitter);
-      
+
       // 触发 SEO meta 标签钩子，允许插件修改或添加 meta 标签
       const modifiedOptions = hooks.trigger('seo_meta_tags', options);
       if (modifiedOptions && modifiedOptions !== options) {
@@ -1072,29 +1077,29 @@
   const i18n = {
     _locale: 'zh-CN',
     _messages: {},
-    
+
     getLocale() {
       return this._locale;
     },
-    
+
     setLocale(locale) {
       this._locale = locale;
       events.emit('locale:change', locale);
     },
-    
+
     addMessages(locale, messages) {
       this._messages[locale] = { ...this._messages[locale], ...messages };
     },
-    
+
     t(key, params = {}) {
       const messages = this._messages[this._locale] || {};
       let text = key.split('.').reduce((obj, k) => obj?.[k], messages) || key;
-      
+
       // 替换参数 {name}
       Object.entries(params).forEach(([k, v]) => {
         text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
       });
-      
+
       return text;
     },
   };
@@ -1106,7 +1111,7 @@
     _plugins: {},
     _settings: {},
     _loaded: false,
-    
+
     /**
      * 注册插件
      */
@@ -1116,21 +1121,21 @@
         plugin.init();
       }
     },
-    
+
     /**
      * 获取插件
      */
     get(id) {
       return this._plugins[id];
     },
-    
+
     /**
      * 获取插件设置
      */
     getSettings(pluginId) {
       return this._settings[pluginId] || {};
     },
-    
+
     /**
      * 保存插件设置
      */
@@ -1138,7 +1143,7 @@
       this._settings[pluginId] = settings;
       await api.put(`/plugins/${pluginId}/settings`, settings);
     },
-    
+
     /**
      * 获取插件数据
      */
@@ -1146,14 +1151,14 @@
       const result = await api.get(`/plugins/${pluginId}/data/${key}`);
       return result.value;
     },
-    
+
     /**
      * 设置插件数据
      */
     async setData(pluginId, key, value) {
       await api.put(`/plugins/${pluginId}/data/${key}`, { value });
     },
-    
+
     /**
      * 从后端加载启用的插件设置
      */
@@ -1163,7 +1168,7 @@
         const enabledPlugins = await api.get('/plugins/enabled');
         for (const plugin of enabledPlugins) {
           this._settings[plugin.id] = plugin.settings || {};
-          
+
           // 触发编辑器工具栏钩子
           if (plugin.editor_config && plugin.editor_config.toolbar) {
             for (const button of plugin.editor_config.toolbar) {
@@ -1179,7 +1184,7 @@
         console.warn('[Noteva] Failed to load plugin settings:', e);
       }
     },
-    
+
     /**
      * 获取编辑器工具栏按钮
      */
@@ -1195,29 +1200,29 @@
   // ============================================
   const shortcodes = {
     _handlers: {},
-    
+
     /**
      * 注册 shortcode
      */
     register(name, handler) {
       this._handlers[name] = handler;
     },
-    
+
     /**
      * 解析并渲染 shortcode
      */
     async render(content, context = {}) {
       // 匹配 [name attr="value"]content[/name] 或 [name attr="value" /]
       const regex = /\[(\w+)([^\]]*)\]([\s\S]*?)\[\/\1\]|\[(\w+)([^\]]*?)\/\]/g;
-      
+
       let result = content;
       let match;
-      
+
       while ((match = regex.exec(content)) !== null) {
         const name = match[1] || match[4];
         const attrsStr = match[2] || match[5] || '';
         const innerContent = match[3] || '';
-        
+
         const handler = this._handlers[name];
         if (handler) {
           const attrs = this._parseAttrs(attrsStr);
@@ -1229,10 +1234,10 @@
           }
         }
       }
-      
+
       return result;
     },
-    
+
     _parseAttrs(str) {
       const attrs = {};
       const regex = /(\w+)=["']([^"']*)["']/g;
@@ -1250,7 +1255,7 @@
   const slots = {
     _slots: {},
     _rendered: new Set(),
-    
+
     /**
      * 注册插槽内容
      * @param {string} name - 插槽名称 (head_end, body_end, etc.)
@@ -1263,13 +1268,13 @@
       }
       this._slots[name].push({ content, priority });
       this._slots[name].sort((a, b) => a.priority - b.priority);
-      
+
       // 如果插槽已经渲染过，立即注入新内容
       if (this._rendered.has(name)) {
         this._injectToSlot(name, content);
       }
     },
-    
+
     /**
      * 获取插槽内容
      */
@@ -1282,7 +1287,7 @@
         return item.content;
       }).join('\n');
     },
-    
+
     /**
      * 渲染插槽到 DOM
      */
@@ -1297,7 +1302,7 @@
           wrapper.className = `noteva-slot noteva-slot-${name}`;
           wrapper.innerHTML = content;
           container.appendChild(wrapper);
-          
+
           // 执行插入的脚本
           wrapper.querySelectorAll('script').forEach(oldScript => {
             const newScript = document.createElement('script');
@@ -1312,7 +1317,7 @@
       this._rendered.add(name);
       hooks.trigger(name, { container });
     },
-    
+
     /**
      * 注入内容到已渲染的插槽
      */
@@ -1327,7 +1332,7 @@
         }
       }
     },
-    
+
     /**
      * 自动渲染所有插槽
      */
@@ -1348,16 +1353,16 @@
     _logRequests: false,
     _logEvents: false,
     _logHooks: false,
-    
+
     enable() {
       this._enabled = true;
       console.log('[Noteva] Debug mode enabled');
     },
-    
+
     disable() {
       this._enabled = false;
     },
-    
+
     logRequests(enabled) {
       this._logRequests = enabled;
       if (enabled) {
@@ -1366,22 +1371,22 @@
         });
       }
     },
-    
+
     logEvents(enabled) {
       this._logEvents = enabled;
       // 需要在事件系统中添加日志
     },
-    
+
     logHooks(enabled) {
       this._logHooks = enabled;
     },
-    
+
     mockUser(userData) {
       user._current = userData;
       user._checked = true;
       console.log('[Noteva] Mocked user:', userData);
     },
-    
+
     mockThemeConfig(config) {
       site._setThemeConfig(config);
       console.log('[Noteva] Mocked theme config:', config);
@@ -1462,106 +1467,124 @@
 
     /** Emoji data grouped by category */
     categories: [
-      { id: 'smileys', label: { 'zh-CN': '表情', 'zh-TW': '表情', en: 'Smileys' }, icon: '😀', emojis: {
-        'grinning':'😀','smiley':'😃','smile':'😄','grin':'😁','laughing':'😆',
-        'sweat_smile':'😅','rofl':'🤣','joy':'😂','slightly_smiling_face':'🙂',
-        'upside_down_face':'🙃','melting_face':'🫠','wink':'😉','blush':'😊',
-        'innocent':'😇','smiling_face_with_three_hearts':'🥰','heart_eyes':'😍',
-        'star_struck':'🤩','kissing_heart':'😘','kissing':'😗',
-        'kissing_closed_eyes':'😚','kissing_smiling_eyes':'😙','smiling_face_with_tear':'🥲',
-        'yum':'😋','stuck_out_tongue':'😛','stuck_out_tongue_winking_eye':'😜',
-        'zany_face':'🤪','stuck_out_tongue_closed_eyes':'😝','money_mouth_face':'🤑',
-        'hugs':'🤗','hand_over_mouth':'🤭','shushing_face':'🤫','thinking':'🤔',
-        'saluting_face':'🫡','zipper_mouth_face':'🤐','raised_eyebrow':'🤨',
-        'neutral_face':'😐','expressionless':'😑','no_mouth':'😶',
-        'dotted_line_face':'🫥','smirk':'😏','unamused':'😒','roll_eyes':'🙄',
-        'grimacing':'😬','lying_face':'🤥','shaking_face':'🫨','relieved':'😌',
-        'pensive':'😔','sleepy':'😪','drooling_face':'🤤','sleeping':'😴',
-        'mask':'😷','face_with_thermometer':'🤒','face_with_head_bandage':'🤕',
-        'nauseated_face':'🤢','vomiting':'🤮','sneezing_face':'🤧',
-        'hot':'🥵','cold':'🥶','woozy_face':'🥴','dizzy_face':'😵',
-        'exploding_head':'🤯','cowboy_hat_face':'🤠','partying_face':'🥳',
-        'disguised_face':'🥸','sunglasses':'😎','nerd_face':'🤓','monocle_face':'🧐',
-        'confused':'😕','worried':'😟','slightly_frowning_face':'🙁',
-        'open_mouth':'😮','hushed':'😯','astonished':'😲','flushed':'😳',
-        'pleading_face':'🥺','face_holding_back_tears':'🥹',
-        'fearful':'😨','cold_sweat':'😰','cry':'😢','sob':'😭','scream':'😱',
-        'disappointed':'😞','sweat':'😓','weary':'😩','tired_face':'😫',
-        'yawning_face':'🥱','triumph':'😤','rage':'😡','angry':'😠',
-        'cursing_face':'🤬','smiling_imp':'😈','imp':'👿','skull':'💀',
-        'poop':'💩','clown_face':'🤡','ghost':'👻','alien':'👽','robot':'🤖',
-      }},
-      { id: 'gestures', label: { 'zh-CN': '手势', 'zh-TW': '手勢', en: 'Gestures' }, icon: '👋', emojis: {
-        'wave':'👋','raised_back_of_hand':'🤚','hand':'✋','vulcan_salute':'🖖',
-        'ok_hand':'👌','pinched_fingers':'🤌','pinching_hand':'🤏',
-        'v':'✌️','crossed_fingers':'🤞','love_you_gesture':'🤟','metal':'🤘',
-        'call_me_hand':'🤙','point_left':'👈','point_right':'👉','point_up_2':'👆',
-        'middle_finger':'🖕','point_down':'👇','point_up':'☝️',
-        '+1':'👍','-1':'👎','fist':'✊','facepunch':'👊',
-        'clap':'👏','raised_hands':'🙌','heart_hands':'🫶','open_hands':'👐',
-        'handshake':'🤝','pray':'🙏','writing_hand':'✍️','nail_care':'💅','muscle':'💪',
-      }},
-      { id: 'hearts', label: { 'zh-CN': '心形', 'zh-TW': '心形', en: 'Hearts' }, icon: '❤️', emojis: {
-        'heart':'❤️','orange_heart':'🧡','yellow_heart':'💛','green_heart':'💚',
-        'blue_heart':'💙','purple_heart':'💜','black_heart':'🖤','white_heart':'🤍',
-        'brown_heart':'🤎','pink_heart':'🩷','broken_heart':'💔',
-        'two_hearts':'💕','revolving_hearts':'💞','heartbeat':'💓','heartpulse':'💗',
-        'growing_heart':'💖','cupid':'💘','gift_heart':'💝',
-        'love_letter':'💌','kiss':'💋','100':'💯','anger':'💢','boom':'💥',
-        'dizzy':'💫','sweat_drops':'💦','dash':'💨','speech_balloon':'💬','zzz':'💤',
-      }},
-      { id: 'animals', label: { 'zh-CN': '动物', 'zh-TW': '動物', en: 'Animals' }, icon: '🐱', emojis: {
-        'monkey_face':'🐵','dog':'🐶','cat':'🐱','lion':'🦁','tiger':'🐯',
-        'horse':'🐴','unicorn':'🦄','cow':'🐮','pig':'🐷','frog':'🐸',
-        'rabbit':'🐰','bear':'🐻','panda_face':'🐼','koala':'🐨',
-        'chicken':'🐔','penguin':'🐧','bird':'🐦','eagle':'🦅','owl':'🦉',
-        'fox_face':'🦊','wolf':'🐺','turtle':'🐢','snake':'🐍','dragon_face':'🐲',
-        'whale':'🐳','dolphin':'🐬','fish':'🐟','octopus':'🐙','shark':'🦈',
-        'butterfly':'🦋','bug':'🐛','bee':'🐝','ladybug':'🐞','snail':'🐌',
-      }},
-      { id: 'food', label: { 'zh-CN': '食物', 'zh-TW': '食物', en: 'Food' }, icon: '🍔', emojis: {
-        'apple':'🍎','grapes':'🍇','watermelon':'🍉','tangerine':'🍊','banana':'🍌',
-        'strawberry':'🍓','peach':'🍑','cherries':'🍒','mango':'🥭','pineapple':'🍍',
-        'avocado':'🥑','eggplant':'🍆','carrot':'🥕','corn':'🌽','hot_pepper':'🌶️',
-        'hamburger':'🍔','fries':'🍟','pizza':'🍕','hotdog':'🌭','taco':'🌮',
-        'sushi':'🍣','ramen':'🍜','rice':'🍚','curry':'🍛',
-        'ice_cream':'🍨','doughnut':'🍩','cookie':'🍪','birthday':'🎂','cake':'🍰',
-        'chocolate_bar':'🍫','candy':'🍬','coffee':'☕','tea':'🍵','beer':'🍺',
-        'wine_glass':'🍷','cocktail':'🍸','champagne':'🍾',
-      }},
-      { id: 'travel', label: { 'zh-CN': '旅行', 'zh-TW': '旅行', en: 'Travel' }, icon: '🚗', emojis: {
-        'car':'🚗','taxi':'🚕','bus':'🚌','ambulance':'🚑','fire_engine':'🚒',
-        'motorcycle':'🏍️','bicycle':'🚲','airplane':'✈️','rocket':'🚀',
-        'ship':'🚢','sailboat':'⛵','train':'🚋','helicopter':'🚁',
-        'house':'🏠','office':'🏢','hospital':'🏥','school':'🏫',
-        'sunrise':'🌅','sunset':'🌇','camping':'🏕️','beach_umbrella':'🏖️',
-        'mountain':'⛰️','volcano':'🌋','world_map':'🗺️','compass':'🧭',
-      }},
-      { id: 'objects', label: { 'zh-CN': '物品', 'zh-TW': '物品', en: 'Objects' }, icon: '💻', emojis: {
-        'watch':'⌚','iphone':'📱','computer':'💻','keyboard':'⌨️',
-        'camera':'📷','tv':'📺','bulb':'💡','fire':'🔥','bomb':'💣',
-        'gem':'💎','money_with_wings':'💸','credit_card':'💳',
-        'envelope':'✉️','package':'📦','pencil2':'✏️','memo':'📝',
-        'briefcase':'💼','clipboard':'📋','calendar':'📅','pushpin':'📌',
-        'scissors':'✂️','lock':'🔒','key':'🔑','hammer':'🔨','gear':'⚙️',
-        'link':'🔗','mag':'🔍',
-      }},
-      { id: 'symbols', label: { 'zh-CN': '符号', 'zh-TW': '符號', en: 'Symbols' }, icon: '⭐', emojis: {
-        'warning':'⚠️','no_entry':'⛔','x':'❌','o':'⭕','question':'❓','exclamation':'❗',
-        'white_check_mark':'✅','star':'⭐','star2':'🌟','sparkles':'✨','zap':'⚡',
-        'sunny':'☀️','cloud':'☁️','umbrella':'☂️','snowflake':'❄️','rainbow':'🌈','ocean':'🌊',
-        'recycle':'♻️','arrow_up':'⬆️','arrow_down':'⬇️','arrow_left':'⬅️','arrow_right':'➡️',
-        'new':'🆕','free':'🆓','cool':'🆒','ok':'🆗','sos':'🆘',
-      }},
-      { id: 'activities', label: { 'zh-CN': '活动', 'zh-TW': '活動', en: 'Activities' }, icon: '⚽', emojis: {
-        'soccer':'⚽','basketball':'🏀','football':'🏈','baseball':'⚾','tennis':'🎾',
-        'trophy':'🏆','1st_place_medal':'🥇','2nd_place_medal':'🥈','3rd_place_medal':'🥉',
-        'dart':'🎯','video_game':'🎮','jigsaw':'🧩','teddy_bear':'🧸',
-        'art':'🎨','musical_note':'🎵','microphone':'🎤','headphones':'🎧',
-        'guitar':'🎸','piano':'🎹','drum':'🥁',
-        'tada':'🎉','confetti_ball':'🎊','balloon':'🎈','gift':'🎁','ribbon':'🎀',
-        'christmas_tree':'🎄','jack_o_lantern':'🎃','firecracker':'🧨',
-      }},
+      {
+        id: 'smileys', label: { 'zh-CN': '表情', 'zh-TW': '表情', en: 'Smileys' }, icon: '😀', emojis: {
+          'grinning': '😀', 'smiley': '😃', 'smile': '😄', 'grin': '😁', 'laughing': '😆',
+          'sweat_smile': '😅', 'rofl': '🤣', 'joy': '😂', 'slightly_smiling_face': '🙂',
+          'upside_down_face': '🙃', 'melting_face': '🫠', 'wink': '😉', 'blush': '😊',
+          'innocent': '😇', 'smiling_face_with_three_hearts': '🥰', 'heart_eyes': '😍',
+          'star_struck': '🤩', 'kissing_heart': '😘', 'kissing': '😗',
+          'kissing_closed_eyes': '😚', 'kissing_smiling_eyes': '😙', 'smiling_face_with_tear': '🥲',
+          'yum': '😋', 'stuck_out_tongue': '😛', 'stuck_out_tongue_winking_eye': '😜',
+          'zany_face': '🤪', 'stuck_out_tongue_closed_eyes': '😝', 'money_mouth_face': '🤑',
+          'hugs': '🤗', 'hand_over_mouth': '🤭', 'shushing_face': '🤫', 'thinking': '🤔',
+          'saluting_face': '🫡', 'zipper_mouth_face': '🤐', 'raised_eyebrow': '🤨',
+          'neutral_face': '😐', 'expressionless': '😑', 'no_mouth': '😶',
+          'dotted_line_face': '🫥', 'smirk': '😏', 'unamused': '😒', 'roll_eyes': '🙄',
+          'grimacing': '😬', 'lying_face': '🤥', 'shaking_face': '🫨', 'relieved': '😌',
+          'pensive': '😔', 'sleepy': '😪', 'drooling_face': '🤤', 'sleeping': '😴',
+          'mask': '😷', 'face_with_thermometer': '🤒', 'face_with_head_bandage': '🤕',
+          'nauseated_face': '🤢', 'vomiting': '🤮', 'sneezing_face': '🤧',
+          'hot': '🥵', 'cold': '🥶', 'woozy_face': '🥴', 'dizzy_face': '😵',
+          'exploding_head': '🤯', 'cowboy_hat_face': '🤠', 'partying_face': '🥳',
+          'disguised_face': '🥸', 'sunglasses': '😎', 'nerd_face': '🤓', 'monocle_face': '🧐',
+          'confused': '😕', 'worried': '😟', 'slightly_frowning_face': '🙁',
+          'open_mouth': '😮', 'hushed': '😯', 'astonished': '😲', 'flushed': '😳',
+          'pleading_face': '🥺', 'face_holding_back_tears': '🥹',
+          'fearful': '😨', 'cold_sweat': '😰', 'cry': '😢', 'sob': '😭', 'scream': '😱',
+          'disappointed': '😞', 'sweat': '😓', 'weary': '😩', 'tired_face': '😫',
+          'yawning_face': '🥱', 'triumph': '😤', 'rage': '😡', 'angry': '😠',
+          'cursing_face': '🤬', 'smiling_imp': '😈', 'imp': '👿', 'skull': '💀',
+          'poop': '💩', 'clown_face': '🤡', 'ghost': '👻', 'alien': '👽', 'robot': '🤖',
+        }
+      },
+      {
+        id: 'gestures', label: { 'zh-CN': '手势', 'zh-TW': '手勢', en: 'Gestures' }, icon: '👋', emojis: {
+          'wave': '👋', 'raised_back_of_hand': '🤚', 'hand': '✋', 'vulcan_salute': '🖖',
+          'ok_hand': '👌', 'pinched_fingers': '🤌', 'pinching_hand': '🤏',
+          'v': '✌️', 'crossed_fingers': '🤞', 'love_you_gesture': '🤟', 'metal': '🤘',
+          'call_me_hand': '🤙', 'point_left': '👈', 'point_right': '👉', 'point_up_2': '👆',
+          'middle_finger': '🖕', 'point_down': '👇', 'point_up': '☝️',
+          '+1': '👍', '-1': '👎', 'fist': '✊', 'facepunch': '👊',
+          'clap': '👏', 'raised_hands': '🙌', 'heart_hands': '🫶', 'open_hands': '👐',
+          'handshake': '🤝', 'pray': '🙏', 'writing_hand': '✍️', 'nail_care': '💅', 'muscle': '💪',
+        }
+      },
+      {
+        id: 'hearts', label: { 'zh-CN': '心形', 'zh-TW': '心形', en: 'Hearts' }, icon: '❤️', emojis: {
+          'heart': '❤️', 'orange_heart': '🧡', 'yellow_heart': '💛', 'green_heart': '💚',
+          'blue_heart': '💙', 'purple_heart': '💜', 'black_heart': '🖤', 'white_heart': '🤍',
+          'brown_heart': '🤎', 'pink_heart': '🩷', 'broken_heart': '💔',
+          'two_hearts': '💕', 'revolving_hearts': '💞', 'heartbeat': '💓', 'heartpulse': '💗',
+          'growing_heart': '💖', 'cupid': '💘', 'gift_heart': '💝',
+          'love_letter': '💌', 'kiss': '💋', '100': '💯', 'anger': '💢', 'boom': '💥',
+          'dizzy': '💫', 'sweat_drops': '💦', 'dash': '💨', 'speech_balloon': '💬', 'zzz': '💤',
+        }
+      },
+      {
+        id: 'animals', label: { 'zh-CN': '动物', 'zh-TW': '動物', en: 'Animals' }, icon: '🐱', emojis: {
+          'monkey_face': '🐵', 'dog': '🐶', 'cat': '🐱', 'lion': '🦁', 'tiger': '🐯',
+          'horse': '🐴', 'unicorn': '🦄', 'cow': '🐮', 'pig': '🐷', 'frog': '🐸',
+          'rabbit': '🐰', 'bear': '🐻', 'panda_face': '🐼', 'koala': '🐨',
+          'chicken': '🐔', 'penguin': '🐧', 'bird': '🐦', 'eagle': '🦅', 'owl': '🦉',
+          'fox_face': '🦊', 'wolf': '🐺', 'turtle': '🐢', 'snake': '🐍', 'dragon_face': '🐲',
+          'whale': '🐳', 'dolphin': '🐬', 'fish': '🐟', 'octopus': '🐙', 'shark': '🦈',
+          'butterfly': '🦋', 'bug': '🐛', 'bee': '🐝', 'ladybug': '🐞', 'snail': '🐌',
+        }
+      },
+      {
+        id: 'food', label: { 'zh-CN': '食物', 'zh-TW': '食物', en: 'Food' }, icon: '🍔', emojis: {
+          'apple': '🍎', 'grapes': '🍇', 'watermelon': '🍉', 'tangerine': '🍊', 'banana': '🍌',
+          'strawberry': '🍓', 'peach': '🍑', 'cherries': '🍒', 'mango': '🥭', 'pineapple': '🍍',
+          'avocado': '🥑', 'eggplant': '🍆', 'carrot': '🥕', 'corn': '🌽', 'hot_pepper': '🌶️',
+          'hamburger': '🍔', 'fries': '🍟', 'pizza': '🍕', 'hotdog': '🌭', 'taco': '🌮',
+          'sushi': '🍣', 'ramen': '🍜', 'rice': '🍚', 'curry': '🍛',
+          'ice_cream': '🍨', 'doughnut': '🍩', 'cookie': '🍪', 'birthday': '🎂', 'cake': '🍰',
+          'chocolate_bar': '🍫', 'candy': '🍬', 'coffee': '☕', 'tea': '🍵', 'beer': '🍺',
+          'wine_glass': '🍷', 'cocktail': '🍸', 'champagne': '🍾',
+        }
+      },
+      {
+        id: 'travel', label: { 'zh-CN': '旅行', 'zh-TW': '旅行', en: 'Travel' }, icon: '🚗', emojis: {
+          'car': '🚗', 'taxi': '🚕', 'bus': '🚌', 'ambulance': '🚑', 'fire_engine': '🚒',
+          'motorcycle': '🏍️', 'bicycle': '🚲', 'airplane': '✈️', 'rocket': '🚀',
+          'ship': '🚢', 'sailboat': '⛵', 'train': '🚋', 'helicopter': '🚁',
+          'house': '🏠', 'office': '🏢', 'hospital': '🏥', 'school': '🏫',
+          'sunrise': '🌅', 'sunset': '🌇', 'camping': '🏕️', 'beach_umbrella': '🏖️',
+          'mountain': '⛰️', 'volcano': '🌋', 'world_map': '🗺️', 'compass': '🧭',
+        }
+      },
+      {
+        id: 'objects', label: { 'zh-CN': '物品', 'zh-TW': '物品', en: 'Objects' }, icon: '💻', emojis: {
+          'watch': '⌚', 'iphone': '📱', 'computer': '💻', 'keyboard': '⌨️',
+          'camera': '📷', 'tv': '📺', 'bulb': '💡', 'fire': '🔥', 'bomb': '💣',
+          'gem': '💎', 'money_with_wings': '💸', 'credit_card': '💳',
+          'envelope': '✉️', 'package': '📦', 'pencil2': '✏️', 'memo': '📝',
+          'briefcase': '💼', 'clipboard': '📋', 'calendar': '📅', 'pushpin': '📌',
+          'scissors': '✂️', 'lock': '🔒', 'key': '🔑', 'hammer': '🔨', 'gear': '⚙️',
+          'link': '🔗', 'mag': '🔍',
+        }
+      },
+      {
+        id: 'symbols', label: { 'zh-CN': '符号', 'zh-TW': '符號', en: 'Symbols' }, icon: '⭐', emojis: {
+          'warning': '⚠️', 'no_entry': '⛔', 'x': '❌', 'o': '⭕', 'question': '❓', 'exclamation': '❗',
+          'white_check_mark': '✅', 'star': '⭐', 'star2': '🌟', 'sparkles': '✨', 'zap': '⚡',
+          'sunny': '☀️', 'cloud': '☁️', 'umbrella': '☂️', 'snowflake': '❄️', 'rainbow': '🌈', 'ocean': '🌊',
+          'recycle': '♻️', 'arrow_up': '⬆️', 'arrow_down': '⬇️', 'arrow_left': '⬅️', 'arrow_right': '➡️',
+          'new': '🆕', 'free': '🆓', 'cool': '🆒', 'ok': '🆗', 'sos': '🆘',
+        }
+      },
+      {
+        id: 'activities', label: { 'zh-CN': '活动', 'zh-TW': '活動', en: 'Activities' }, icon: '⚽', emojis: {
+          'soccer': '⚽', 'basketball': '🏀', 'football': '🏈', 'baseball': '⚾', 'tennis': '🎾',
+          'trophy': '🏆', '1st_place_medal': '🥇', '2nd_place_medal': '🥈', '3rd_place_medal': '🥉',
+          'dart': '🎯', 'video_game': '🎮', 'jigsaw': '🧩', 'teddy_bear': '🧸',
+          'art': '🎨', 'musical_note': '🎵', 'microphone': '🎤', 'headphones': '🎧',
+          'guitar': '🎸', 'piano': '🎹', 'drum': '🥁',
+          'tada': '🎉', 'confetti_ball': '🎊', 'balloon': '🎈', 'gift': '🎁', 'ribbon': '🎀',
+          'christmas_tree': '🎄', 'jack_o_lantern': '🎃', 'firecracker': '🧨',
+        }
+      },
     ],
 
     /**
@@ -1658,18 +1681,18 @@
   async function init() {
     // 触发 system_init 钩子
     hooks.trigger('system_init');
-    
+
     // 检查用户登录状态
     await user.check();
-    
+
     // 加载站点信息
     const siteInfo = await site.getInfo();
-    
+
     // 从 site info 同步版本号
     if (siteInfo && siteInfo.version) {
       window.Noteva.version = siteInfo.version;
     }
-    
+
     // 注入自定义 CSS/JS（如果后端未注入）
     if (siteInfo) {
       if (siteInfo.custom_css && !document.getElementById('noteva-custom-css')) {
@@ -1685,19 +1708,19 @@
         document.body.appendChild(script);
       }
     }
-    
+
     // 加载主题配置
     await site.loadThemeConfig();
-    
+
     // 加载启用的插件设置
     await plugins.loadEnabledPlugins();
-    
+
     // 自动渲染插槽
     slots.autoRender();
-    
+
     // 触发 body_end 钩子（页面加载完成）
     hooks.trigger('body_end');
-    
+
     // 触发内容渲染钩子
     hooks.trigger('content_render', {
       path: router.getPath(),
@@ -1706,25 +1729,25 @@
 
     // 自动渲染数学公式和 Mermaid 图表
     hooks.on('content_render', _renderMathAndDiagrams, 20);
-    
+
     // SPA 路由变化监听：拦截 pushState/replaceState 和 popstate
     // 自动触发 route_change 和 content_render，主题无需手动处理
     let _lastPath = router.getPath();
     let _contentRenderTimer = null;
-    
+
     const _triggerContentRender = (path) => {
       hooks.trigger('content_render', {
         path: path || router.getPath(),
         query: router.getQueryAll(),
       });
     };
-    
+
     const _onRouteChange = () => {
       const newPath = router.getPath();
       if (newPath !== _lastPath) {
         const oldPath = _lastPath;
         _lastPath = newPath;
-        
+
         // 触发路由变化钩子
         hooks.trigger('route_change', {
           from: oldPath,
@@ -1732,17 +1755,17 @@
           query: router.getQueryAll(),
         });
         events.emit('route:change', { from: oldPath, to: newPath });
-        
+
         // 清除之前的定时器，避免重复触发
         if (_contentRenderTimer) clearTimeout(_contentRenderTimer);
-        
+
         // 兜底：最多等 800ms 后强制触发一次
         _contentRenderTimer = setTimeout(() => {
           _triggerContentRender(newPath);
         }, 800);
       }
     };
-    
+
     // MutationObserver：监听 DOM 变化，自动检测内容渲染完成
     // 这样主题开发者完全不需要手动触发 content_render
     const _contentSelectors = [
@@ -1750,25 +1773,25 @@
       '.entry-content', '#content', '#post-content', 'main',
       '[data-content]', '.prose', '.markdown-body',
     ];
-    
+
     let _mutationDebounce = null;
     const _observer = new MutationObserver((mutations) => {
       // 检查是否有实质性的内容变化（不只是属性变化）
-      const hasContentChange = mutations.some(m => 
+      const hasContentChange = mutations.some(m =>
         m.type === 'childList' && m.addedNodes.length > 0
       );
       if (!hasContentChange) return;
-      
+
       // 检查变化是否发生在内容区域
       const isContentArea = mutations.some(m => {
         const target = m.target;
         if (!target || !target.matches) return false;
         // 直接匹配或者是内容区域的子元素
         return _contentSelectors.some(sel => {
-          try { return target.matches(sel) || target.closest(sel); } catch(e) { return false; }
+          try { return target.matches(sel) || target.closest(sel); } catch (e) { return false; }
         });
       });
-      
+
       if (isContentArea) {
         // 防抖：DOM 可能连续变化，等稳定后再触发
         if (_mutationDebounce) clearTimeout(_mutationDebounce);
@@ -1782,29 +1805,29 @@
         }, 150);
       }
     });
-    
+
     _observer.observe(document.body, {
       childList: true,
       subtree: true,
     });
-    
+
     // 拦截 history.pushState 和 replaceState
     const _origPushState = history.pushState.bind(history);
     const _origReplaceState = history.replaceState.bind(history);
-    history.pushState = function(...args) {
+    history.pushState = function (...args) {
       _origPushState(...args);
       _onRouteChange();
     };
-    history.replaceState = function(...args) {
+    history.replaceState = function (...args) {
       _origReplaceState(...args);
       _onRouteChange();
     };
     window.addEventListener('popstate', _onRouteChange);
-    
+
     // 触发初始化完成
     _ready = true;
     events.emit('theme:ready');
-    
+
     // 执行等待的回调
     _readyCallbacks.forEach(cb => cb());
     _readyCallbacks = [];
@@ -1828,12 +1851,12 @@
   window.Noteva = {
     // 版本
     version: '0.1.5',
-    
+
     // 核心系统
     hooks,
     events,
     api,
-    
+
     // 数据 API
     site,
     articles,
@@ -1842,7 +1865,7 @@
     tags,
     comments,
     user,
-    
+
     // 辅助工具
     router,
     utils,
@@ -1852,18 +1875,18 @@
     cache,
     seo,
     i18n,
-    
+
     // 插件系统
     plugins,
     shortcodes,
     slots,
-    
+
     // Emoji / Twemoji
     emoji,
-    
+
     // 调试
     debug,
-    
+
     // 初始化
     ready,
   };

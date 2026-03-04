@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Save, X, Trash2, Pin, Loader2, Check } from "lucide-react";
+import { ArrowLeft, Save, X, Trash2, Pin, Loader2, Check, Clock } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,6 +93,7 @@ export default function EditArticlePage() {
     thumbnail: null as string | null,
     is_pinned: false,
     pin_order: 0,
+    scheduled_at: "",
   });
 
   const contentImages = useMemo(() => extractImages(form.content), [form.content]);
@@ -126,6 +127,7 @@ export default function EditArticlePage() {
             status: form.status, category_id: form.category_id,
             tag_ids: selectedTags, thumbnail: form.thumbnail,
             is_pinned: form.is_pinned, pin_order: form.pin_order,
+            scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : undefined,
           };
           await articlesApi.update(articleId, data);
           setLastSavedContent(JSON.stringify({ ...form, selectedTags }));
@@ -161,6 +163,7 @@ export default function EditArticlePage() {
           status: article.status, category_id: article.category_id,
           thumbnail: article.thumbnail || null,
           is_pinned: article.is_pinned || false, pin_order: article.pin_order || 0,
+          scheduled_at: article.scheduled_at ? new Date(article.scheduled_at).toISOString().slice(0, 16) : "",
         };
         const tagIds = article.tags?.map((t: any) => t.id) || [];
         setForm(formData);
@@ -194,6 +197,7 @@ export default function EditArticlePage() {
         status: status || currentForm.status, category_id: currentForm.category_id,
         tag_ids: selectedTags, thumbnail: currentForm.thumbnail,
         is_pinned: currentForm.is_pinned, pin_order: currentForm.pin_order,
+        scheduled_at: currentForm.scheduled_at ? new Date(currentForm.scheduled_at).toISOString() : undefined,
       };
       await articlesApi.update(articleId, data);
       const newForm = { ...currentForm, status: status || currentForm.status };
@@ -352,6 +356,25 @@ export default function EditArticlePage() {
                   <Label htmlFor="pin_order">{t("article.pinOrder")}</Label>
                   <Input id="pin_order" type="number" min={0} value={form.pin_order} onChange={(e) => setForm((f) => ({ ...f, pin_order: parseInt(e.target.value) || 0 }))} placeholder="0" />
                   <p className="text-xs text-muted-foreground">{t("article.pinOrderHint")}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle className="text-base flex items-center gap-2"><Clock className="h-4 w-4" />{t("article.scheduledPublish")}</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <Input
+                type="datetime-local"
+                value={form.scheduled_at}
+                onChange={(e) => setForm((f) => ({ ...f, scheduled_at: e.target.value }))}
+              />
+              {form.scheduled_at && (
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">{t("article.scheduledHint")}</p>
+                  <Button variant="ghost" size="sm" onClick={() => setForm((f) => ({ ...f, scheduled_at: "" }))}>
+                    <X className="h-3 w-3" />
+                  </Button>
                 </div>
               )}
             </CardContent>

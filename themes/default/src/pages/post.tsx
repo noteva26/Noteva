@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Calendar, Folder, ArrowLeft, Tag, Eye, Heart, MessageSquare } from "lucide-react";
+import { Calendar, Folder, ArrowLeft, ArrowRight, Tag, Eye, Heart, MessageSquare, BookOpen, Clock } from "lucide-react";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
 import { toast } from "sonner";
 import { getNoteva } from "@/hooks/useNoteva";
@@ -30,6 +30,11 @@ interface Article {
   likeCount?: number;
   comment_count?: number;
   commentCount?: number;
+  word_count?: number;
+  reading_time?: number;
+  prev?: { slug: string; title: string } | null;
+  next?: { slug: string; title: string } | null;
+  related?: { slug: string; title: string; thumbnail?: string }[];
   category?: { id: number; name: string; slug: string };
   tags?: { id: number; name: string; slug: string }[];
 }
@@ -58,7 +63,7 @@ export default function PostPage() {
       try {
         const info = await Noteva.site.getInfo();
         setSiteInfo({ name: info.name || "Noteva" });
-      } catch {}
+      } catch { }
     };
     loadSiteInfo();
   }, []);
@@ -71,7 +76,7 @@ export default function PostPage() {
 
   useEffect(() => {
     if (!slug) return;
-    
+
     const loadArticle = async () => {
       const Noteva = getNoteva();
       if (!Noteva) { setTimeout(loadArticle, 50); return; }
@@ -80,13 +85,13 @@ export default function PostPage() {
         const data = await Noteva.articles.get(slug);
         setArticle(data);
         setLikeCount((data as any).like_count ?? data.likeCount ?? 0);
-        
+
         try {
           const likeResult = await Noteva.api.get(`/like/check?target_type=article&target_id=${data.id}`);
           setIsLiked(likeResult.liked);
         } catch { setIsLiked(false); }
-        
-        try { await Noteva.api.post(`/view/${data.id}`); } catch {}
+
+        try { await Noteva.api.post(`/view/${data.id}`); } catch { }
       } catch (err) {
         console.error(err);
         setNotFound(true);
@@ -165,6 +170,12 @@ export default function PostPage() {
                   <Folder className="h-4 w-4" />{article.category.name}
                 </Link>
               )}
+              {(article.word_count ?? 0) > 0 && (
+                <span className="flex items-center gap-1"><BookOpen className="h-4 w-4" />{article.word_count}{t("article.words")}</span>
+              )}
+              {(article.reading_time ?? 0) > 0 && (
+                <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{article.reading_time}{t("article.minRead")}</span>
+              )}
               <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{getViewCount(article)}</span>
               <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{getCommentCount(article)}</span>
             </div>
@@ -197,6 +208,44 @@ export default function PostPage() {
               <Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />{likeCount}
             </Button>
           </div>
+
+          {/* Prev / Next navigation */}
+          {(article.prev || article.next) && (
+            <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {article.prev ? (
+                <Link to={`/posts/${article.prev.slug}`} className="group flex items-center gap-2 p-4 rounded-lg border hover:bg-muted/50 transition-colors">
+                  <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground">{t("article.prev")}</div>
+                    <div className="text-sm font-medium truncate">{article.prev.title}</div>
+                  </div>
+                </Link>
+              ) : <div />}
+              {article.next && (
+                <Link to={`/posts/${article.next.slug}`} className="group flex items-center justify-end gap-2 p-4 rounded-lg border hover:bg-muted/50 transition-colors text-right">
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground">{t("article.next")}</div>
+                    <div className="text-sm font-medium truncate">{article.next.title}</div>
+                  </div>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </Link>
+              )}
+            </div>
+          )}
+
+          {/* Related articles */}
+          {article.related && article.related.length > 0 && (
+            <div className="mt-8">
+              <h3 className="text-lg font-semibold mb-3">{t("article.related")}</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {article.related.map((item) => (
+                  <Link key={item.slug} to={`/posts/${item.slug}`} className="block p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                    <span className="text-sm font-medium line-clamp-2">{item.title}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
 
           <Comments articleId={article.id} />
         </article>

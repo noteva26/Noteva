@@ -27,6 +27,15 @@ pub struct SiteInfoResponse {
     pub demo_mode: bool,
     pub custom_css: String,
     pub custom_js: String,
+    pub stats: SiteStats,
+}
+
+/// Public site statistics
+#[derive(Debug, Serialize)]
+pub struct SiteStats {
+    pub total_articles: i64,
+    pub total_categories: i64,
+    pub total_tags: i64,
 }
 
 /// Request for rendering markdown content
@@ -111,6 +120,14 @@ async fn get_site_info(
         .flatten()
         .unwrap_or_default();
 
+    // Gather public stats
+    let total_articles = state.article_service
+        .count_published().await.unwrap_or(0);
+    let total_categories = state.category_service
+        .list().await.map(|c| c.len() as i64).unwrap_or(0);
+    let total_tags = state.tag_service
+        .list().await.map(|t| t.len() as i64).unwrap_or(0);
+
     Json(SiteInfoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         site_name: settings.site_name,
@@ -124,6 +141,11 @@ async fn get_site_info(
         demo_mode: crate::api::middleware::is_demo_mode(),
         custom_css,
         custom_js,
+        stats: SiteStats {
+            total_articles,
+            total_categories,
+            total_tags,
+        },
     })
 }
 

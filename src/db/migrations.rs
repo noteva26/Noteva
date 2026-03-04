@@ -685,6 +685,17 @@ pub const MIGRATIONS: &[Migration] = &[
             ALTER TABLE pages ADD COLUMN source VARCHAR(100) NOT NULL DEFAULT 'user';
         "#,
     },
+    // Migration 26: Add scheduled_at column to articles for scheduled publishing
+    Migration {
+        version: 26,
+        name: "add_articles_scheduled_at",
+        up_sqlite: r#"
+            ALTER TABLE articles ADD COLUMN scheduled_at TIMESTAMP;
+        "#,
+        up_mysql: r#"
+            ALTER TABLE articles ADD COLUMN scheduled_at TIMESTAMP NULL;
+        "#,
+    },
 ];
 
 /// Run all pending migrations

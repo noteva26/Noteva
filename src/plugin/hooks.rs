@@ -55,7 +55,10 @@ impl HookManager {
     where
         F: Fn(&mut Value) -> Option<Value> + Send + Sync + 'static,
     {
-        let mut hooks = self.hooks.write().unwrap();
+        let Ok(mut hooks) = self.hooks.write() else {
+            tracing::error!("Hook registry lock poisoned, cannot register");
+            return;
+        };
         let handlers = hooks.entry(name.to_string()).or_insert_with(Vec::new);
         
         handlers.push(HookHandler {
@@ -72,7 +75,10 @@ impl HookManager {
     
     /// Unregister all hooks for a plugin
     pub fn unregister_plugin(&self, plugin_id: &str) {
-        let mut hooks = self.hooks.write().unwrap();
+        let Ok(mut hooks) = self.hooks.write() else {
+            tracing::error!("Hook registry lock poisoned, cannot unregister");
+            return;
+        };
         for handlers in hooks.values_mut() {
             handlers.retain(|h| h.plugin_id.as_deref() != Some(plugin_id));
         }
@@ -107,7 +113,10 @@ impl HookManager {
             return data;
         }
 
-        let hooks = self.hooks.read().unwrap();
+        let Ok(hooks) = self.hooks.read() else {
+            tracing::error!("Hook registry lock poisoned in trigger_filter");
+            return data;
+        };
         if let Some(handlers) = hooks.get(name) {
             for handler in handlers {
                 if let Some(result) = (handler.callback)(&mut data) {
@@ -128,7 +137,10 @@ impl HookManager {
             );
         }
 
-        let hooks = self.hooks.read().unwrap();
+        let Ok(hooks) = self.hooks.read() else {
+            tracing::error!("Hook registry lock poisoned in trigger_action");
+            return;
+        };
         if let Some(handlers) = hooks.get(name) {
             for handler in handlers {
                 let _ = (handler.callback)(&mut data);
@@ -138,7 +150,7 @@ impl HookManager {
     
     /// Check if a hook has any handlers
     pub fn has_handlers(&self, name: &str) -> bool {
-        let hooks = self.hooks.read().unwrap();
+        let Ok(hooks) = self.hooks.read() else { return false; };
         hooks.get(name).map_or(false, |h| !h.is_empty())
     }
 
@@ -159,6 +171,7 @@ pub mod hook_names {
     pub const ARTICLE_AFTER_DELETE: &str = "article_after_delete";
     pub const ARTICLE_BEFORE_DISPLAY: &str = "article_before_display";
     pub const ARTICLE_VIEW: &str = "article_view";
+    pub const ARTICLE_STATUS_CHANGE: &str = "article_status_change";
     
     // Comment hooks - triggered in src/services/comment.rs and src/api/comments.rs
     pub const COMMENT_BEFORE_CREATE: &str = "comment_before_create";
@@ -200,6 +213,32 @@ pub mod hook_names {
     pub const ARTICLE_EXCERPT_FILTER: &str = "article_excerpt_filter";     // src/services/article.rs
     pub const COMMENT_CONTENT_FILTER: &str = "comment_content_filter";     // src/services/comment.rs
     
+    // Page hooks - triggered in src/services/page.rs
+    pub const PAGE_BEFORE_CREATE: &str = "page_before_create";
+    pub const PAGE_AFTER_CREATE: &str = "page_after_create";
+    pub const PAGE_BEFORE_UPDATE: &str = "page_before_update";
+    pub const PAGE_AFTER_UPDATE: &str = "page_after_update";
+    pub const PAGE_BEFORE_DELETE: &str = "page_before_delete";
+    pub const PAGE_AFTER_DELETE: &str = "page_after_delete";
+    
+    // Taxonomy hooks - triggered in src/api/admin/taxonomy.rs
+    pub const CATEGORY_AFTER_CREATE: &str = "category_after_create";
+    pub const CATEGORY_AFTER_DELETE: &str = "category_after_delete";
+    pub const TAG_AFTER_CREATE: &str = "tag_after_create";
+    pub const TAG_AFTER_DELETE: &str = "tag_after_delete";
+    
+    // Comment moderation hooks - triggered in src/services/comment.rs
+    pub const COMMENT_APPROVE: &str = "comment_approve";
+    pub const COMMENT_REJECT: &str = "comment_reject";
+    
+    // User behavior hooks - triggered in src/services/user.rs and src/api/auth.rs
+    pub const USER_PROFILE_UPDATE: &str = "user_profile_update";
+    pub const USER_PASSWORD_CHANGE: &str = "user_password_change";
+    
+    // Settings hooks - triggered in src/api/admin/settings.rs
+    pub const SETTINGS_BEFORE_SAVE: &str = "settings_before_save";
+    pub const SETTINGS_AFTER_SAVE: &str = "settings_after_save";
+    
     // Frontend hooks - triggered by frontend SDK
     pub const SEO_META_TAGS: &str = "seo_meta_tags";                       // frontend
     pub const ADMIN_MENU: &str = "admin_menu";                             // frontend
@@ -211,6 +250,17 @@ pub mod hook_names {
     // Upload hooks - triggered in src/api/upload.rs
     pub const IMAGE_UPLOAD_FILTER: &str = "image_upload_filter";           // src/api/upload.rs
     pub const FILE_UPLOAD_FILTER: &str = "file_upload_filter";             // src/api/upload.rs
+    
+    // SEO hooks - triggered in src/api/seo.rs
+    pub const FEED_FILTER: &str = "feed_filter";                           // src/api/seo.rs
+    pub const SITEMAP_FILTER: &str = "sitemap_filter";                     // src/api/seo.rs
+    
+    // Article list hook - triggered in src/api/articles.rs
+    pub const ARTICLE_LIST_FILTER: &str = "article_list_filter";           // src/api/articles.rs
+    
+    // Cron hooks - triggered in src/main.rs
+    pub const CRON_REGISTER: &str = "cron_register";                       // src/main.rs (system_init)
+    pub const CRON_TICK: &str = "cron_tick";                               // src/main.rs (every 60s)
 }
 
 #[cfg(test)]

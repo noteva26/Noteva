@@ -40,6 +40,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
@@ -98,8 +99,16 @@ export default function ArticlesPage() {
     article.title.toLowerCase().includes(search.toLowerCase())
   ) : [];
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const getStatusBadge = (article: Article) => {
+    if (article.status === "draft" && article.scheduled_at) {
+      return (
+        <Badge variant="secondary" className="gap-1">
+          <Clock className="h-3 w-3" />
+          {t("article.scheduled")}
+        </Badge>
+      );
+    }
+    switch (article.status) {
       case "published":
         return <Badge variant="success">{t("article.published")}</Badge>;
       case "draft":
@@ -107,7 +116,7 @@ export default function ArticlesPage() {
       case "archived":
         return <Badge variant="outline">{t("article.archived")}</Badge>;
       default:
-        return <Badge>{status}</Badge>;
+        return <Badge>{article.status}</Badge>;
     }
   };
 
@@ -212,7 +221,7 @@ export default function ArticlesPage() {
                     </Link>
                   </TableCell>
                   <TableCell>{article.category?.name || "-"}</TableCell>
-                  <TableCell>{getStatusBadge(article.status)}</TableCell>
+                  <TableCell>{getStatusBadge(article)}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {new Date(article.updated_at).toLocaleDateString(getDateLocale())}
                   </TableCell>

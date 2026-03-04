@@ -19,10 +19,11 @@ mod update;
 mod comments;
 mod reload;
 mod security;
+mod backup;
 
 pub use comments::{
-    list_pending_comments, approve_comment, reject_comment,
-    PendingCommentsQuery, PendingCommentsResponse, PendingCommentResponse,
+    list_comments, list_pending_comments, approve_comment, reject_comment,
+    CommentsQuery, AdminCommentsResponse, AdminCommentResponse,
 };
 pub use security::{LoginLogEntry, LoginLogsQuery, LoginLogsResponse};
 pub use update::APP_VERSION;
@@ -61,10 +62,16 @@ pub fn router() -> Router<AppState> {
         // Site settings
         .route("/settings", get(settings::get_settings))
         .route("/settings", put(settings::update_settings))
-        // Comment moderation
+        // Comment management
+        .route("/comments", get(list_comments))
         .route("/comments/pending", get(list_pending_comments))
         .route("/comments/:id/approve", post(approve_comment))
         .route("/comments/:id/reject", post(reject_comment))
         // Login logs (security)
         .route("/login-logs", get(security::list_login_logs))
+        // Backup & Restore
+        .route("/backup", get(backup::download_backup))
+        .route("/backup/restore", post(backup::restore_backup_endpoint))
+        .route("/backup/export-markdown", get(backup::export_markdown_endpoint))
+        .route("/backup/import", post(backup::import_articles_endpoint))
 }

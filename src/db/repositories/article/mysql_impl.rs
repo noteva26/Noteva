@@ -18,8 +18,8 @@ pub(super) async fn create_article_mysql(pool: &MySqlPool, input: &CreateArticle
 
     let result = sqlx::query(
         r#"
-        INSERT INTO articles (slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, thumbnail, is_pinned, pin_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO articles (slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, thumbnail, is_pinned, pin_order, scheduled_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&input.slug)
@@ -35,6 +35,7 @@ pub(super) async fn create_article_mysql(pool: &MySqlPool, input: &CreateArticle
     .bind::<Option<&str>>(None)
     .bind(false)
     .bind(0)
+    .bind(input.scheduled_at)
     .execute(pool)
     .await
     .context("Failed to create article")?;
@@ -60,6 +61,7 @@ pub(super) async fn create_article_mysql(pool: &MySqlPool, input: &CreateArticle
         is_pinned: false,
         pin_order: 0,
         meta: serde_json::json!({}),
+        scheduled_at: input.scheduled_at,
     })
 }
 
@@ -134,6 +136,7 @@ pub(super) async fn update_article_mysql(pool: &MySqlPool, id: i64, input: &Upda
     let new_thumbnail = input.thumbnail.clone().or(existing.thumbnail.clone());
     let new_is_pinned = input.is_pinned.unwrap_or(existing.is_pinned);
     let new_pin_order = input.pin_order.unwrap_or(existing.pin_order);
+    let new_scheduled_at = if input.scheduled_at.is_some() { input.scheduled_at } else { existing.scheduled_at };
 
     let new_published_at = if new_status == ArticleStatus::Published && existing.status != ArticleStatus::Published {
         Some(now)
@@ -146,7 +149,7 @@ pub(super) async fn update_article_mysql(pool: &MySqlPool, id: i64, input: &Upda
     sqlx::query(
         r#"
         UPDATE articles
-        SET slug = ?, title = ?, content = ?, content_html = ?, category_id = ?, status = ?, published_at = ?, updated_at = ?, thumbnail = ?, is_pinned = ?, pin_order = ?
+        SET slug = ?, title = ?, content = ?, content_html = ?, category_id = ?, status = ?, published_at = ?, updated_at = ?, thumbnail = ?, is_pinned = ?, pin_order = ?, scheduled_at = ?
         WHERE id = ?
         "#,
     )
@@ -161,6 +164,7 @@ pub(super) async fn update_article_mysql(pool: &MySqlPool, id: i64, input: &Upda
     .bind(&new_thumbnail)
     .bind(new_is_pinned)
     .bind(new_pin_order)
+    .bind(new_scheduled_at)
     .bind(id)
     .execute(pool)
     .await

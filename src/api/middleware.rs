@@ -475,7 +475,7 @@ pub async fn csrf_protection(
     let csrf_exempt = [
         "/api/v1/auth/login",
         "/api/v1/auth/register",
-        "/api/v1/auth/send-code",
+        "/api/v1/auth/logout",
         "/api/v1/auth/has-admin",
         "/api/v1/comments",        // public comment posting (uses its own auth)
         "/api/v1/like",            // public like

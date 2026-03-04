@@ -83,7 +83,12 @@
   "article": {
     "totalArticles": "Total Articles",
     "noArticles": "No articles yet",
-    "pinned": "Pinned"
+    "pinned": "Pinned",
+    "words": " words",
+    "minRead": " min read",
+    "prev": "Previous",
+    "next": "Next",
+    "related": "Related Articles"
   },
   "category": {
     "totalCategories": "Categories",

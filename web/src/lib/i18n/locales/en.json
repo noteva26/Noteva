@@ -2,6 +2,7 @@
   "common": {
     "save": "Save",
     "cancel": "Cancel",
+    "dismiss": "Dismiss",
     "delete": "Delete",
     "edit": "Edit",
     "create": "Create",
@@ -151,7 +152,13 @@
     "selectThumbnail": "Select from article images",
     "noImages": "No images in article",
     "autoSaved": "Auto-saved",
-    "unsavedChanges": "Unsaved changes"
+    "unsavedChanges": "Unsaved changes",
+    "scheduledPublish": "Scheduled Publish",
+    "scheduledHint": "Article will be auto-published at the specified time",
+    "draftFound": "Unsaved draft found from last session",
+    "recoverDraft": "Recover",
+    "draftRecovered": "Draft recovered",
+    "scheduled": "Scheduled"
   },
   "category": {
     "name": "Name",
@@ -259,7 +266,8 @@
     "updateSuccess": "Update successful, system is restarting...",
     "updateFailed": "Update failed",
     "confirmUpdate": "Are you sure you want to update to v{version}? The system will restart automatically after the update.",
-    "updateRestarting": "System is restarting, please refresh the page shortly...",
+    "updateRestarting": "System is restarting, page will refresh automatically...",
+    "updateRestartDone": "Update complete! Refreshing page...",
     "howToUpdate": "How to Update",
     "updateStep1": "Download the latest release from GitHub",
     "updateStep2": "Stop the current service and backup your data",
@@ -296,7 +304,23 @@
     "savingCustomCode": "Saving...",
     "siteNameRequired": "Site name is required",
     "siteUrlInvalid": "Site URL must start with http:// or https://",
-    "passwordRequired": "Please enter current and new password"
+    "passwordRequired": "Please enter current and new password",
+    "dataManagement": "Data",
+    "backupRestore": "Backup & Restore",
+    "backupDescription": "Backup all data (articles, categories, tags, settings, uploads) or restore from backup",
+    "downloadBackup": "Download Backup",
+    "downloadBackupDesc": "Export all data as ZIP file (including uploads)",
+    "restoreBackup": "Restore Backup",
+    "restoreBackupDesc": "Upload ZIP backup file to restore data (overwrites existing data)",
+    "restoreConfirm": "Are you sure you want to restore? This will overwrite ALL existing data!",
+    "exportMarkdown": "Export Markdown",
+    "exportMarkdownDesc": "Export all articles as Markdown files (with frontmatter)",
+    "backupSuccess": "Backup successful",
+    "backupFailed": "Backup failed",
+    "restoreSuccess": "Restore successful, page will refresh shortly",
+    "restoreFailed": "Restore failed",
+    "exportSuccess": "Export successful",
+    "exportFailed": "Export failed"
   },
   "theme": {
     "light": "Light",
@@ -541,5 +565,27 @@
     "upload": "Upload image / file (supports paste & drag)",
     "dropzoneTitle": "Drag files here, or click to browse",
     "dropzoneHint": "Supports images, documents, and other files"
+  },
+  "apiError": {
+    "UNAUTHORIZED": "Authentication failed",
+    "FORBIDDEN": "Access denied",
+    "NOT_FOUND": "Resource not found",
+    "VALIDATION_ERROR": "Invalid input",
+    "INTERNAL_ERROR": "Internal server error",
+    "CONFLICT": "Resource conflict",
+    "RATE_LIMIT": "Too many requests, please try again later",
+    "USER_BANNED": "This account has been banned",
+    "Admin account already exists, registration is closed": "Admin account already exists, registration is closed",
+    "Too many requests, please try again later": "Too many requests, please try again later",
+    "Too many failed login attempts, please try again later": "Too many failed login attempts, please try again later",
+    "Invalid username or password": "Invalid username or password",
+    "Login failed": "Login failed",
+    "themeInstalled": "Theme '{name}' installed successfully",
+    "themeUpdated": "Theme '{name}' updated from {from} to {to}",
+    "pluginInstalled": "Plugin '{name}' installed successfully",
+    "pluginInstalledFrom": "Plugin '{name}' installed successfully (from {repo})",
+    "pluginUpdated": "Plugin '{name}' updated from {from} to {to}",
+    "No usable theme files found in repository. Requires theme.json, and theme must be pre-compiled (not source code)": "No usable theme files found in repository. Requires theme.json, and theme must be pre-compiled (not source code)",
+    "No usable plugin files found in repository. Requires plugin.json, and WASM plugins must include compiled .wasm files": "No usable plugin files found in repository. Requires plugin.json, and WASM plugins must include compiled .wasm files"
   }
 }

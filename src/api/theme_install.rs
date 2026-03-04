@@ -86,7 +86,7 @@ pub async fn upload_theme(
     let themes_path = {
         let engine = state.theme_engine.read()
             .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        engine.get_theme_path(&theme_name).parent().unwrap().to_path_buf()
+        engine.get_theme_path(&theme_name).parent().unwrap_or(Path::new("themes")).to_path_buf()
     };
     
     let dest_path = themes_path.join(&theme_name);
@@ -118,7 +118,7 @@ pub async fn upload_theme(
     Ok(Json(ThemeInstallResponse {
         success: true,
         theme_name: theme_name.clone(),
-        message: format!("主题「{}」安装成功", display_name),
+        message: format!("Theme '{}' installed successfully", display_name),
     }))
 }
 
@@ -247,7 +247,7 @@ pub async fn install_from_repo(
     // 2) Fallback: download repo ZIP, validate first
     if !validate_repo_for_theme(&client, &repo).await {
         return Err(ApiError::validation_error(
-            "仓库中没有可用的主题文件。需要 theme.json，且主题必须是编译好的（非源代码）"
+            "No usable theme files found in repository. Requires theme.json, and theme must be pre-compiled (not source code)"
         ));
     }
 
@@ -466,7 +466,7 @@ pub async fn update_theme(
     Ok(Json(ThemeInstallResponse {
         success: true,
         theme_name: name,
-        message: format!("主题「{}」已从 {} 更新到 {}", display_name, old_version, new_version),
+        message: format!("Theme '{}' updated from {} to {}", display_name, old_version, new_version),
     }))
 }
 
@@ -626,12 +626,13 @@ async fn install_theme_from_dir(
         .ok_or_else(|| ApiError::validation_error("theme.json missing 'name' field"))?
         .to_string();
 
-    let theme_src_dir = theme_json_path.parent().unwrap();
+    let theme_src_dir = theme_json_path.parent()
+        .ok_or_else(|| ApiError::internal_error("theme.json has no parent dir"))?;
 
     let themes_path = {
         let engine = state.theme_engine.read()
             .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        engine.get_theme_path(&theme_id).parent().unwrap().to_path_buf()
+        engine.get_theme_path(&theme_id).parent().unwrap_or(Path::new("themes")).to_path_buf()
     };
 
     let dest_path = themes_path.join(&theme_id);
@@ -657,7 +658,7 @@ async fn install_theme_from_dir(
     Ok(Json(ThemeInstallResponse {
         success: true,
         theme_name: theme_id,
-        message: format!("主题「{}」安装成功", display_name),
+        message: format!("Theme '{}' installed successfully", display_name),
     }))
 }
 

@@ -26,6 +26,9 @@ pub trait CommentRepository: Send + Sync {
     /// Get pending comments for moderation
     async fn list_pending(&self, page: i64, per_page: i64) -> Result<(Vec<CommentWithMeta>, i64)>;
     
+    /// List all comments with optional status filter (for admin management)
+    async fn list_all(&self, status: Option<&str>, page: i64, per_page: i64) -> Result<(Vec<CommentWithMeta>, i64)>;
+    
     /// Delete a comment
     async fn delete(&self, id: i64) -> Result<bool>;
     
@@ -43,6 +46,9 @@ pub trait CommentRepository: Send + Sync {
     
     /// Increment article view count
     async fn increment_view(&self, article_id: i64) -> Result<()>;
+    
+    /// Get recent approved comments across all articles
+    async fn list_recent(&self, limit: i64) -> Result<Vec<CommentWithMeta>>;
 }
 
 /// Comment repository implementation
@@ -78,6 +84,10 @@ impl CommentRepository for SqlxCommentRepository {
         dispatch!(self, list_pending, page, per_page)
     }
     
+    async fn list_all(&self, status: Option<&str>, page: i64, per_page: i64) -> Result<(Vec<CommentWithMeta>, i64)> {
+        dispatch!(self, list_all, status, page, per_page)
+    }
+    
     async fn delete(&self, id: i64) -> Result<bool> {
         dispatch!(self, delete, id)
     }
@@ -100,6 +110,10 @@ impl CommentRepository for SqlxCommentRepository {
     
     async fn increment_view(&self, article_id: i64) -> Result<()> {
         dispatch!(self, increment_view, article_id)
+    }
+    
+    async fn list_recent(&self, limit: i64) -> Result<Vec<CommentWithMeta>> {
+        dispatch!(self, list_recent, limit)
     }
 }
 
@@ -195,8 +209,8 @@ async fn get_by_article_sqlite(pool: &SqlitePool, article_id: i64, fingerprint: 
     .fetch_all(pool)
     .await?;
     
-    let mut comments: Vec<CommentWithMeta> = Vec::new();
-    let mut replies_map: std::collections::HashMap<i64, Vec<CommentWithMeta>> = std::collections::HashMap::new();
+    let mut all_comments: Vec<CommentWithMeta> = Vec::new();
+    let mut id_to_index: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
     
     for row in rows {
         let id: i64 = row.get("id");
@@ -246,21 +260,40 @@ async fn get_by_article_sqlite(pool: &SqlitePool, article_id: i64, fingerprint: 
             replies: Vec::new(),
         };
         
-        if let Some(pid) = parent_id {
-            replies_map.entry(pid).or_default().push(comment);
-        } else {
-            comments.push(comment);
-        }
+        let idx = all_comments.len();
+        id_to_index.insert(id, idx);
+        all_comments.push(comment);
     }
     
-    // Attach replies to parent comments
-    for comment in &mut comments {
-        if let Some(replies) = replies_map.remove(&comment.id) {
-            comment.replies = replies;
-        }
-    }
+    // Build tree: iterate in reverse so children are attached before parents
+    let comments = build_comment_tree(all_comments, &id_to_index);
     
     Ok(comments)
+}
+
+/// Build a nested comment tree from a flat list.
+/// Supports arbitrary depth nesting.
+fn build_comment_tree(
+    mut all_comments: Vec<CommentWithMeta>,
+    id_to_index: &std::collections::HashMap<i64, usize>,
+) -> Vec<CommentWithMeta> {
+    // Process in reverse order so deeper children are moved first
+    for i in (0..all_comments.len()).rev() {
+        if let Some(pid) = all_comments[i].parent_id {
+            if let Some(&parent_idx) = id_to_index.get(&pid) {
+                if parent_idx != i {
+                    let child = all_comments[i].clone();
+                    all_comments[parent_idx].replies.push(child);
+                    // Mark for removal by setting a sentinel
+                    all_comments[i].parent_id = Some(-1);
+                }
+            }
+        }
+    }
+    // Keep only root comments (parent_id is None) — the ones with Some(-1) were moved
+    all_comments.into_iter()
+        .filter(|c| c.parent_id.is_none())
+        .collect()
 }
 
 async fn list_pending_sqlite(pool: &SqlitePool, page: i64, per_page: i64) -> Result<(Vec<CommentWithMeta>, i64)> {
@@ -312,6 +345,119 @@ async fn list_pending_sqlite(pool: &SqlitePool, page: i64, per_page: i64) -> Res
     }).collect();
     
     Ok((comments, total))
+}
+
+async fn list_all_sqlite(pool: &SqlitePool, status: Option<&str>, page: i64, per_page: i64) -> Result<(Vec<CommentWithMeta>, i64)> {
+    let offset = (page - 1) * per_page;
+    
+    let total: i64 = if let Some(s) = status {
+        sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE status = ?")
+            .bind(s)
+            .fetch_one(pool)
+            .await?
+    } else {
+        sqlx::query_scalar("SELECT COUNT(*) FROM comments")
+            .fetch_one(pool)
+            .await?
+    };
+    
+    let rows = if let Some(s) = status {
+        sqlx::query(
+            r#"SELECT c.*, u.username, a.title as article_title
+               FROM comments c 
+               LEFT JOIN users u ON c.user_id = u.id
+               LEFT JOIN articles a ON c.article_id = a.id
+               WHERE c.status = ?
+               ORDER BY c.created_at DESC
+               LIMIT ? OFFSET ?"#
+        )
+        .bind(s)
+        .bind(per_page)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query(
+            r#"SELECT c.*, u.username, a.title as article_title
+               FROM comments c 
+               LEFT JOIN users u ON c.user_id = u.id
+               LEFT JOIN articles a ON c.article_id = a.id
+               ORDER BY c.created_at DESC
+               LIMIT ? OFFSET ?"#
+        )
+        .bind(per_page)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?
+    };
+    
+    let comments: Vec<CommentWithMeta> = rows.iter().map(|row| {
+        let email: Option<String> = row.get("email");
+        let nickname: Option<String> = row.get("nickname");
+        let username: Option<String> = row.try_get("username").ok();
+        let display_name = username.or(nickname);
+        let _article_title: Option<String> = row.try_get("article_title").ok().flatten();
+        
+        CommentWithMeta {
+            id: row.get("id"),
+            article_id: row.get("article_id"),
+            user_id: row.get("user_id"),
+            parent_id: row.get("parent_id"),
+            nickname: display_name,
+            email: email.clone(),
+            content: row.get("content"),
+            status: row.get::<String, _>("status").parse().unwrap_or_default(),
+            created_at: row.get("created_at"),
+            avatar_url: CommentWithMeta::gravatar_url(&email),
+            like_count: 0,
+            is_liked: false,
+            is_author: false,
+            replies: Vec::new(),
+        }
+    }).collect();
+    
+    Ok((comments, total))
+}
+
+async fn list_recent_sqlite(pool: &SqlitePool, limit: i64) -> Result<Vec<CommentWithMeta>> {
+    let rows = sqlx::query(
+        r#"SELECT c.*, u.username, a.title as article_title, a.slug as article_slug
+           FROM comments c 
+           LEFT JOIN users u ON c.user_id = u.id
+           LEFT JOIN articles a ON c.article_id = a.id
+           WHERE c.status = 'approved'
+           ORDER BY c.created_at DESC
+           LIMIT ?"#
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    
+    let comments: Vec<CommentWithMeta> = rows.iter().map(|row| {
+        let email: Option<String> = row.get("email");
+        let nickname: Option<String> = row.get("nickname");
+        let username: Option<String> = row.try_get("username").ok();
+        let display_name = username.or(nickname);
+        
+        CommentWithMeta {
+            id: row.get("id"),
+            article_id: row.get("article_id"),
+            user_id: row.get("user_id"),
+            parent_id: row.get("parent_id"),
+            nickname: display_name,
+            email: email.clone(),
+            content: row.get("content"),
+            status: row.get::<String, _>("status").parse().unwrap_or_default(),
+            created_at: row.get("created_at"),
+            avatar_url: CommentWithMeta::gravatar_url(&email),
+            like_count: 0,
+            is_liked: false,
+            is_author: false,
+            replies: Vec::new(),
+        }
+    }).collect();
+    
+    Ok(comments)
 }
 
 async fn delete_sqlite(pool: &SqlitePool, id: i64) -> Result<bool> {
@@ -575,8 +721,8 @@ async fn get_by_article_mysql(pool: &MySqlPool, article_id: i64, fingerprint: Op
     .fetch_all(pool)
     .await?;
     
-    let mut comments: Vec<CommentWithMeta> = Vec::new();
-    let mut replies_map: std::collections::HashMap<i64, Vec<CommentWithMeta>> = std::collections::HashMap::new();
+    let mut all_comments: Vec<CommentWithMeta> = Vec::new();
+    let mut id_to_index: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
     
     for row in rows {
         let id: i64 = row.get("id");
@@ -620,18 +766,13 @@ async fn get_by_article_mysql(pool: &MySqlPool, article_id: i64, fingerprint: Op
             replies: Vec::new(),
         };
         
-        if let Some(pid) = parent_id {
-            replies_map.entry(pid).or_default().push(comment);
-        } else {
-            comments.push(comment);
-        }
+        let idx = all_comments.len();
+        id_to_index.insert(id, idx);
+        all_comments.push(comment);
     }
     
-    for comment in &mut comments {
-        if let Some(replies) = replies_map.remove(&comment.id) {
-            comment.replies = replies;
-        }
-    }
+    // Build tree with arbitrary depth nesting
+    let comments = build_comment_tree(all_comments, &id_to_index);
     
     Ok(comments)
 }
@@ -685,6 +826,118 @@ async fn list_pending_mysql(pool: &MySqlPool, page: i64, per_page: i64) -> Resul
     }).collect();
     
     Ok((comments, total))
+}
+
+async fn list_all_mysql(pool: &MySqlPool, status: Option<&str>, page: i64, per_page: i64) -> Result<(Vec<CommentWithMeta>, i64)> {
+    let offset = (page - 1) * per_page;
+    
+    let total: i64 = if let Some(s) = status {
+        sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE status = ?")
+            .bind(s)
+            .fetch_one(pool)
+            .await?
+    } else {
+        sqlx::query_scalar("SELECT COUNT(*) FROM comments")
+            .fetch_one(pool)
+            .await?
+    };
+    
+    let rows = if let Some(s) = status {
+        sqlx::query(
+            r#"SELECT c.*, u.username, a.title as article_title
+               FROM comments c 
+               LEFT JOIN users u ON c.user_id = u.id
+               LEFT JOIN articles a ON c.article_id = a.id
+               WHERE c.status = ?
+               ORDER BY c.created_at DESC
+               LIMIT ? OFFSET ?"#
+        )
+        .bind(s)
+        .bind(per_page)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query(
+            r#"SELECT c.*, u.username, a.title as article_title
+               FROM comments c 
+               LEFT JOIN users u ON c.user_id = u.id
+               LEFT JOIN articles a ON c.article_id = a.id
+               ORDER BY c.created_at DESC
+               LIMIT ? OFFSET ?"#
+        )
+        .bind(per_page)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?
+    };
+    
+    let comments: Vec<CommentWithMeta> = rows.iter().map(|row| {
+        let email: Option<String> = row.get("email");
+        let nickname: Option<String> = row.get("nickname");
+        let username: Option<String> = row.try_get("username").ok();
+        let display_name = username.or(nickname);
+        
+        CommentWithMeta {
+            id: row.get("id"),
+            article_id: row.get("article_id"),
+            user_id: row.get("user_id"),
+            parent_id: row.get("parent_id"),
+            nickname: display_name,
+            email: email.clone(),
+            content: row.get("content"),
+            status: row.get::<String, _>("status").parse().unwrap_or_default(),
+            created_at: row.get("created_at"),
+            avatar_url: CommentWithMeta::gravatar_url(&email),
+            like_count: 0,
+            is_liked: false,
+            is_author: false,
+            replies: Vec::new(),
+        }
+    }).collect();
+    
+    Ok((comments, total))
+}
+
+async fn list_recent_mysql(pool: &MySqlPool, limit: i64) -> Result<Vec<CommentWithMeta>> {
+    let rows = sqlx::query(
+        r#"SELECT c.*, u.username, a.title as article_title, a.slug as article_slug
+           FROM comments c 
+           LEFT JOIN users u ON c.user_id = u.id
+           LEFT JOIN articles a ON c.article_id = a.id
+           WHERE c.status = 'approved'
+           ORDER BY c.created_at DESC
+           LIMIT ?"#
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    
+    let comments: Vec<CommentWithMeta> = rows.iter().map(|row| {
+        let email: Option<String> = row.get("email");
+        let nickname: Option<String> = row.get("nickname");
+        let username: Option<String> = row.try_get("username").ok();
+        let display_name = username.or(nickname);
+        
+        CommentWithMeta {
+            id: row.get("id"),
+            article_id: row.get("article_id"),
+            user_id: row.get("user_id"),
+            parent_id: row.get("parent_id"),
+            nickname: display_name,
+            email: email.clone(),
+            content: row.get("content"),
+            status: row.get::<String, _>("status").parse().unwrap_or_default(),
+            created_at: row.get("created_at"),
+            avatar_url: CommentWithMeta::gravatar_url(&email),
+            like_count: 0,
+            is_liked: false,
+            is_author: false,
+            replies: Vec::new(),
+        }
+    }).collect();
+    
+    Ok(comments)
 }
 
 async fn delete_mysql(pool: &MySqlPool, id: i64) -> Result<bool> {

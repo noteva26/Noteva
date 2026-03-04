@@ -59,6 +59,9 @@ pub struct Article {
     /// Plugin-managed metadata (JSON object, keyed by plugin_id)
     #[serde(default = "default_meta")]
     pub meta: serde_json::Value,
+    /// Scheduled publish timestamp (if set, article will auto-publish at this time)
+    #[serde(default)]
+    pub scheduled_at: Option<DateTime<Utc>>,
 }
 
 fn default_meta() -> serde_json::Value {
@@ -102,6 +105,7 @@ impl Article {
             is_pinned: false,
             pin_order: 0,
             meta: serde_json::json!({}),
+            scheduled_at: None,
         }
     }
 }
@@ -168,6 +172,8 @@ pub struct CreateArticleInput {
     pub category_id: i64,
     /// Publication status (defaults to Draft)
     pub status: Option<ArticleStatus>,
+    /// Scheduled publish timestamp
+    pub scheduled_at: Option<DateTime<Utc>>,
 }
 
 impl CreateArticleInput {
@@ -187,6 +193,7 @@ impl CreateArticleInput {
             author_id,
             category_id,
             status: None,
+            scheduled_at: None,
         }
     }
 
@@ -224,6 +231,8 @@ pub struct UpdateArticleInput {
     pub is_pinned: Option<bool>,
     /// Pin order (optional)
     pub pin_order: Option<i32>,
+    /// Scheduled publish timestamp (optional)
+    pub scheduled_at: Option<DateTime<Utc>>,
 }
 
 impl UpdateArticleInput {

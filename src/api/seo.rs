@@ -181,6 +181,15 @@ pub async fn sitemap_xml(State(state): State<AppState>) -> Response {
 
     xml.push_str("</urlset>\n");
 
+    // Hook: sitemap_filter — allow plugins to modify sitemap XML
+    let hook_result = state.hook_manager.trigger(
+        "sitemap_filter",
+        serde_json::json!({ "xml": xml }),
+    );
+    if let Some(modified) = hook_result.get("xml").and_then(|v| v.as_str()) {
+        xml = modified.to_string();
+    }
+
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/xml; charset=utf-8")
@@ -268,6 +277,15 @@ pub async fn feed_xml(State(state): State<AppState>) -> Response {
     }
 
     xml.push_str("</channel>\n</rss>\n");
+
+    // Hook: feed_filter — allow plugins to modify RSS XML
+    let hook_result = state.hook_manager.trigger(
+        "feed_filter",
+        serde_json::json!({ "xml": xml }),
+    );
+    if let Some(modified) = hook_result.get("xml").and_then(|v| v.as_str()) {
+        xml = modified.to_string();
+    }
 
     Response::builder()
         .status(StatusCode::OK)

@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import { getNoteva } from "@/hooks/useNoteva";
 import { EmojiPicker } from "@/components/emoji-picker";
+import Markdown from "react-markdown";
 
 interface Comment {
   id: number;
@@ -42,7 +43,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [replyTo, setReplyTo] = useState<number | null>(null);
-  
+
   const [form, setForm] = useState({
     nickname: "",
     email: "",
@@ -95,7 +96,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
       toast.error(t("comment.contentRequired"));
       return;
     }
-    
+
     // 游客需要填写昵称，管理员不需要
     if (!isAdmin && !form.nickname.trim()) {
       toast.error(t("comment.nicknameRequired"));
@@ -112,7 +113,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
         content: form.content,
         parent_id: parentId,
       };
-      
+
       // 游客模式：使用表单中的昵称和邮箱
       // 管理员模式：后端会自动使用登录用户信息
       if (!isAdmin) {
@@ -125,7 +126,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
       setForm({ nickname: "", email: "", content: "" });
       setReplyTo(null);
       loadComments();
-      
+
       // 触发评论创建后钩子（用于插件如"回复可见"）
       Noteva.hooks.trigger("comment_after_create", { articleId, parentId });
       Noteva.events.emit("comment:create", { articleId, parentId });
@@ -141,9 +142,9 @@ export function Comments({ articleId, authorId }: CommentsProps) {
     if (!Noteva) return;
 
     try {
-      const result = await Noteva.api.post('/like', { 
-        target_type: targetType, 
-        target_id: targetId 
+      const result = await Noteva.api.post('/like', {
+        target_type: targetType,
+        target_id: targetId
       });
       if (targetType === "comment") {
         loadComments();
@@ -163,8 +164,9 @@ export function Comments({ articleId, authorId }: CommentsProps) {
     return false;
   };
 
-  const renderComment = (comment: Comment, isReply = false) => (
-    <div key={comment.id} className={`${isReply ? "ml-8 mt-4" : "mt-4"}`}>
+  const MAX_NESTING_DEPTH = 4;
+  const renderComment = (comment: Comment, depth = 0) => (
+    <div key={comment.id} className={`${depth > 0 && depth <= MAX_NESTING_DEPTH ? "ml-6 mt-3 pl-4 border-l-2 border-muted" : depth > MAX_NESTING_DEPTH ? "mt-3 pl-4 border-l-2 border-muted" : "mt-4"}`}>
       <div className="flex gap-3">
         <img
           src={comment.avatar_url || "https://www.gravatar.com/avatar/?d=mp&s=80"}
@@ -184,7 +186,9 @@ export function Comments({ articleId, authorId }: CommentsProps) {
               {new Date(comment.created_at).toLocaleDateString()}
             </span>
           </div>
-          <p className="mt-1 text-sm">{comment.content}</p>
+          <div className="mt-1 text-sm prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1">
+            <Markdown>{comment.content}</Markdown>
+          </div>
           <div className="flex items-center gap-4 mt-2">
             <button
               onClick={() => handleLike("comment", comment.id)}
@@ -201,7 +205,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
               {t("comment.reply")}
             </button>
           </div>
-          
+
           {replyTo === comment.id && (
             <div className="mt-3 space-y-2">
               <Textarea
@@ -237,8 +241,8 @@ export function Comments({ articleId, authorId }: CommentsProps) {
           )}
         </div>
       </div>
-      
-      {comment.replies?.map((reply) => renderComment(reply, true))}
+
+      {comment.replies?.map((reply) => renderComment(reply, depth + 1))}
     </div>
   );
 
@@ -253,7 +257,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
       <CardContent>
         {/* comment_form_before 插槽 - 登录提示、规则说明 */}
         <PluginSlot name="comment_form_before" />
-        
+
         {/* Comment form */}
         <div className="space-y-3">
           <div className="relative">
@@ -295,7 +299,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
             {t("comment.submit")}
           </Button>
         </div>
-        
+
         {/* comment_form_after 插槽 - 表情选择器、快捷回复 */}
         <PluginSlot name="comment_form_after" />
 

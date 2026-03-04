@@ -2,6 +2,7 @@
   "common": {
     "save": "儲存",
     "cancel": "取消",
+    "dismiss": "忽略",
     "delete": "刪除",
     "edit": "編輯",
     "create": "建立",
@@ -151,7 +152,13 @@
     "selectThumbnail": "從文章圖片中選擇",
     "noImages": "文章中暫無圖片",
     "autoSaved": "已自動保存",
-    "unsavedChanges": "有未保存的更改"
+    "unsavedChanges": "有未保存的更改",
+    "scheduledPublish": "定時發布",
+    "scheduledHint": "到達指定時間後文章將自動發布",
+    "draftFound": "偵測到上次未儲存的草稿",
+    "recoverDraft": "恢復",
+    "draftRecovered": "草稿已恢復",
+    "scheduled": "定時發布中"
   },
   "category": {
     "name": "名稱",
@@ -259,7 +266,8 @@
     "updateSuccess": "更新成功，系統即將重新啟動...",
     "updateFailed": "更新失敗",
     "confirmUpdate": "確定要更新到 v{version} 嗎？更新完成後系統將自動重新啟動。",
-    "updateRestarting": "系統正在重新啟動，請稍後重新整理頁面...",
+    "updateRestarting": "系統正在重新啟動，頁面將自動重新整理...",
+    "updateRestartDone": "更新完成！正在重新整理頁面...",
     "howToUpdate": "如何更新",
     "updateStep1": "從 GitHub 下載最新版本",
     "updateStep2": "停止目前服務並備份資料",
@@ -296,7 +304,23 @@
     "savingCustomCode": "儲存中...",
     "siteNameRequired": "網站名稱不能為空",
     "siteUrlInvalid": "網站地址必須以 http:// 或 https:// 開頭",
-    "passwordRequired": "請輸入目前密碼和新密碼"
+    "passwordRequired": "請輸入目前密碼和新密碼",
+    "dataManagement": "資料管理",
+    "backupRestore": "備份與還原",
+    "backupDescription": "備份全部資料（文章、分類、標籤、設定、上傳檔案）或從備份檔案還原",
+    "downloadBackup": "下載備份",
+    "downloadBackupDesc": "匯出全部資料為 ZIP 檔案（含上傳檔案）",
+    "restoreBackup": "還原備份",
+    "restoreBackupDesc": "上傳 ZIP 備份檔案還原資料（將覆蓋現有資料）",
+    "restoreConfirm": "確定要還原備份嗎？這將覆蓋現有所有資料！",
+    "exportMarkdown": "匯出 Markdown",
+    "exportMarkdownDesc": "將所有文章匯出為 Markdown 檔案（含 frontmatter）",
+    "backupSuccess": "備份成功",
+    "backupFailed": "備份失敗",
+    "restoreSuccess": "還原成功，頁面即將重新整理",
+    "restoreFailed": "還原失敗",
+    "exportSuccess": "匯出成功",
+    "exportFailed": "匯出失敗"
   },
   "theme": {
     "light": "淺色",
@@ -541,5 +565,27 @@
     "upload": "上傳圖片/檔案（支援貼上和拖曳）",
     "dropzoneTitle": "拖曳檔案到此處，或點擊選擇",
     "dropzoneHint": "支援圖片、文件及其他檔案"
+  },
+  "apiError": {
+    "UNAUTHORIZED": "認證失敗",
+    "FORBIDDEN": "權限不足",
+    "NOT_FOUND": "資源未找到",
+    "VALIDATION_ERROR": "輸入有誤",
+    "INTERNAL_ERROR": "伺服器內部錯誤",
+    "CONFLICT": "資源衝突",
+    "RATE_LIMIT": "請求過於頻繁，請稍後再試",
+    "USER_BANNED": "該帳號已被封禁",
+    "Admin account already exists, registration is closed": "管理員帳號已存在，註冊功能已關閉",
+    "Too many requests, please try again later": "請求過於頻繁，請稍後再試",
+    "Too many failed login attempts, please try again later": "登入失敗次數過多，請稍後再試",
+    "Invalid username or password": "使用者名稱或密碼錯誤",
+    "Login failed": "登入失敗",
+    "themeInstalled": "主題「{name}」安裝成功",
+    "themeUpdated": "主題「{name}」已從 {from} 更新到 {to}",
+    "pluginInstalled": "外掛「{name}」安裝成功",
+    "pluginInstalledFrom": "外掛「{name}」安裝成功（來自 {repo}）",
+    "pluginUpdated": "外掛「{name}」已從 {from} 更新到 {to}",
+    "No usable theme files found in repository. Requires theme.json, and theme must be pre-compiled (not source code)": "倉庫中沒有可用的主題檔案，需要 theme.json 且必須是編譯好的",
+    "No usable plugin files found in repository. Requires plugin.json, and WASM plugins must include compiled .wasm files": "倉庫中沒有可用的外掛檔案，需要 plugin.json 且 WASM 外掛必須包含 .wasm 檔案"
   }
 }

@@ -1,5 +1,64 @@
 import axios, { AxiosError, AxiosRequestConfig } from "axios";
+import { t } from "./i18n";
 
+/**
+ * Translate API error/success message using i18n apiError namespace.
+ * Handles both static messages and dynamic messages with names/versions.
+ * Tries: dynamic pattern match → exact message match → error code match → original
+ */
+function translateApiErrorMessage(code: string, message: string): string {
+  // Dynamic pattern matching for messages with names/versions
+  const patterns: Array<{ regex: RegExp; key: string; params: (m: RegExpMatchArray) => Record<string, string> }> = [
+    {
+      regex: /^Theme '(.+)' installed successfully$/,
+      key: "apiError.themeInstalled",
+      params: (m) => ({ name: m[1] }),
+    },
+    {
+      regex: /^Theme '(.+)' updated from (.+) to (.+)$/,
+      key: "apiError.themeUpdated",
+      params: (m) => ({ name: m[1], from: m[2], to: m[3] }),
+    },
+    {
+      regex: /^Plugin '(.+)' installed successfully \(from (.+)\)$/,
+      key: "apiError.pluginInstalledFrom",
+      params: (m) => ({ name: m[1], repo: m[2] }),
+    },
+    {
+      regex: /^Plugin '(.+)' installed successfully$/,
+      key: "apiError.pluginInstalled",
+      params: (m) => ({ name: m[1] }),
+    },
+    {
+      regex: /^Plugin '(.+)' updated from (.+) to (.+)$/,
+      key: "apiError.pluginUpdated",
+      params: (m) => ({ name: m[1], from: m[2], to: m[3] }),
+    },
+  ];
+
+  for (const { regex, key, params } of patterns) {
+    const match = message.match(regex);
+    if (match) {
+      const translated = t(key, params(match));
+      if (translated !== key) return translated;
+    }
+  }
+
+  // Try exact message match (e.g. "Invalid username or password")
+  const msgKey = `apiError.${message}`;
+  const msgTranslation = t(msgKey);
+  if (msgTranslation !== msgKey) return msgTranslation;
+
+  // Try error code match (e.g. "UNAUTHORIZED")
+  if (code) {
+    const codeKey = `apiError.${code}`;
+    const codeTranslation = t(codeKey);
+    if (codeTranslation !== codeKey) return codeTranslation;
+  }
+
+  // Return original message
+  return message;
+}
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
 export const api = axios.create({
@@ -28,10 +87,29 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor for error handling
+// Response interceptor for error handling + message translation
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Auto-translate success response messages (e.g. theme/plugin install)
+    if (response.data?.message && typeof response.data.message === "string") {
+      const msg = response.data.message;
+      const translated = translateApiErrorMessage("", msg);
+      if (translated !== msg) {
+        response.data.message = translated;
+      }
+    }
+    return response;
+  },
   (error: AxiosError<ApiErrorResponse>) => {
+    // Auto-translate error messages using i18n
+    if (error.response?.data?.error?.message) {
+      const { code, message } = error.response.data.error;
+      const translated = translateApiErrorMessage(code, message);
+      if (translated !== message) {
+        error.response.data.error.message = translated;
+      }
+    }
+
     if (error.response?.status === 401) {
       // Only redirect to login if we're on a protected route (/manage/*)
       // and it's not an auth-related request
@@ -213,6 +291,19 @@ export const adminApi = {
   // Login logs (security)
   getLoginLogs: (params?: { page?: number; per_page?: number; username?: string; ip_address?: string; success?: boolean }) =>
     api.get<LoginLogsResponse>("/admin/login-logs", { params }),
+
+  // Backup & Restore
+  downloadBackup: () =>
+    api.get("/admin/backup", { responseType: "blob" as any }),
+  restoreBackup: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post("/admin/backup/restore", formData, {
+      headers: { "Content-Type": undefined as any },
+    });
+  },
+  exportMarkdown: () =>
+    api.get("/admin/backup/export-markdown", { responseType: "blob" as any }),
 };
 
 // Public site info API (no auth required)
@@ -331,6 +422,9 @@ export interface Article {
   tags?: Tag[];
   category?: Category;
   author?: User;
+  word_count?: number;
+  reading_time?: number;
+  scheduled_at?: string | null;
 }
 
 export interface CreateArticleInput {
@@ -340,6 +434,7 @@ export interface CreateArticleInput {
   status?: "draft" | "published";
   category_id: number;
   tag_ids?: number[];
+  scheduled_at?: string;
 }
 
 export interface UpdateArticleInput {
@@ -352,6 +447,7 @@ export interface UpdateArticleInput {
   thumbnail?: string | null;
   is_pinned?: boolean;
   pin_order?: number;
+  scheduled_at?: string | null;
 }
 
 export interface Category {
@@ -630,24 +726,30 @@ export interface PluginInstallResponse {
   message: string;
 }
 
-// Comment moderation types
-export interface PendingComment {
+// Comment management types
+export interface AdminComment {
   id: number;
   article_id: number;
   content: string;
+  status: string;
   nickname?: string | null;
   email?: string | null;
   avatar_url?: string | null;
   created_at: string;
 }
 
-export interface PendingCommentsResponse {
-  comments: PendingComment[];
+export interface AdminCommentsResponse {
+  comments: AdminComment[];
   total: number;
   page: number;
   per_page: number;
   total_pages: number;
 }
+
+// Legacy type aliases
+export type PendingComment = AdminComment;
+export type PendingCommentsResponse = AdminCommentsResponse;
+
 
 // Login logs types (security)
 export interface LoginLogEntry {
@@ -671,11 +773,15 @@ export interface LoginLogsResponse {
 
 // Comments API (admin)
 export const commentsApi = {
+  listAll: (params?: { page?: number; per_page?: number; status?: string }) =>
+    api.get<AdminCommentsResponse>("/admin/comments", { params }),
+
   listPending: (params?: { page?: number; per_page?: number }) =>
-    api.get<PendingCommentsResponse>("/admin/comments/pending", { params }),
+    api.get<AdminCommentsResponse>("/admin/comments/pending", { params }),
 
   approve: (id: number) => api.post(`/admin/comments/${id}/approve`),
 
   reject: (id: number) => api.post(`/admin/comments/${id}/reject`),
-};
 
+  delete: (id: number) => api.delete(`/admin/comments/${id}`),
+};

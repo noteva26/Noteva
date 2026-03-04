@@ -62,6 +62,11 @@ pub struct CheckLikeQuery {
     pub target_id: i64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RecentCommentsQuery {
+    pub limit: Option<i64>,
+}
+
 // ============================================================================
 // Handlers
 // ============================================================================
@@ -97,6 +102,22 @@ pub async fn get_comments(
             return Ok(Json(CommentsResponse { comments }));
         }
     }
+    
+    Ok(Json(CommentsResponse { comments }))
+}
+
+/// Get recent comments across all articles
+pub async fn get_recent_comments(
+    State(state): State<AppState>,
+    Query(query): Query<RecentCommentsQuery>,
+) -> Result<Json<CommentsResponse>, ApiError> {
+    let limit = query.limit.unwrap_or(10).min(50).max(1);
+    
+    let comments = state
+        .comment_service
+        .list_recent(limit)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
     
     Ok(Json(CommentsResponse { comments }))
 }

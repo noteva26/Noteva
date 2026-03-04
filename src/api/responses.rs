@@ -29,6 +29,8 @@ pub struct ArticleResponse {
     pub view_count: i64,
     pub like_count: i64,
     pub comment_count: i64,
+    pub word_count: u64,
+    pub reading_time: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,
     pub is_pinned: bool,
@@ -41,6 +43,14 @@ pub struct ArticleResponse {
     pub toc: Option<Vec<TocEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prev: Option<ArticleLink>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<ArticleLink>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub related: Option<Vec<ArticleLink>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<String>,
 }
 
 /// Simplified article response for list views
@@ -53,6 +63,17 @@ pub struct ArticleSummary {
     pub status: String,
     pub published_at: Option<String>,
     pub created_at: String,
+    pub word_count: u64,
+}
+
+/// Minimal article link for prev/next/related
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ArticleLink {
+    pub id: i64,
+    pub slug: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
 }
 
 /// Category info embedded in article response
@@ -99,8 +120,31 @@ pub struct PaginatedArticleSummaryResponse {
 // Conversions
 // ============================================================================
 
+/// Count words in text (handles CJK characters as individual words)
+fn count_words(text: &str) -> u64 {
+    let mut count: u64 = 0;
+    let mut in_latin_word = false;
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if !in_latin_word {
+                count += 1;
+                in_latin_word = true;
+            }
+        } else if ch > '\u{2E7F}' {
+            // CJK characters count as individual words
+            count += 1;
+            in_latin_word = false;
+        } else {
+            in_latin_word = false;
+        }
+    }
+    count
+}
+
 impl From<crate::models::Article> for ArticleResponse {
     fn from(article: crate::models::Article) -> Self {
+        let wc = count_words(&article.content);
+        let reading_min = (wc as f64 / 275.0).ceil() as u32; // ~275 wpm avg
         Self {
             id: article.id,
             slug: article.slug,
@@ -116,6 +160,8 @@ impl From<crate::models::Article> for ArticleResponse {
             view_count: article.view_count,
             like_count: article.like_count,
             comment_count: article.comment_count,
+            word_count: wc,
+            reading_time: reading_min.max(1),
             thumbnail: article.thumbnail,
             is_pinned: article.is_pinned,
             pin_order: article.pin_order,
@@ -127,12 +173,17 @@ impl From<crate::models::Article> for ArticleResponse {
             } else {
                 Some(article.meta)
             },
+            prev: None,
+            next: None,
+            related: None,
+            scheduled_at: article.scheduled_at.map(|dt| dt.to_rfc3339()),
         }
     }
 }
 
 impl From<crate::models::Article> for ArticleSummary {
     fn from(article: crate::models::Article) -> Self {
+        let wc = count_words(&article.content);
         Self {
             id: article.id,
             slug: article.slug,
@@ -140,6 +191,7 @@ impl From<crate::models::Article> for ArticleSummary {
             status: article.status.to_string(),
             published_at: article.published_at.map(|dt| dt.to_rfc3339()),
             created_at: article.created_at.to_rfc3339(),
+            word_count: wc,
         }
     }
 }
@@ -173,6 +225,21 @@ impl ArticleResponse {
     pub fn with_toc(mut self, toc: Vec<TocEntry>) -> Self {
         if !toc.is_empty() {
             self.toc = Some(toc);
+        }
+        self
+    }
+
+    /// Add prev/next navigation links
+    pub fn with_prev_next(mut self, prev: Option<ArticleLink>, next: Option<ArticleLink>) -> Self {
+        self.prev = prev;
+        self.next = next;
+        self
+    }
+
+    /// Add related articles
+    pub fn with_related(mut self, related: Vec<ArticleLink>) -> Self {
+        if !related.is_empty() {
+            self.related = Some(related);
         }
         self
     }

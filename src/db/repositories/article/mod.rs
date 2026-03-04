@@ -222,6 +222,7 @@ impl_row_mapper! {
                 .ok()
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or(serde_json::json!({})),
+            scheduled_at: row.try_get("scheduled_at").ok().flatten(),
         })
     }
 }
