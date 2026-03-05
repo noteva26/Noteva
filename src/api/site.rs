@@ -27,6 +27,7 @@ pub struct SiteInfoResponse {
     pub demo_mode: bool,
     pub custom_css: String,
     pub custom_js: String,
+    pub font_family: String,
     pub stats: SiteStats,
 }
 
@@ -128,6 +129,15 @@ async fn get_site_info(
     let total_tags = state.tag_service
         .list().await.map(|t| t.len() as i64).unwrap_or(0);
 
+    // Get font_family
+    let font_family = state
+        .settings_service
+        .get("font_family")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
     Json(SiteInfoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         site_name: settings.site_name,
@@ -141,6 +151,7 @@ async fn get_site_info(
         demo_mode: crate::api::middleware::is_demo_mode(),
         custom_css,
         custom_js,
+        font_family,
         stats: SiteStats {
             total_articles,
             total_categories,

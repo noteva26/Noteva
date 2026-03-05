@@ -32,7 +32,7 @@ export default function CustomPage() {
       try {
         const info = await Noteva.site.getInfo();
         setSiteInfo({ name: info.name || "Noteva" });
-      } catch {}
+      } catch { }
     };
     loadSiteInfo();
   }, [slug]);
@@ -47,8 +47,8 @@ export default function CustomPage() {
       const Noteva = getNoteva();
       if (!Noteva) { setTimeout(loadPage, 50); return; }
       try {
-        const result = await Noteva.api.get(`/page/${slug}`);
-        setPage(result.page);
+        const result = await Noteva.pages.get(slug);
+        setPage(result as any);
       } catch (err) {
         console.error(err);
         setNotFound(true);

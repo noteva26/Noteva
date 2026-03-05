@@ -15,19 +15,20 @@ import Markdown from "react-markdown";
 
 interface Comment {
   id: number;
-  article_id: number;
-  user_id: number | null;
-  parent_id: number | null;
-  nickname: string | null;
-  email: string | null;
   content: string;
-  status: "pending" | "approved" | "spam";
-  created_at: string;
-  avatar_url: string;
-  like_count: number;
-  is_liked: boolean;
+  created_at?: string;
+  createdAt?: string;
+  nickname?: string | null;
+  avatar_url?: string;
+  avatarUrl?: string;
+  like_count?: number;
+  likeCount?: number;
+  is_liked?: boolean;
+  isLiked?: boolean;
   is_author?: boolean;
+  user_id?: number | null;
   replies?: Comment[];
+  [key: string]: any;
 }
 
 interface CommentsProps {
@@ -82,8 +83,8 @@ export function Comments({ articleId, authorId }: CommentsProps) {
     }
 
     try {
-      const result = await Noteva.api.get(`/comments/${articleId}`);
-      setComments(result.comments || []);
+      const result = await Noteva.comments.list(articleId);
+      setComments(result || []);
     } catch (err) {
       console.error("Failed to load comments:", err);
     } finally {
@@ -108,20 +109,13 @@ export function Comments({ articleId, authorId }: CommentsProps) {
 
     setSubmitting(true);
     try {
-      const input: any = {
-        article_id: articleId,
+      await Noteva.comments.create({
+        articleId,
         content: form.content,
-        parent_id: parentId,
-      };
-
-      // 游客模式：使用表单中的昵称和邮箱
-      // 管理员模式：后端会自动使用登录用户信息
-      if (!isAdmin) {
-        input.nickname = form.nickname;
-        input.email = form.email;
-      }
-
-      await Noteva.api.post('/comments', input);
+        parentId: parentId,
+        nickname: !isAdmin ? form.nickname : undefined,
+        email: !isAdmin ? form.email : undefined,
+      });
       toast.success(t("comment.submitSuccess"));
       setForm({ nickname: "", email: "", content: "" });
       setReplyTo(null);
@@ -142,10 +136,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
     if (!Noteva) return;
 
     try {
-      const result = await Noteva.api.post('/like', {
-        target_type: targetType,
-        target_id: targetId
-      });
+      const result = await Noteva.interactions.like(targetType, targetId);
       if (targetType === "comment") {
         loadComments();
       }
@@ -183,7 +174,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
               </span>
             )}
             <span className="text-sm text-muted-foreground">
-              {new Date(comment.created_at).toLocaleDateString()}
+              {new Date(comment.created_at || comment.createdAt || '').toLocaleDateString()}
             </span>
           </div>
           <div className="mt-1 text-sm prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1">

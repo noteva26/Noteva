@@ -102,6 +102,10 @@ export default function NewArticlePage() {
         const draft = JSON.parse(saved);
         setForm((f) => ({ ...f, ...draft }));
         if (draft.selectedTags) setSelectedTags(draft.selectedTags);
+        // Push content into CodeMirror editor (it doesn't react to form.content changes)
+        if (draft.content && editorRef.current) {
+          editorRef.current.setValue(draft.content);
+        }
         setHasDraftRecovery(false);
         toast.success(t("article.draftRecovered"));
       }

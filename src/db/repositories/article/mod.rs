@@ -84,6 +84,9 @@ pub trait ArticleRepository: Send + Sync {
 
     /// Update article meta JSON (merge plugin_id namespace)
     async fn update_meta(&self, article_id: i64, plugin_id: &str, data: &serde_json::Value) -> Result<()>;
+
+    /// List draft articles whose scheduled_at has passed (for auto-publishing)
+    async fn list_scheduled_due(&self) -> Result<Vec<Article>>;
 }
 
 /// SQLx-based article repository implementation
@@ -187,6 +190,11 @@ impl ArticleRepository for SqlxArticleRepository {
         meta.as_object_mut().unwrap().insert(plugin_id.to_string(), data.clone());
 
         dispatch!(self, update_article_meta, article_id, &meta.to_string())
+    }
+
+    async fn list_scheduled_due(&self) -> Result<Vec<Article>> {
+        let now = Utc::now();
+        dispatch!(self, list_scheduled_due_articles, &now)
     }
 }
 

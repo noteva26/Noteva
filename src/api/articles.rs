@@ -342,8 +342,9 @@ pub async fn get_article(
     let mut response: ArticleResponse = article.into();
     response = response.with_category(category).with_tags(tags.clone());
     
-    // Extract table of contents from markdown content
+    // Re-render HTML from raw markdown to ensure heading IDs match TOC
     let toc = state.article_service.extract_toc(&response.content);
+    response.content_html = state.article_service.render_markdown_with_shortcodes(&response.content, Some(article_id), None);
     response = response.with_toc(toc);
 
     // Fetch prev/next articles (adjacent published articles by date)
@@ -456,8 +457,10 @@ pub async fn get_article_by_id(
     let response: ArticleResponse = article.into();
     let response = response.with_category(category).with_tags(tags);
     
-    // Extract table of contents
+    // Re-render HTML from raw markdown to ensure heading IDs match TOC
     let toc = state.article_service.extract_toc(&response.content);
+    let mut response = response;
+    response.content_html = state.article_service.render_markdown_with_shortcodes(&response.content, Some(response.id), None);
     let response = response.with_toc(toc);
     
     Ok(Json(response))
@@ -685,8 +688,10 @@ pub async fn resolve_article(
     let response: ArticleResponse = article.into();
     let response = response.with_category(category).with_tags(tags);
     
-    // Extract table of contents
+    // Re-render HTML from raw markdown to ensure heading IDs match TOC
     let toc = state.article_service.extract_toc(&response.content);
+    let mut response = response;
+    response.content_html = state.article_service.render_markdown_with_shortcodes(&response.content, Some(response.id), None);
     let response = response.with_toc(toc);
     
     Ok(Json(ResolveArticleResponse {

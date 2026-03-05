@@ -15,7 +15,7 @@ import { languages } from "@codemirror/language-data";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { defaultKeymap, history, historyKeymap, undo, redo } from "@codemirror/commands";
 import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
-import { uploadApi } from "@/lib/api";
+import { uploadApi, filesApi, type FileInfo } from "@/lib/api";
 import { EMOJI_MAP } from "@/lib/emoji-data";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2 } from "lucide-react";
 import { useI18nStore, type Locale, t as i18nT } from "@/lib/i18n";
 import twemoji from "@twemoji/api";
+import { toast } from "sonner";
 
 // Resolve plugin label: supports string or { "zh-CN": "...", "en": "..." } object
 function resolveLabel(label: string | Record<string, string>, locale: Locale): string {
@@ -157,6 +158,14 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         const uploadPanelRef = useRef<HTMLDivElement>(null);
         const uploadButtonRef = useRef<HTMLButtonElement>(null);
         const fileInputRef = useRef<HTMLInputElement>(null);
+        // File browser (library) state
+        const [uploadTab, setUploadTab] = useState<"upload" | "library">("upload");
+        const [libraryFiles, setLibraryFiles] = useState<FileInfo[]>([]);
+        const [libraryLoading, setLibraryLoading] = useState(false);
+        const [librarySearch, setLibrarySearch] = useState("");
+        // Image resize state
+        const [pendingImage, setPendingImage] = useState<{ name: string; url: string } | null>(null);
+        const [imageSize, setImageSize] = useState<string>("100%");
 
         onChangeRef.current = onChange;
 
@@ -337,26 +346,90 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
 
         // ── Upload handler ──────────────────────────────────────
         const [uploading, setUploading] = useState(false);
+        const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
+        const BLOCKED_EXTENSIONS = [".exe", ".bat", ".sh", ".cmd", ".msi", ".dll", ".com", ".scr"];
+
         const handleFileUpload = async (file: File) => {
             const view = viewRef.current;
             if (!view) return;
+
+            // Validate file size
+            if (file.size > MAX_UPLOAD_SIZE) {
+                const maxStr = `${MAX_UPLOAD_SIZE / 1024 / 1024}MB`;
+                const sizeStr = file.size < 1024 * 1024
+                    ? `${(file.size / 1024).toFixed(1)}KB`
+                    : `${(file.size / 1024 / 1024).toFixed(1)}MB`;
+                toast.error(i18nT("editor.fileTooLarge").replace("{max}", maxStr).replace("{size}", sizeStr) || `File too large: ${sizeStr} (max ${maxStr})`);
+                return;
+            }
+
+            // Validate file type
+            const ext = ("." + file.name.split(".").pop()?.toLowerCase()) || "";
+            if (BLOCKED_EXTENSIONS.includes(ext)) {
+                toast.error(i18nT("editor.fileTypeBlocked").replace("{ext}", ext) || `File type ${ext} is not allowed`);
+                return;
+            }
+
             setUploading(true);
             try {
                 const isImage = file.type.startsWith("image/");
                 const { data } = isImage ? await uploadApi.image(file) : await uploadApi.file(file);
                 if (isImage) {
-                    insertText(view, `![${file.name}](${data.url})`);
+                    setPendingImage({ name: file.name, url: data.url });
+                    setImageSize("100%");
                 } else {
                     const sizeStr = data.size < 1024 * 1024
                         ? `${(data.size / 1024).toFixed(1)} KB`
                         : `${(data.size / 1024 / 1024).toFixed(1)} MB`;
                     insertText(view, `[file name="${file.name}" size="${sizeStr}" url="${data.url}" /]`);
+                    setUploadPanelOpen(false);
                 }
-                setUploadPanelOpen(false);
             } catch (e: any) {
                 console.error("Upload failed:", e);
             } finally {
                 setUploading(false);
+            }
+        };
+
+        // Insert image with optional resize
+        const insertImageWithSize = (name: string, url: string, size: string) => {
+            const view = viewRef.current;
+            if (!view) return;
+            if (size && size !== "100%") {
+                insertText(view, `![${name}|${size}](${url})`);
+            } else {
+                insertText(view, `![${name}](${url})`);
+            }
+            setPendingImage(null);
+            setUploadPanelOpen(false);
+        };
+
+        // Load library files
+        const loadLibraryFiles = async (search?: string) => {
+            setLibraryLoading(true);
+            try {
+                const res = await filesApi.list({ search: search || undefined });
+                setLibraryFiles(res.data.files);
+            } catch {
+                setLibraryFiles([]);
+            } finally {
+                setLibraryLoading(false);
+            }
+        };
+
+        // Insert file from library
+        const insertLibraryFile = (file: FileInfo) => {
+            const view = viewRef.current;
+            if (!view) return;
+            if (file.is_image) {
+                setPendingImage({ name: file.name, url: file.url });
+                setImageSize("100%");
+            } else {
+                const sizeStr = file.size < 1024 * 1024
+                    ? `${(file.size / 1024).toFixed(1)} KB`
+                    : `${(file.size / 1024 / 1024).toFixed(1)} MB`;
+                insertText(view, `[file name="${file.name}" size="${sizeStr}" url="${file.url}" /]`);
+                setUploadPanelOpen(false);
             }
         };
 
@@ -434,7 +507,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         // ── Preview panel ───────────────────────────────────────
         const PreviewPanel = () => (
             <div
-                className="prose prose-sm dark:prose-invert max-w-none p-4 overflow-auto"
+                className="prose prose-sm dark:prose-invert max-w-none p-4 overflow-auto [&_img]:max-w-full [&_img]:h-auto [&_img.emoji]:!w-[1.2em] [&_img.emoji]:!h-[1.2em] [&_img.emoji]:!inline-block [&_img.emoji]:!m-0 [&_img.emoji]:!align-[-0.1em] [&_img.twemoji]:!w-[1.2em] [&_img.twemoji]:!h-[1.2em] [&_img.twemoji]:!inline-block [&_img.twemoji]:!m-0 [&_img.twemoji]:!align-[-0.1em]"
                 style={{ minHeight: `${minHeight}px` }}
             >
                 {previewLoading ? (
@@ -475,21 +548,21 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
             >
                 {/* Toolbar */}
                 <div className="flex items-center flex-wrap gap-0.5 px-2 py-1 border-b bg-card">
-                    <ToolbarBtn icon={icons.heading} title="Heading" onClick={tb.heading} />
-                    <ToolbarBtn icon={icons.bold} title="Bold" onClick={tb.bold} />
-                    <ToolbarBtn icon={icons.italic} title="Italic" onClick={tb.italic} />
-                    <ToolbarBtn icon={icons.strikethrough} title="Strikethrough" onClick={tb.strike} />
+                    <ToolbarBtn icon={icons.heading} title={i18nT("editor.heading")} onClick={tb.heading} />
+                    <ToolbarBtn icon={icons.bold} title={i18nT("editor.bold")} onClick={tb.bold} />
+                    <ToolbarBtn icon={icons.italic} title={i18nT("editor.italic")} onClick={tb.italic} />
+                    <ToolbarBtn icon={icons.strikethrough} title={i18nT("editor.strikethrough")} onClick={tb.strike} />
                     <Sep />
-                    <ToolbarBtn icon={icons.hr} title="Horizontal Rule" onClick={tb.hr} />
-                    <ToolbarBtn icon={icons.quote} title="Blockquote" onClick={tb.quote} />
-                    <ToolbarBtn icon={icons.ul} title="Unordered List" onClick={tb.ul} />
-                    <ToolbarBtn icon={icons.ol} title="Ordered List" onClick={tb.ol} />
-                    <ToolbarBtn icon={icons.check} title="Checkbox" onClick={tb.check} />
+                    <ToolbarBtn icon={icons.hr} title={i18nT("editor.hr")} onClick={tb.hr} />
+                    <ToolbarBtn icon={icons.quote} title={i18nT("editor.quote")} onClick={tb.quote} />
+                    <ToolbarBtn icon={icons.ul} title={i18nT("editor.ul")} onClick={tb.ul} />
+                    <ToolbarBtn icon={icons.ol} title={i18nT("editor.ol")} onClick={tb.ol} />
+                    <ToolbarBtn icon={icons.check} title={i18nT("editor.check")} onClick={tb.check} />
                     <Sep />
-                    <ToolbarBtn icon={icons.code} title="Code Block" onClick={tb.code} />
-                    <ToolbarBtn icon={icons.inlineCode} title="Inline Code" onClick={tb.inlineCode} />
-                    <ToolbarBtn icon={icons.link} title="Link" onClick={tb.link} />
-                    <ToolbarBtn icon={icons.table} title="Table" onClick={tb.table} />
+                    <ToolbarBtn icon={icons.code} title={i18nT("editor.code")} onClick={tb.code} />
+                    <ToolbarBtn icon={icons.inlineCode} title={i18nT("editor.inlineCode")} onClick={tb.inlineCode} />
+                    <ToolbarBtn icon={icons.link} title={i18nT("editor.link")} onClick={tb.link} />
+                    <ToolbarBtn icon={icons.table} title={i18nT("editor.table")} onClick={tb.table} />
                     <Sep />
                     <div className="relative">
                         <Button
@@ -506,37 +579,136 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                         {uploadPanelOpen && (
                             <div
                                 ref={uploadPanelRef}
-                                className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 w-72 bg-popover border rounded-lg shadow-lg p-4"
+                                className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 w-80 bg-popover border rounded-lg shadow-lg"
                             >
-                                {/* Dropzone */}
-                                <div
-                                    className={`relative flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${isDragOver
-                                            ? "border-primary bg-primary/5"
-                                            : "border-muted-foreground/30 hover:border-primary/50 hover:bg-accent/50"
-                                        }`}
-                                    onClick={() => fileInputRef.current?.click()}
-                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
-                                    onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); }}
-                                    onDrop={async (e) => {
-                                        e.preventDefault(); e.stopPropagation(); setIsDragOver(false);
-                                        const files = e.dataTransfer?.files;
-                                        if (files) for (const file of Array.from(files)) await handleFileUpload(file);
-                                    }}
-                                >
-                                    {uploading ? (
-                                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                                    ) : (
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground">
-                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                            <polyline points="17 8 12 3 7 8" />
-                                            <line x1="12" y1="3" x2="12" y2="15" />
-                                        </svg>
-                                    )}
-                                    <div className="text-center">
-                                        <p className="text-sm font-medium">{i18nT("editor.dropzoneTitle")}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">{i18nT("editor.dropzoneHint")}</p>
+                                {/* Image resize picker */}
+                                {pendingImage ? (
+                                    <div className="p-4">
+                                        <div className="mb-3">
+                                            <img src={pendingImage.url} alt={pendingImage.name} className="w-full h-32 object-contain rounded border bg-muted" />
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mb-2 truncate">{pendingImage.name}</p>
+                                        <p className="text-xs font-medium mb-2">{i18nT("editor.imageSize")}</p>
+                                        <div className="flex gap-2 mb-3">
+                                            {["100%", "75%", "50%", "25%"].map((s) => (
+                                                <button
+                                                    key={s}
+                                                    className={`flex-1 px-2 py-1.5 text-xs rounded border transition-colors ${imageSize === s ? "bg-primary text-primary-foreground border-primary" : "hover:bg-accent"}`}
+                                                    onClick={() => setImageSize(s)}
+                                                >
+                                                    {s}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <Button size="sm" className="flex-1" onClick={() => insertImageWithSize(pendingImage.name, pendingImage.url, imageSize)}>
+                                                {i18nT("editor.insertImage")}
+                                            </Button>
+                                            <Button size="sm" variant="ghost" onClick={() => setPendingImage(null)}>
+                                                {i18nT("common.cancel")}
+                                            </Button>
+                                        </div>
                                     </div>
-                                </div>
+                                ) : (
+                                    <>
+                                        {/* Tab headers */}
+                                        <div className="flex border-b">
+                                            <button
+                                                className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${uploadTab === "upload" ? "border-b-2 border-primary text-primary" : "text-muted-foreground hover:text-foreground"}`}
+                                                onClick={() => setUploadTab("upload")}
+                                            >
+                                                {i18nT("editor.uploadTab")}
+                                            </button>
+                                            <button
+                                                className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${uploadTab === "library" ? "border-b-2 border-primary text-primary" : "text-muted-foreground hover:text-foreground"}`}
+                                                onClick={() => {
+                                                    setUploadTab("library");
+                                                    if (libraryFiles.length === 0) loadLibraryFiles();
+                                                }}
+                                            >
+                                                {i18nT("editor.libraryTab")}
+                                            </button>
+                                        </div>
+                                        <div className="p-4">
+                                            {uploadTab === "upload" ? (
+                                                /* Dropzone */
+                                                <div
+                                                    className={`relative flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${isDragOver
+                                                        ? "border-primary bg-primary/5"
+                                                        : "border-muted-foreground/30 hover:border-primary/50 hover:bg-accent/50"
+                                                        }`}
+                                                    onClick={() => fileInputRef.current?.click()}
+                                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
+                                                    onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); }}
+                                                    onDrop={async (e) => {
+                                                        e.preventDefault(); e.stopPropagation(); setIsDragOver(false);
+                                                        const files = e.dataTransfer?.files;
+                                                        if (files) for (const file of Array.from(files)) await handleFileUpload(file);
+                                                    }}
+                                                >
+                                                    {uploading ? (
+                                                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                                    ) : (
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground">
+                                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                                            <polyline points="17 8 12 3 7 8" />
+                                                            <line x1="12" y1="3" x2="12" y2="15" />
+                                                        </svg>
+                                                    )}
+                                                    <div className="text-center">
+                                                        <p className="text-sm font-medium">{i18nT("editor.dropzoneTitle")}</p>
+                                                        <p className="text-xs text-muted-foreground mt-1">{i18nT("editor.dropzoneHint")}</p>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                /* Library browser */
+                                                <div>
+                                                    <input
+                                                        type="text"
+                                                        placeholder={i18nT("editor.searchFiles")}
+                                                        className="w-full px-2 py-1.5 text-sm border rounded mb-2 bg-background"
+                                                        value={librarySearch}
+                                                        onChange={(e) => {
+                                                            setLibrarySearch(e.target.value);
+                                                            loadLibraryFiles(e.target.value);
+                                                        }}
+                                                    />
+                                                    <div className="max-h-48 overflow-y-auto space-y-1">
+                                                        {libraryLoading ? (
+                                                            <div className="flex justify-center py-4">
+                                                                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                                                            </div>
+                                                        ) : libraryFiles.length === 0 ? (
+                                                            <p className="text-xs text-muted-foreground text-center py-4">{i18nT("common.noData")}</p>
+                                                        ) : (
+                                                            libraryFiles.map((file) => (
+                                                                <button
+                                                                    key={file.name}
+                                                                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent text-left transition-colors"
+                                                                    onClick={() => insertLibraryFile(file)}
+                                                                >
+                                                                    {file.is_image ? (
+                                                                        <img src={file.url} alt={file.name} className="w-8 h-8 object-cover rounded border shrink-0" />
+                                                                    ) : (
+                                                                        <div className="w-8 h-8 rounded border bg-muted flex items-center justify-center shrink-0">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <p className="text-xs truncate">{file.name}</p>
+                                                                        <p className="text-[10px] text-muted-foreground">
+                                                                            {file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(0)} KB` : `${(file.size / 1024 / 1024).toFixed(1)} MB`}
+                                                                        </p>
+                                                                    </div>
+                                                                </button>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>

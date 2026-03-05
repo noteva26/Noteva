@@ -17,45 +17,34 @@ interface Article {
   content: string;
   content_html?: string;
   html?: string;
-  published_at?: string;
-  publishedAt?: string;
-  created_at?: string;
-  createdAt?: string;
-  view_count?: number;
-  viewCount?: number;
-  like_count?: number;
-  likeCount?: number;
-  comment_count?: number;
-  commentCount?: number;
-  is_pinned?: boolean;
-  isPinned?: boolean;
   thumbnail?: string;
+  cover_image?: string;
   category?: { id: number; name: string; slug: string };
   tags?: { id: number; name: string; slug: string }[];
+  // SDK 兼容字段 — 通过 Noteva.articles.getDate/getStats/isPinned 访问
+  [key: string]: any;
 }
 
-function extractFirstImage(content: string): string | null {
-  const imgRegex = /!\[.*?\]\((.*?)\)/;
-  const match = content.match(imgRegex);
-  return match ? match[1] : null;
-}
-
-function getExcerpt(content: string, maxLength: number = 200): string {
-  let text = content.replace(/\[([a-zA-Z0-9_-]+)(?:\s+[^\]]*)?]([\s\S]*?)\[\/\1]/g, '');
-  text = text.replace(/\[[a-zA-Z0-9_-]+(?:\s+[^\]]*)?\/]/g, '');
-  text = text.replace(/\[\/?\w+[^\]]*]/g, '');
-  text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, '');
-  text = text.replace(/!\([^)]+\)/g, '');
-  text = text.replace(/<img[^>]*>/gi, '');
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-  text = text.replace(/[*_~`#]+/g, '');
-  text = text.replace(/<[^>]+>/g, '');
-  text = text.replace(/\s+/g, ' ').trim();
-  if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength) + '...';
-}
 
 const PAGE_SIZE = 10;
+
+/** Highlight keyword matches in text, returning React nodes */
+function highlightKeyword(text: string, keyword: string) {
+  if (!keyword || !keyword.trim()) return text;
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+  if (parts.length <= 1) return text;
+  return parts.map((part, i) =>
+    regex.test(part) ? (
+      <mark key={i} className="bg-yellow-200 dark:bg-yellow-700/60 text-inherit rounded-sm px-0.5">
+        {part}
+      </mark>
+    ) : (
+      part
+    )
+  );
+}
 
 export default function HomePage() {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -67,6 +56,14 @@ export default function HomePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") || "";
   const currentPage = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+
+  // Site-level OG/SEO meta tags via SDK
+  useEffect(() => {
+    if (!siteInfo?.name) return;
+    const Noteva = getNoteva();
+    if (!Noteva) return;
+    Noteva.seo.setSiteMeta(siteInfo.name, siteInfo.description || siteInfo.subtitle || '', window.location.origin);
+  }, [siteInfo]);
 
   useEffect(() => {
     const config = (window as any).__SITE_CONFIG__;
@@ -130,24 +127,14 @@ export default function HomePage() {
     }
   };
 
+  const Noteva = getNoteva();
+
   const filteredArticles = articles.filter((article) =>
     article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     article.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
     article.tags?.some(tag => tag.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
     article.category?.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const getThumbnail = (article: Article): string | null => {
-    if (article.thumbnail) return article.thumbnail;
-    return extractFirstImage(article.content);
-  };
-
-  const getPublishedDate = (article: Article) => 
-    article.published_at || article.publishedAt || article.created_at || article.createdAt || "";
-  const getViewCount = (article: Article) => article.view_count ?? article.viewCount ?? 0;
-  const getLikeCount = (article: Article) => article.like_count ?? article.likeCount ?? 0;
-  const getCommentCount = (article: Article) => article.comment_count ?? article.commentCount ?? 0;
-  const isPinned = (article: Article) => article.is_pinned || article.isPinned;
 
   return (
     <div className="relative flex min-h-screen flex-col">
@@ -204,7 +191,7 @@ export default function HomePage() {
               </motion.div>
             ) : (
               filteredArticles.map((article, index) => {
-                const thumbnail = getThumbnail(article);
+                const thumbnail = Noteva?.articles.getThumbnail(article);
                 return (
                   <motion.div
                     key={article.id}
@@ -218,22 +205,22 @@ export default function HomePage() {
                         <div className="flex-1">
                           <CardHeader>
                             <div className="flex items-center gap-2">
-                              {isPinned(article) && (
+                              {Noteva?.articles.isPinned(article) && (
                                 <Badge variant="destructive" className="gap-1"><Pin className="h-3 w-3" />{t("article.pinned")}</Badge>
                               )}
                               <CardTitle className="flex-1">
-                                <Link to={getArticleUrl(article)} className="hover:text-primary transition-colors">{article.title}</Link>
+                                <Link to={getArticleUrl(article)} className="hover:text-primary transition-colors">{searchQuery ? highlightKeyword(article.title, searchQuery) : article.title}</Link>
                               </CardTitle>
                             </div>
                             <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(getPublishedDate(article)).toLocaleDateString(getDateLocale())}</span>
-                              <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{getViewCount(article)}</span>
-                              <span className="flex items-center gap-1"><Heart className="h-4 w-4" />{getLikeCount(article)}</span>
-                              <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{getCommentCount(article)}</span>
+                              <span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(Noteva?.articles.getDate(article) || '').toLocaleDateString(getDateLocale())}</span>
+                              <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{Noteva?.articles.getStats(article).views ?? 0}</span>
+                              <span className="flex items-center gap-1"><Heart className="h-4 w-4" />{Noteva?.articles.getStats(article).likes ?? 0}</span>
+                              <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{Noteva?.articles.getStats(article).comments ?? 0}</span>
                             </div>
                           </CardHeader>
                           <CardContent>
-                            <p className="text-muted-foreground line-clamp-2 mb-4">{getExcerpt(article.content)}</p>
+                            <p className="text-muted-foreground line-clamp-2 mb-4">{searchQuery ? highlightKeyword(Noteva?.articles.getExcerpt(article) || '', searchQuery) : Noteva?.articles.getExcerpt(article)}</p>
                             <div className="flex flex-wrap items-center gap-2">
                               {article.category && (
                                 <Link to={`/categories?c=${article.category.slug}`}>

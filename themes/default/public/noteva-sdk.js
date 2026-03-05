@@ -182,8 +182,10 @@
       const data = await api.get('/site/info');
       // 缓存 permalink 结构
       this._permalinkStructure = data.permalink_structure || '/posts/{slug}';
-      // 转换字段名，兼容 snake_case 和简短名
+      // 透传全部后端字段 + 兼容短名映射
       this._info = {
+        ...data,
+        // 兼容短名
         name: data.site_name || data.name || '',
         description: data.site_description || data.description || '',
         subtitle: data.site_subtitle || data.subtitle || '',
@@ -191,12 +193,6 @@
         footer: data.site_footer || data.footer || '',
         version: data.version || '',
         permalinkStructure: this._permalinkStructure,
-        // 保留原始字段
-        site_name: data.site_name,
-        site_description: data.site_description,
-        site_subtitle: data.site_subtitle,
-        site_logo: data.site_logo,
-        site_footer: data.site_footer,
         permalink_structure: this._permalinkStructure,
       };
       return this._info;
@@ -306,6 +302,145 @@
 
     async getArchives() {
       return api.get('/articles/archives');
+    },
+
+    // ============================================
+    // 文章字段兼容工具
+    // 主题开发者不用关心 snake_case vs camelCase
+    // ============================================
+
+    /**
+     * 获取文章发布日期
+     * @param {object} article - 文章对象
+     * @returns {string} 日期字符串
+     */
+    getDate(article) {
+      return article.published_at || article.publishedAt || article.created_at || article.createdAt || '';
+    },
+
+    /**
+     * 获取文章统计数据
+     * @param {object} article - 文章对象
+     * @returns {{ views: number, likes: number, comments: number }}
+     */
+    getStats(article) {
+      return {
+        views: article.view_count ?? article.viewCount ?? 0,
+        likes: article.like_count ?? article.likeCount ?? 0,
+        comments: article.comment_count ?? article.commentCount ?? 0,
+      };
+    },
+
+    /**
+     * 判断文章是否置顶
+     * @param {object} article - 文章对象
+     * @returns {boolean}
+     */
+    isPinned(article) {
+      return !!(article.is_pinned || article.isPinned);
+    },
+
+    /**
+     * 获取文章缩略图
+     * 优先级：thumbnail 字段 > 正文第一张图片
+     * @param {object} article - 文章对象
+     * @returns {string|null} 图片 URL 或 null
+     */
+    getThumbnail(article) {
+      if (article.thumbnail) return article.thumbnail;
+      if (article.cover_image) return article.cover_image;
+      // 从正文提取第一张图片
+      const content = article.content || article.content_html || article.html || '';
+      const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/i)
+        || content.match(/!\[[^\]]*\]\(([^)]+)\)/);
+      return imgMatch ? imgMatch[1] : null;
+    },
+
+    /**
+     * 生成文章纯文本摘要
+     * @param {object} article - 文章对象
+     * @param {number} [maxLength=200] - 最大长度
+     * @returns {string} 纯文本摘要
+     */
+    getExcerpt(article, maxLength = 200) {
+      // 优先使用后端摘要
+      if (article.excerpt) return article.excerpt;
+      const raw = article.content || '';
+      // 去除 Markdown/HTML 标签
+      const text = raw
+        .replace(/```[\s\S]*?```/g, '')
+        .replace(/`[^`]*`/g, '')
+        .replace(/!?\[[^\]]*\]\([^)]*\)/g, '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/#{1,6}\s/g, '')
+        .replace(/[*_~`>|\-]/g, '')
+        .replace(/\n+/g, ' ')
+        .trim();
+      return text.length > maxLength ? text.slice(0, maxLength) + '...' : text;
+    },
+
+    /**
+     * 获取文章 HTML 内容
+     * @param {object} article - 文章对象
+     * @returns {string} HTML 字符串
+     */
+    getHtml(article) {
+      return article.content_html || article.html || '';
+    },
+
+    /**
+     * 增加文章浏览计数
+     * @param {number} articleId - 文章 ID
+     */
+    async incrementView(articleId) {
+      try {
+        await api.post(`/view/${articleId}`);
+      } catch (e) {
+        // 浏览计数失败不影响用户体验
+      }
+    },
+  };
+
+  // ============================================
+  // 交互 API（点赞）
+  // ============================================
+  const interactions = {
+    /**
+     * 点赞或取消点赞
+     * @param {'article'|'comment'} targetType - 目标类型
+     * @param {number} targetId - 目标 ID
+     * @returns {Promise<{liked: boolean, like_count: number}>}
+     */
+    async like(targetType, targetId) {
+      return api.post('/like', { target_type: targetType, target_id: targetId });
+    },
+
+    /**
+     * 检查当前用户是否已点赞
+     * @param {'article'|'comment'} targetType - 目标类型
+     * @param {number} targetId - 目标 ID
+     * @returns {Promise<{liked: boolean}>}
+     */
+    async checkLike(targetType, targetId) {
+      return api.get('/like/check', { target_type: targetType, target_id: targetId });
+    },
+  };
+
+  // ============================================
+  // 搜索工具
+  // ============================================
+  const search = {
+    /**
+     * 高亮文本中的关键词
+     * @param {string} text - 原始文本
+     * @param {string} keyword - 搜索关键词
+     * @returns {string} 带 <mark> 标签的 HTML 字符串
+     */
+    highlight(text, keyword) {
+      if (!text || !keyword) return text || '';
+      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(${escaped})`, 'gi');
+      return text.replace(regex, '<mark class="noteva-highlight">$1</mark>');
     },
   };
 
@@ -1069,6 +1204,131 @@
         if (modifiedOptions.twitter) this.setTwitterCard(modifiedOptions.twitter);
       }
     },
+
+    /**
+     * 一键设置文章页 SEO（title + meta + OG + Twitter）
+     * @param {object} article - 文章对象 { title, excerpt, thumbnail, slug, published_at, updated_at }
+     * @param {string} siteName - 站点名称
+     * @param {string} [siteUrl] - 站点 URL
+     */
+    setArticleMeta(article, siteName, siteUrl) {
+      const title = `${article.title} - ${siteName}`;
+      const desc = (article.excerpt || '').substring(0, 200);
+      const url = siteUrl ? `${siteUrl.replace(/\/$/, '')}/posts/${article.slug || article.id}` : '';
+      const image = article.thumbnail || '';
+
+      this.set({
+        title,
+        meta: { description: desc },
+        og: {
+          title: article.title,
+          description: desc,
+          type: 'article',
+          site_name: siteName,
+          ...(url ? { url } : {}),
+          ...(image ? { image } : {}),
+        },
+        twitter: {
+          card: image ? 'summary_large_image' : 'summary',
+          title: article.title,
+          description: desc,
+          ...(image ? { image } : {}),
+        },
+      });
+    },
+
+    /**
+     * 一键设置站点首页 SEO
+     * @param {string} siteName - 站点名称
+     * @param {string} description - 站点描述
+     * @param {string} [siteUrl] - 站点 URL
+     */
+    setSiteMeta(siteName, description, siteUrl) {
+      const desc = (description || '').substring(0, 200);
+      this.set({
+        title: siteName,
+        meta: { description: desc },
+        og: {
+          title: siteName,
+          description: desc,
+          type: 'website',
+          site_name: siteName,
+          ...(siteUrl ? { url: siteUrl } : {}),
+        },
+        twitter: {
+          card: 'summary',
+          title: siteName,
+          description: desc,
+        },
+      });
+    },
+  };
+
+  // ============================================
+  // TOC（文章目录）
+  // ============================================
+  const toc = {
+    /**
+     * 从 DOM 中提取 heading 结构生成目录数据
+     * @param {string|HTMLElement} [container='article'] - 内容容器选择器或元素
+     * @param {string} [levels='h1,h2,h3,h4'] - 要提取的 heading 层级
+     * @returns {Array<{id:string, text:string, level:number}>}
+     */
+    extract(container, levels) {
+      const el = typeof container === 'string'
+        ? document.querySelector(container)
+        : (container || document.querySelector('article') || document.querySelector('.prose') || document.querySelector('main'));
+      if (!el) return [];
+
+      const selector = levels || 'h1,h2,h3,h4';
+      const headings = el.querySelectorAll(selector);
+      return Array.from(headings)
+        .filter(h => h.id)
+        .map(h => ({
+          id: h.id,
+          text: h.textContent?.trim() || '',
+          level: parseInt(h.tagName.charAt(1), 10),
+        }));
+    },
+
+    /**
+     * 平滑滚动到指定 heading
+     * @param {string} id - heading 的 id
+     * @param {number} [offset=80] - 顶部偏移量（用于固定导航栏）
+     */
+    scrollTo(id, offset) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const top = el.getBoundingClientRect().top + window.scrollY - (offset ?? 80);
+      window.scrollTo({ top, behavior: 'smooth' });
+    },
+
+    /**
+     * 监听滚动并返回当前可见的 heading id（scroll spy）
+     * @param {Array<{id:string}>} items - TOC 项列表
+     * @param {function} callback - 回调函数，接收当前激活的 id
+     * @param {number} [offset=100] - 触发判定的顶部偏移量
+     * @returns {function} 取消监听的函数
+     */
+    observe(items, callback, offset) {
+      const off = offset ?? 100;
+      const handler = () => {
+        let activeId = '';
+        for (const item of items) {
+          const el = document.getElementById(item.id);
+          if (el) {
+            const rect = el.getBoundingClientRect();
+            if (rect.top <= off) {
+              activeId = item.id;
+            }
+          }
+        }
+        callback(activeId);
+      };
+      window.addEventListener('scroll', handler, { passive: true });
+      handler(); // 初始调用
+      return () => window.removeEventListener('scroll', handler);
+    },
   };
 
   // ============================================
@@ -1709,6 +1969,22 @@
       }
     }
 
+    // 注入自定义字体（Google Fonts）
+    if (siteInfo && siteInfo.font_family && !document.getElementById('noteva-custom-font')) {
+      const fontName = siteInfo.font_family;
+      // Load from Google Fonts (China mirror)
+      const link = document.createElement('link');
+      link.id = 'noteva-custom-font';
+      link.rel = 'stylesheet';
+      link.href = `https://fonts.loli.net/css2?family=${encodeURIComponent(fontName)}:wght@300;400;500;600;700&display=swap`;
+      document.head.appendChild(link);
+      // Set --noteva-font CSS variable (Tailwind font-sans references this)
+      const style = document.createElement('style');
+      style.id = 'noteva-custom-font-style';
+      style.textContent = `:root { --noteva-font: "${fontName}"; }`;
+      document.head.appendChild(style);
+    }
+
     // 加载主题配置
     await site.loadThemeConfig();
 
@@ -1850,7 +2126,7 @@
   // ============================================
   window.Noteva = {
     // 版本
-    version: '0.1.5',
+    version: '0.1.9-beta',
 
     // 核心系统
     hooks,
@@ -1865,6 +2141,8 @@
     tags,
     comments,
     user,
+    interactions,
+    search,
 
     // 辅助工具
     router,
@@ -1874,6 +2152,7 @@
     storage,
     cache,
     seo,
+    toc,
     i18n,
 
     // 插件系统

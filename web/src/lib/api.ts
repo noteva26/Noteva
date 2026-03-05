@@ -785,3 +785,37 @@ export const commentsApi = {
 
   delete: (id: number) => api.delete(`/admin/comments/${id}`),
 };
+
+// Files management API (space management)
+export interface FileInfo {
+  name: string;
+  url: string;
+  size: number;
+  file_type: string;
+  is_image: boolean;
+  created_at: string;
+}
+
+export interface FileListResponse {
+  files: FileInfo[];
+  total: number;
+}
+
+export interface StorageStatsResponse {
+  total_files: number;
+  total_size: number;
+  total_size_display: string;
+  image_count: number;
+  other_count: number;
+}
+
+export const filesApi = {
+  list: (params?: { search?: string; file_type?: string }) =>
+    api.get<FileListResponse>("/admin/files", { params }),
+
+  stats: () =>
+    api.get<StorageStatsResponse>("/admin/files/stats"),
+
+  delete: (filename: string) =>
+    api.delete(`/admin/files/${encodeURIComponent(filename)}`),
+};

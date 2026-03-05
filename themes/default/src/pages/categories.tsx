@@ -13,16 +13,9 @@ import { getNoteva, getArticleUrl } from "@/hooks/useNoteva";
 interface Category { id: number; name: string; slug: string; description?: string; }
 interface Article {
   id: number; slug: string; title: string; content: string; thumbnail?: string;
-  published_at?: string; publishedAt?: string; created_at?: string; createdAt?: string;
-  view_count?: number; viewCount?: number; like_count?: number; likeCount?: number;
-  comment_count?: number; commentCount?: number; is_pinned?: boolean; isPinned?: boolean;
   category?: { id: number; name: string; slug: string };
   tags?: { id: number; name: string; slug: string }[];
-}
-
-function extractFirstImage(content: string): string | null {
-  const match = content.match(/!\[.*?\]\((.*?)\)/);
-  return match ? match[1] : null;
+  [key: string]: any;
 }
 
 export default function CategoriesPage() {
@@ -56,13 +49,8 @@ export default function CategoriesPage() {
     fetchData();
   }, [selectedSlug]);
 
+  const Noteva = getNoteva();
   const getDateLocale = () => { switch (locale) { case "zh-TW": return "zh-TW"; case "en": return "en-US"; default: return "zh-CN"; } };
-  const getThumbnail = (a: Article) => a.thumbnail || extractFirstImage(a.content);
-  const getPublishedDate = (a: Article) => a.published_at || a.publishedAt || a.created_at || a.createdAt || "";
-  const getViewCount = (a: Article) => a.view_count ?? a.viewCount ?? 0;
-  const getLikeCount = (a: Article) => a.like_count ?? a.likeCount ?? 0;
-  const getCommentCount = (a: Article) => a.comment_count ?? a.commentCount ?? 0;
-  const isPinned = (a: Article) => a.is_pinned || a.isPinned;
 
   if (selectedSlug && selectedCategory) {
     return (
@@ -82,21 +70,21 @@ export default function CategoriesPage() {
               )) : articles.length === 0 ? (
                 <Card><CardContent className="py-12 text-center text-muted-foreground">{t("article.noArticles")}</CardContent></Card>
               ) : articles.map((article) => {
-                const thumbnail = getThumbnail(article);
+                const thumbnail = Noteva?.articles.getThumbnail(article);
                 return (
                   <Card key={article.id} className="hover:shadow-md transition-shadow overflow-hidden">
                     <div className="flex">
                       <div className="flex-1">
                         <CardHeader>
                           <div className="flex items-center gap-2">
-                            {isPinned(article) && <Badge variant="destructive" className="gap-1"><Pin className="h-3 w-3" />{t("article.pinned")}</Badge>}
+                            {Noteva?.articles.isPinned(article) && <Badge variant="destructive" className="gap-1"><Pin className="h-3 w-3" />{t("article.pinned")}</Badge>}
                             <CardTitle className="flex-1"><Link to={getArticleUrl(article)} className="hover:text-primary transition-colors">{article.title}</Link></CardTitle>
                           </div>
                           <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                            <span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(getPublishedDate(article)).toLocaleDateString(getDateLocale())}</span>
-                            <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{getViewCount(article)}</span>
-                            <span className="flex items-center gap-1"><Heart className="h-4 w-4" />{getLikeCount(article)}</span>
-                            <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{getCommentCount(article)}</span>
+                            <span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(Noteva?.articles.getDate(article) || '').toLocaleDateString(getDateLocale())}</span>
+                            <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{Noteva?.articles.getStats(article).views ?? 0}</span>
+                            <span className="flex items-center gap-1"><Heart className="h-4 w-4" />{Noteva?.articles.getStats(article).likes ?? 0}</span>
+                            <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{Noteva?.articles.getStats(article).comments ?? 0}</span>
                           </div>
                         </CardHeader>
                         <CardContent>
@@ -139,7 +127,7 @@ export default function CategoriesPage() {
             <p className="text-muted-foreground">{t("category.totalCategories")}: {categories.length}</p>
           </div>
           {loading ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-24" />)}</div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-24" />)}</div>
           ) : categories.length === 0 ? (
             <Card><CardContent className="py-12 text-center text-muted-foreground">{t("category.noCategories")}</CardContent></Card>
           ) : (

@@ -190,8 +190,11 @@ impl MarkdownRenderer {
         options.insert(Options::ENABLE_SMART_PUNCTUATION);
         options.insert(Options::ENABLE_FOOTNOTES);
 
+        // Pre-process: image resize syntax (![alt|50%](url))
+        let content = Self::preprocess_image_resize(content);
+
         // Pre-process: protect math expressions from markdown parsing
-        let (content, math_placeholders) = Self::extract_math_expressions(content);
+        let (content, math_placeholders) = Self::extract_math_expressions(&content);
 
         let parser = Parser::new_ext(&content, options);
 
@@ -239,6 +242,7 @@ impl MarkdownRenderer {
         let mut in_heading = false;
         let mut heading_level: u32 = 0;
         let mut heading_text = String::new();
+        let mut used_ids: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
 
         for event in parser {
             match event {
@@ -257,7 +261,16 @@ impl MarkdownRenderer {
                     in_heading = false;
                     let text = heading_text.trim().to_string();
                     if !text.is_empty() {
-                        let id = Self::heading_to_id(&text);
+                        let base_id = Self::heading_to_id(&text);
+                        let count = used_ids.entry(base_id.clone()).or_insert(0);
+                        let id = if *count == 0 {
+                            *count += 1;
+                            base_id
+                        } else {
+                            let suffixed = format!("{}-{}", base_id, count);
+                            *count += 1;
+                            suffixed
+                        };
                         toc.push(TocEntry { level: heading_level, text, id });
                     }
                 }
@@ -366,9 +379,55 @@ impl MarkdownRenderer {
         let mut in_code_block = false;
         let mut code_lang: Option<String> = None;
         let mut code_content = String::new();
+        // Heading ID injection state
+        let mut in_heading = false;
+        let mut heading_level: u32 = 0;
+        let mut heading_text = String::new();
+        let mut heading_events: Vec<Event<'a>> = Vec::new();
+        let mut used_ids: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
 
         for event in parser {
             match event {
+                Event::Start(Tag::Heading { level, .. }) => {
+                    in_heading = true;
+                    heading_level = level as u32;
+                    heading_text.clear();
+                    heading_events.clear();
+                    // Keep collecting events but don't push yet
+                }
+                Event::End(TagEnd::Heading(_)) if in_heading => {
+                    in_heading = false;
+                    let text = heading_text.trim().to_string();
+                    let base_id = Self::heading_to_id(&text);
+                    // Deduplicate: append -1, -2, etc. for repeated headings
+                    let count = used_ids.entry(base_id.clone()).or_insert(0);
+                    let id = if *count == 0 {
+                        *count += 1;
+                        base_id
+                    } else {
+                        let suffixed = format!("{}-{}", base_id, count);
+                        *count += 1;
+                        suffixed
+                    };
+                    // Emit heading with id attribute
+                    let tag = format!("h{}", heading_level);
+                    events.push(Event::Html(format!("<{} id=\"{}\">", tag, html_escape(&id)).into()));
+                    for ev in heading_events.drain(..) {
+                        events.push(ev);
+                    }
+                    events.push(Event::Html(format!("</{}>", tag).into()));
+                }
+                Event::Text(ref text) if in_heading => {
+                    heading_text.push_str(text);
+                    heading_events.push(event);
+                }
+                Event::Code(ref code) if in_heading => {
+                    heading_text.push_str(code);
+                    heading_events.push(event);
+                }
+                _ if in_heading => {
+                    heading_events.push(event);
+                }
                 Event::Start(Tag::CodeBlock(kind)) => {
                     in_code_block = true;
                     code_content.clear();
@@ -560,6 +619,28 @@ impl MarkdownRenderer {
             result = result.replace(&escaped_placeholder, &replacement);
         }
         result
+    }
+
+    /// Pre-process image resize syntax: ![alt|50%](url) or ![alt|300px](url)
+    /// Converts to raw HTML <img> tags with style width before markdown parsing.
+    fn preprocess_image_resize(content: &str) -> String {
+        let re = Regex::new(r"!\[([^|\]]*)\|(\d+(?:%|px)?)\]\(([^)]+)\)").unwrap();
+        re.replace_all(content, |caps: &regex::Captures| {
+            let alt = &caps[1];
+            let size = &caps[2];
+            let url = &caps[3];
+            let width = if size.ends_with('%') || size.ends_with("px") {
+                size.to_string()
+            } else {
+                format!("{}px", size)
+            };
+            format!(
+                "<img src=\"{}\" alt=\"{}\" style=\"width: {}; max-width: 100%;\" loading=\"lazy\" />",
+                html_escape(url),
+                html_escape(alt),
+                html_escape(&width),
+            )
+        }).to_string()
     }
 }
 

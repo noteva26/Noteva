@@ -145,65 +145,55 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build release notes
+        shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME}"
-          # Extract section between ## [vX.Y.Z...] and the next ## [
-          NOTES=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
-          
-          cat > /tmp/release_body.md << 'HEADER'
-          ## Noteva ${VERSION}
-          HEADER
-          
-          # Rewrite header with actual version  
-          echo "## Noteva ${VERSION}" > /tmp/release_body.md
-          echo "" >> /tmp/release_body.md
-          
+          NOTES=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md 2>/dev/null || true)
+          {
+          echo "## Noteva ${VERSION}"
+          echo ""
           if [ -n "$NOTES" ]; then
-            echo "$NOTES" >> /tmp/release_body.md
-            echo "" >> /tmp/release_body.md
-            echo "---" >> /tmp/release_body.md
-            echo "" >> /tmp/release_body.md
+          echo "$NOTES"
+          echo ""
+          echo "---"
+          echo ""
           fi
-          
-          cat >> /tmp/release_body.md << 'EOF'
-          ### Downloads
-
-          **Linux**
-          - x86_64 (Intel/AMD): `noteva-linux-x86_64.tar.gz`
-          - ARM64 (树莓派/ARM服务器): `noteva-linux-arm64.tar.gz`
-
-          **Windows**
-          - x86_64 (Intel/AMD): `noteva-windows-x86_64.zip`
-          - ARM64: `noteva-windows-arm64.zip`
-
-          **macOS**
-          - x86_64 (Intel): `noteva-macos-x86_64.tar.gz`
-          - ARM64 (Apple Silicon M1/M2/M3): `noteva-macos-arm64.tar.gz`
-
-          ### Quick Start
-          ```bash
-          # Linux / macOS
-          tar -xzf noteva-*.tar.gz
-          cp config.example.yml config.yml
-          ./noteva
-
-          # Windows
-          # 解压 noteva-windows-*.zip
-          # 复制 config.example.yml 为 config.yml
-          # 运行 noteva.exe
-          ```
-
-          ### First Time Setup
-          1. Visit http://localhost:8080
-          2. Go to `/manage` to create your admin account
-          3. Start blogging!
-
-          ---
-          **Full Changelog**: [CHANGELOG.md](https://github.com/noteva26/Noteva/blob/main/CHANGELOG.md)
-          EOF
-          
-          # Remove leading spaces from heredoc
-          sed -i 's/^          //' /tmp/release_body.md
+          echo "### Downloads"
+          echo ""
+          echo "**Linux**"
+          echo "- x86_64 (Intel/AMD): \`noteva-linux-x86_64.tar.gz\`"
+          echo "- ARM64 (树莓派/ARM服务器): \`noteva-linux-arm64.tar.gz\`"
+          echo ""
+          echo "**Windows**"
+          echo "- x86_64 (Intel/AMD): \`noteva-windows-x86_64.zip\`"
+          echo "- ARM64: \`noteva-windows-arm64.zip\`"
+          echo ""
+          echo "**macOS**"
+          echo "- x86_64 (Intel): \`noteva-macos-x86_64.tar.gz\`"
+          echo "- ARM64 (Apple Silicon M1/M2/M3): \`noteva-macos-arm64.tar.gz\`"
+          echo ""
+          echo "### Quick Start"
+          echo "\`\`\`bash"
+          echo "# Linux / macOS"
+          echo "tar -xzf noteva-*.tar.gz"
+          echo "cp config.example.yml config.yml"
+          echo "./noteva"
+          echo ""
+          echo "# Windows"
+          echo "# 解压 noteva-windows-*.zip"
+          echo "# 复制 config.example.yml 为 config.yml"
+          echo "# 运行 noteva.exe"
+          echo "\`\`\`"
+          echo ""
+          echo "### First Time Setup"
+          echo "1. Visit http://localhost:8080"
+          echo "2. Go to \`/manage\` to create your admin account"
+          echo "3. Start blogging!"
+          echo ""
+          echo "---"
+          echo "**Full Changelog**: [CHANGELOG.md](https://github.com/noteva26/Noteva/blob/main/CHANGELOG.md)"
+          } > /tmp/release_body.md
+          cat /tmp/release_body.md
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -211,7 +201,7 @@ jobs:
           path: artifacts
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           draft: false
           prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}

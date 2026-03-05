@@ -25,6 +25,7 @@ import {
   Puzzle,
   MessageSquare,
   Shield,
+  HardDrive,
 } from "lucide-react";
 
 export default function ManageLayout() {
@@ -44,6 +45,7 @@ export default function ManageLayout() {
     { href: "/manage/pages", label: t("manage.pages"), icon: FileCode },
     { href: "/manage/nav", label: t("manage.nav"), icon: Navigation },
     { href: "/manage/comments", label: t("manage.comments"), icon: MessageSquare },
+    { href: "/manage/files", label: "空间管理", icon: HardDrive },
     { href: "/manage/plugins", label: t("manage.plugins"), icon: Puzzle },
     { href: "/manage/themes", label: t("manage.themes"), icon: Palette },
     { href: "/manage/security", label: "安全日志", icon: Shield },
@@ -158,7 +160,7 @@ export default function ManageLayout() {
 
           <nav className="flex-1 space-y-1 p-4">
             {navItems.map((item) => {
-              const isActive = pathname === item.href || 
+              const isActive = pathname === item.href ||
                 (item.href !== "/manage" && pathname.startsWith(item.href));
               return (
                 <motion.div

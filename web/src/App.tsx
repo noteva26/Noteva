@@ -20,6 +20,7 @@ const CommentsPage = lazy(() => import("@/pages/manage/comments"));
 const PluginsPage = lazy(() => import("@/pages/manage/plugins"));
 const ThemesPage = lazy(() => import("@/pages/manage/themes"));
 const SecurityPage = lazy(() => import("@/pages/manage/security"));
+const FilesPage = lazy(() => import("@/pages/manage/files"));
 const SettingsPage = lazy(() => import("@/pages/manage/settings"));
 const LoginPage = lazy(() => import("@/pages/manage/login"));
 const SetupPage = lazy(() => import("@/pages/manage/setup"));
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="plugins" element={<PluginsPage />} />
             <Route path="themes" element={<ThemesPage />} />
             <Route path="security" element={<SecurityPage />} />
+            <Route path="files" element={<FilesPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>

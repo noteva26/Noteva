@@ -324,23 +324,15 @@ async fn main() -> Result<()> {
             loop {
                 interval.tick().await;
                 // Find draft articles scheduled for publication
-                let now = chrono::Utc::now();
                 let article_repo = noteva::db::repositories::SqlxArticleRepository::new(db_pool.clone());
                 use noteva::db::repositories::ArticleRepository;
-                let params = noteva::models::ListParams::new(1, 10000);
-                if let Ok(all) = article_repo.list(params.offset(), params.limit()).await {
-                    for article in all {
-                        if article.status == noteva::models::ArticleStatus::Draft {
-                            if let Some(scheduled) = article.scheduled_at {
-                                if scheduled <= now {
-                                    tracing::info!(article_id = article.id, title = %article.title, "auto-publishing scheduled article");
-                                    let mut update = noteva::models::UpdateArticleInput::new();
-                                    update.status = Some(noteva::models::ArticleStatus::Published);
-                                    if let Err(e) = article_svc.update(article.id, update, None).await {
-                                        tracing::error!(article_id = article.id, error = %e, "failed to auto-publish scheduled article");
-                                    }
-                                }
-                            }
+                if let Ok(due_articles) = article_repo.list_scheduled_due().await {
+                    for article in due_articles {
+                        tracing::info!(article_id = article.id, title = %article.title, "auto-publishing scheduled article");
+                        let mut update = noteva::models::UpdateArticleInput::new();
+                        update.status = Some(noteva::models::ArticleStatus::Published);
+                        if let Err(e) = article_svc.update(article.id, update, None).await {
+                            tracing::error!(article_id = article.id, error = %e, "failed to auto-publish scheduled article");
                         }
                     }
                 }

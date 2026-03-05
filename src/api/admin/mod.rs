@@ -20,6 +20,7 @@ mod comments;
 mod reload;
 mod security;
 mod backup;
+mod files;
 
 pub use comments::{
     list_comments, list_pending_comments, approve_comment, reject_comment,
@@ -74,4 +75,8 @@ pub fn router() -> Router<AppState> {
         .route("/backup/restore", post(backup::restore_backup_endpoint))
         .route("/backup/export-markdown", get(backup::export_markdown_endpoint))
         .route("/backup/import", post(backup::import_articles_endpoint))
+        // File management
+        .route("/files", get(files::list_files))
+        .route("/files/stats", get(files::get_storage_stats))
+        .route("/files/:filename", delete(files::delete_file))
 }

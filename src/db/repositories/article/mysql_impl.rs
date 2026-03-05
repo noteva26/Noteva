@@ -236,34 +236,78 @@ pub(super) async fn list_published_articles_mysql(pool: &MySqlPool, offset: i64,
 }
 
 pub(super) async fn search_articles_mysql(pool: &MySqlPool, keyword: &str, offset: i64, limit: i64, published_only: bool) -> Result<Vec<Article>> {
-    let search_pattern = format!("%{}%", keyword);
+    // FULLTEXT requires at least 2 characters; fallback to LIKE for very short queries
+    let use_ft = keyword.chars().count() >= 2;
 
-    let query = if published_only {
-        r#"
-        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-        FROM articles
-        WHERE status = 'published' AND (title LIKE ? OR content LIKE ?)
-        ORDER BY is_pinned DESC, pin_order ASC, published_at DESC
-        LIMIT ? OFFSET ?
-        "#
+    let rows = if use_ft {
+        let query = if published_only {
+            r#"
+            SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+            FROM articles
+            WHERE status = 'published' AND MATCH(title, content) AGAINST(? IN BOOLEAN MODE)
+            ORDER BY is_pinned DESC, pin_order ASC, published_at DESC
+            LIMIT ? OFFSET ?
+            "#
+        } else {
+            r#"
+            SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+            FROM articles
+            WHERE MATCH(title, content) AGAINST(? IN BOOLEAN MODE)
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            "#
+        };
+        sqlx::query(query)
+            .bind(keyword)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await
+            .context("Failed to search articles (FULLTEXT)")?
     } else {
-        r#"
-        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-        FROM articles
-        WHERE title LIKE ? OR content LIKE ?
-        ORDER BY created_at DESC
-        LIMIT ? OFFSET ?
-        "#
+        let search_pattern = format!("%{}%", keyword);
+        let query = if published_only {
+            r#"
+            SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+            FROM articles
+            WHERE status = 'published' AND (title LIKE ? OR content LIKE ?)
+            ORDER BY is_pinned DESC, pin_order ASC, published_at DESC
+            LIMIT ? OFFSET ?
+            "#
+        } else {
+            r#"
+            SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+            FROM articles
+            WHERE title LIKE ? OR content LIKE ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            "#
+        };
+        sqlx::query(query)
+            .bind(&search_pattern)
+            .bind(&search_pattern)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await
+            .context("Failed to search articles")?
     };
 
-    let rows = sqlx::query(query)
-        .bind(&search_pattern)
-        .bind(&search_pattern)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
-        .context("Failed to search articles")?;
+    rows.iter().map(row_to_article_mysql).collect()
+}
+
+pub(super) async fn list_scheduled_due_articles_mysql(pool: &MySqlPool, now: &chrono::DateTime<Utc>) -> Result<Vec<Article>> {
+    let rows = sqlx::query(
+        r#"
+        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at
+        FROM articles
+        WHERE status = 'draft' AND scheduled_at IS NOT NULL AND scheduled_at <= ?
+        "#,
+    )
+    .bind(now)
+    .fetch_all(pool)
+    .await
+    .context("Failed to list scheduled due articles")?;
 
     rows.iter().map(row_to_article_mysql).collect()
 }

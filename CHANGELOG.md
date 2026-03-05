@@ -2,6 +2,27 @@
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.1.9-beta] - 2025-03-05
+
+### 🎉 New Features
+- **SDK Field Helpers** — `Noteva.articles.getDate/getStats/isPinned/getThumbnail/getExcerpt/getHtml/incrementView` for field compatibility
+- **Interactions Module** — `Noteva.interactions.like()` / `checkLike()` for article and comment likes
+- **Search Utils** — `Noteva.search.highlight()` for keyword highlighting in search results
+- **Custom Fonts** — 14 Google Fonts + system default, auto-injected via SDK CSS variable `--noteva-font`
+
+### 📝 Improvements
+- Default theme fully migrated to SDK calls (~150 lines of duplicate helpers removed)
+- `site.getInfo()` now passes through all backend fields via spread operator
+- TypeScript type declarations updated for all new SDK methods (`noteva-sdk.d.ts`)
+- Theme and plugin development docs updated for v0.1.9
+
+### 🔧 Internal
+- Version unified to 0.1.9-beta across Cargo.toml, SDK, theme.json, hook-registry.json
+- Zero direct API calls remaining in default theme (all go through SDK)
+- Comment interface simplified with `[key: string]: any` fallback
+
+---
+
 ## [v0.1.8-beta] - 2025-03-04
 
 ### 🎉 New Features

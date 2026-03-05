@@ -9,7 +9,7 @@ import { getNoteva, getArticleUrl } from "@/hooks/useNoteva";
 
 interface Article {
   id: number; slug: string; title: string;
-  published_at?: string; publishedAt?: string; created_at?: string; createdAt?: string;
+  [key: string]: any;
 }
 
 interface ArchiveGroup {
@@ -35,12 +35,13 @@ export default function ArchivesPage() {
     fetchData();
   }, []);
 
-  const getPublishedDate = (a: Article) => a.published_at || a.publishedAt || a.created_at || a.createdAt || "";
+
 
   const groupByYearMonth = (articles: Article[]): ArchiveGroup[] => {
+    const Noteva = getNoteva();
     const map = new Map<number, Map<number, Article[]>>();
     articles.forEach((article) => {
-      const date = new Date(getPublishedDate(article));
+      const date = new Date(Noteva?.articles.getDate(article) || '');
       const year = date.getFullYear(), month = date.getMonth() + 1;
       if (!map.has(year)) map.set(year, new Map());
       if (!map.get(year)!.has(month)) map.get(year)!.set(month, []);
@@ -66,7 +67,7 @@ export default function ArchivesPage() {
             <p className="text-muted-foreground">{t("article.totalArticles")}: {totalArticles}</p>
           </div>
           {loading ? (
-            <div className="space-y-6">{[1,2,3].map(i => <Skeleton key={i} className="h-32 w-full" />)}</div>
+            <div className="space-y-6">{[1, 2, 3].map(i => <Skeleton key={i} className="h-32 w-full" />)}</div>
           ) : archives.length === 0 ? (
             <Card><CardContent className="py-12 text-center text-muted-foreground">{t("article.noArticles")}</CardContent></Card>
           ) : (
@@ -82,7 +83,7 @@ export default function ArchivesPage() {
                           <li key={article.id} className="relative">
                             <span className="absolute -left-[9px] top-2 w-4 h-4 bg-background border-2 border-muted rounded-full" />
                             <Link to={getArticleUrl(article)} className="block pl-6 py-1 hover:text-primary transition-colors">
-                              <span className="text-sm text-muted-foreground mr-2">{new Date(getPublishedDate(article)).getDate()}日</span>
+                              <span className="text-sm text-muted-foreground mr-2">{new Date(getNoteva()?.articles.getDate(article) || '').getDate()}日</span>
                               <span className="font-medium">{article.title}</span>
                             </Link>
                           </li>

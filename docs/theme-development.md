@@ -1,6 +1,6 @@
 # Noteva 主题开发文档
 
-> 版本：v0.1.8-beta
+> 版本：v0.1.9-beta
 
 ## 快速开始
 
@@ -62,7 +62,7 @@ await Noteva.ready();
 const site = await Noteva.site.getInfo();
 // 返回:
 // {
-//   version: "0.1.8-beta",
+//   version: "0.1.9-beta",
 //   name: "站点名称",
 //   description: "站点描述",
 //   subtitle: "副标题",
@@ -71,11 +71,14 @@ const site = await Noteva.site.getInfo();
 //   email_verification_enabled: "false",
 //   permalink_structure: "/posts/{slug}",
 //   demo_mode: false,
-//   stats: {                         // v0.1.8 新增
+//   stats: {
 //     total_articles: 42,
 //     total_categories: 5,
 //     total_tags: 18
-//   }
+//   },
+//   font_family: "Poppins",          // v0.1.9 新增
+//   custom_css: "...",               // v0.1.9 新增（全字段透传）
+//   custom_js: "...",                // v0.1.9 新增
 // }
 ```
 
@@ -353,6 +356,34 @@ const article = await Noteva.articles.get('hello-world');  // 通过 slug
 // }
 ```
 
+### 文章字段兼容工具（v0.1.9 新增）
+
+主题开发者不用关心 `snake_case` vs `camelCase` 字段名差异：
+
+```javascript
+// 获取发布日期（兼容 published_at / publishedAt / created_at / createdAt）
+const date = Noteva.articles.getDate(article);  // "2026-01-01T00:00:00Z"
+
+// 获取统计数据
+const stats = Noteva.articles.getStats(article);
+// { views: 100, likes: 10, comments: 5 }
+
+// 判断是否置顶
+const pinned = Noteva.articles.isPinned(article);  // true/false
+
+// 获取缩略图（优先 thumbnail > cover_image > 正文第一张图）
+const thumb = Noteva.articles.getThumbnail(article);  // URL 或 null
+
+// 生成纯文本摘要（优先后端 excerpt > 正文截断）
+const excerpt = Noteva.articles.getExcerpt(article, 200);
+
+// 获取渲染后的 HTML
+const html = Noteva.articles.getHtml(article);
+
+// 增加浏览计数
+await Noteva.articles.incrementView(article.id);
+```
+
 ## 页面 API
 
 ### 获取自定义页面
@@ -407,6 +438,25 @@ const comment = await Noteva.comments.create({
   content: '评论内容',
   parentId: null,
 });
+```
+
+## 交互 API（v0.1.9 新增）
+
+```javascript
+// 点赞或取消点赞
+const result = await Noteva.interactions.like('article', articleId);
+// { liked: true, like_count: 11 }
+
+// 检查是否已点赞
+const { liked } = await Noteva.interactions.checkLike('article', articleId);
+```
+
+## 搜索工具（v0.1.9 新增）
+
+```javascript
+// 高亮搜索关键词
+const highlighted = Noteva.search.highlight('Hello World 你好世界', '世界');
+// 'Hello World 你好<mark class="noteva-highlight">世界</mark>'
 ```
 
 ## 用户 API

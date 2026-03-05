@@ -696,6 +696,50 @@ pub const MIGRATIONS: &[Migration] = &[
             ALTER TABLE articles ADD COLUMN scheduled_at TIMESTAMP NULL;
         "#,
     },
+    // Migration 27: Full-text search support
+    // SQLite: FTS5 virtual table with content-sync triggers
+    // MySQL: FULLTEXT INDEX on articles(title, content)
+    Migration {
+        version: 27,
+        name: "add_fulltext_search",
+        up_sqlite: r#"
+            -- Drop any partial state from a previous failed migration attempt
+            DROP TRIGGER IF EXISTS articles_fts_insert;
+            DROP TRIGGER IF EXISTS articles_fts_update;
+            DROP TRIGGER IF EXISTS articles_fts_delete;
+            DROP TABLE IF EXISTS articles_fts;
+
+            CREATE VIRTUAL TABLE articles_fts USING fts5(
+                title,
+                content,
+                content='articles',
+                content_rowid='id'
+            );
+
+            -- Populate FTS table with existing articles
+            INSERT INTO articles_fts(rowid, title, content)
+                SELECT id, title, content FROM articles;
+
+            -- Trigger: auto-sync FTS on INSERT
+            CREATE TRIGGER articles_fts_insert AFTER INSERT ON articles BEGIN
+                INSERT INTO articles_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+            END;
+
+            -- Trigger: auto-sync FTS on UPDATE
+            CREATE TRIGGER articles_fts_update AFTER UPDATE ON articles BEGIN
+                INSERT INTO articles_fts(articles_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
+                INSERT INTO articles_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+            END;
+
+            -- Trigger: auto-sync FTS on DELETE
+            CREATE TRIGGER articles_fts_delete AFTER DELETE ON articles BEGIN
+                INSERT INTO articles_fts(articles_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
+            END;
+        "#,
+        up_mysql: r#"
+            ALTER TABLE articles ADD FULLTEXT INDEX ft_articles_title_content (title, content) WITH PARSER ngram;
+        "#,
+    },
 ];
 
 /// Run all pending migrations
@@ -885,29 +929,69 @@ fn truncate_sql(sql: &str) -> String {
     }
 }
 
-/// Split SQL into individual statements, handling comments properly
+/// Split SQL into individual statements, handling comments and BEGIN/END blocks properly.
+/// BEGIN/END blocks (used in CREATE TRIGGER) are treated as a single statement.
 pub fn split_sql_statements(sql: &str) -> Vec<&str> {
     let mut statements = Vec::new();
     let mut current_start = 0;
     let mut in_statement = false;
+    let mut begin_depth: i32 = 0;
 
     for (i, c) in sql.char_indices() {
         match c {
             ';' => {
                 if in_statement {
-                    let stmt = sql[current_start..i].trim();
-                    if !stmt.is_empty() && !is_comment_only(stmt) {
-                        statements.push(stmt);
+                    if begin_depth > 0 {
+                        // Inside a BEGIN...END block, check if this is "END;"
+                        let before = sql[current_start..i].trim();
+                        // Check if the statement ends with END (case-insensitive)
+                        if before.to_uppercase().ends_with("END") {
+                            begin_depth -= 1;
+                            if begin_depth <= 0 {
+                                begin_depth = 0;
+                                // The whole trigger statement is complete
+                                let stmt = sql[current_start..=i].trim();
+                                if !stmt.is_empty() && !is_comment_only(stmt) {
+                                    statements.push(stmt);
+                                }
+                                in_statement = false;
+                                current_start = i + 1;
+                            }
+                        }
+                        // else: semicolon inside BEGIN block, skip
+                    } else {
+                        let stmt = sql[current_start..i].trim();
+                        if !stmt.is_empty() && !is_comment_only(stmt) {
+                            statements.push(stmt);
+                        }
+                        in_statement = false;
+                        current_start = i + 1;
                     }
-                    in_statement = false;
+                } else {
+                    current_start = i + 1;
                 }
-                current_start = i + 1;
             }
             _ if !c.is_whitespace() && !in_statement => {
                 current_start = i;
                 in_statement = true;
             }
-            _ => {}
+            _ => {
+                // Detect BEGIN keyword (word boundary check)
+                if in_statement && begin_depth == 0 {
+                    // Check if we just completed the word "BEGIN" at position i
+                    if c.is_whitespace() || c == '\n' || c == '\r' {
+                        let so_far = sql[current_start..i].trim();
+                        if so_far.to_uppercase().ends_with("BEGIN") {
+                            // Make sure it's a word boundary (not part of another word)
+                            let upper = so_far.to_uppercase();
+                            let before_begin = &upper[..upper.len() - 5];
+                            if before_begin.is_empty() || before_begin.ends_with(|c: char| c.is_whitespace()) {
+                                begin_depth = 1;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
