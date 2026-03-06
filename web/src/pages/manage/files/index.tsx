@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 
 export default function FilesPage() {
-    const { t } = useTranslation();
+    const { t, locale } = useTranslation();
     const [files, setFiles] = useState<FileInfo[]>([]);
     const [stats, setStats] = useState<StorageStatsResponse | null>(null);
     const [search, setSearch] = useState("");
@@ -46,7 +46,7 @@ export default function FilesPage() {
             setFiles(filesRes.data.files);
             setStats(statsRes.data);
         } catch {
-            toast.error("加载文件列表失败");
+            toast.error(t("fileManage.loadFailed"));
         } finally {
             setLoading(false);
         }
@@ -64,17 +64,18 @@ export default function FilesPage() {
     const handleDelete = async (file: FileInfo) => {
         try {
             await filesApi.delete(file.name);
-            toast.success(`已删除 ${file.name}`);
+            toast.success(t("fileManage.deleteSuccess", { name: file.name }));
             fetchFiles();
             setDeleteTarget(null);
             selectedFiles.delete(file.name);
             setSelectedFiles(new Set(selectedFiles));
         } catch {
-            toast.error(`删除失败: ${file.name}`);
+            toast.error(t("fileManage.deleteFailed", { name: file.name }));
         }
     };
 
     const handleBatchDelete = async () => {
+        if (!confirm(t("fileManage.confirmBatchDelete", { count: selectedFiles.size.toString() }))) return;
         let success = 0;
         for (const name of selectedFiles) {
             try {
@@ -82,14 +83,14 @@ export default function FilesPage() {
                 success++;
             } catch { /* continue */ }
         }
-        toast.success(`已删除 ${success} 个文件`);
+        toast.success(t("fileManage.batchDeleteSuccess", { count: success.toString() }));
         setSelectedFiles(new Set());
         fetchFiles();
     };
 
     const copyUrl = (url: string) => {
         navigator.clipboard.writeText(window.location.origin + url);
-        toast.success("链接已复制");
+        toast.success(t("fileManage.linkCopied"));
     };
 
     const formatSize = (size: number) => {
@@ -101,7 +102,7 @@ export default function FilesPage() {
     const formatDate = (dateStr: string) => {
         if (!dateStr) return "-";
         const d = new Date(dateStr);
-        return d.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+        return d.toLocaleDateString(locale, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
     };
 
     const toggleSelect = (name: string) => {
@@ -123,10 +124,10 @@ export default function FilesPage() {
         <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold">空间管理</h1>
+                <h1 className="text-2xl font-bold">{t("fileManage.title")}</h1>
                 <Button variant="outline" size="sm" onClick={fetchFiles} disabled={loading}>
                     <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-                    刷新
+                    {t("fileManage.refresh")}
                 </Button>
             </div>
 
@@ -138,7 +139,7 @@ export default function FilesPage() {
                             <HardDrive className="h-5 w-5 text-primary" />
                         </div>
                         <div>
-                            <p className="text-sm text-muted-foreground">存储用量</p>
+                            <p className="text-sm text-muted-foreground">{t("fileManage.storageUsage")}</p>
                             <p className="text-lg font-semibold">{stats.total_size_display}</p>
                         </div>
                     </div>
@@ -147,7 +148,7 @@ export default function FilesPage() {
                             <Image className="h-5 w-5 text-blue-500" />
                         </div>
                         <div>
-                            <p className="text-sm text-muted-foreground">图片文件</p>
+                            <p className="text-sm text-muted-foreground">{t("fileManage.imageFiles")}</p>
                             <p className="text-lg font-semibold">{stats.image_count}</p>
                         </div>
                     </div>
@@ -156,7 +157,7 @@ export default function FilesPage() {
                             <FileText className="h-5 w-5 text-emerald-500" />
                         </div>
                         <div>
-                            <p className="text-sm text-muted-foreground">其他文件</p>
+                            <p className="text-sm text-muted-foreground">{t("fileManage.otherFiles")}</p>
                             <p className="text-lg font-semibold">{stats.other_count}</p>
                         </div>
                     </div>
@@ -169,13 +170,13 @@ export default function FilesPage() {
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                            placeholder="搜索文件名..."
+                            placeholder={t("fileManage.searchPlaceholder")}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             className="pl-9"
                         />
                     </div>
-                    <Button type="submit" variant="secondary">搜索</Button>
+                    <Button type="submit" variant="secondary">{t("fileManage.search")}</Button>
                 </form>
                 <div className="flex gap-2">
                     <Button
@@ -183,7 +184,7 @@ export default function FilesPage() {
                         size="sm"
                         onClick={() => setTypeFilter("")}
                     >
-                        全部
+                        {t("fileManage.all")}
                     </Button>
                     <Button
                         variant={typeFilter === "image" ? "default" : "outline"}
@@ -191,7 +192,7 @@ export default function FilesPage() {
                         onClick={() => setTypeFilter("image")}
                     >
                         <Image className="h-3.5 w-3.5 mr-1" />
-                        图片
+                        {t("fileManage.images")}
                     </Button>
                     <Button
                         variant={typeFilter === "file" ? "default" : "outline"}
@@ -199,7 +200,7 @@ export default function FilesPage() {
                         onClick={() => setTypeFilter("file")}
                     >
                         <FileText className="h-3.5 w-3.5 mr-1" />
-                        文件
+                        {t("fileManage.files")}
                     </Button>
                 </div>
             </div>
@@ -207,13 +208,13 @@ export default function FilesPage() {
             {/* Batch actions */}
             {selectedFiles.size > 0 && (
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
-                    <span className="text-sm text-muted-foreground">已选 {selectedFiles.size} 项</span>
+                    <span className="text-sm text-muted-foreground">{t("fileManage.selectedCount", { count: selectedFiles.size.toString() })}</span>
                     <Button variant="destructive" size="sm" onClick={handleBatchDelete}>
                         <Trash2 className="h-3.5 w-3.5 mr-1" />
-                        批量删除
+                        {t("fileManage.batchDelete")}
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => setSelectedFiles(new Set())}>
-                        取消选择
+                        {t("fileManage.cancelSelect")}
                     </Button>
                 </div>
             )}
@@ -225,7 +226,7 @@ export default function FilesPage() {
                 </div>
             ) : files.length === 0 ? (
                 <div className="text-center text-muted-foreground py-12 border rounded-lg bg-muted/20">
-                    暂无文件
+                    {t("fileManage.noFiles")}
                 </div>
             ) : (
                 <div className="border rounded-lg overflow-hidden">
@@ -240,12 +241,12 @@ export default function FilesPage() {
                                         className="rounded"
                                     />
                                 </th>
-                                <th className="text-left p-3 text-sm font-medium text-muted-foreground">预览</th>
-                                <th className="text-left p-3 text-sm font-medium text-muted-foreground">文件名</th>
-                                <th className="text-left p-3 text-sm font-medium text-muted-foreground hidden sm:table-cell">大小</th>
-                                <th className="text-left p-3 text-sm font-medium text-muted-foreground hidden md:table-cell">类型</th>
-                                <th className="text-left p-3 text-sm font-medium text-muted-foreground hidden lg:table-cell">上传时间</th>
-                                <th className="text-right p-3 text-sm font-medium text-muted-foreground">操作</th>
+                                <th className="text-left p-3 text-sm font-medium text-muted-foreground">{t("fileManage.preview")}</th>
+                                <th className="text-left p-3 text-sm font-medium text-muted-foreground">{t("fileManage.fileName")}</th>
+                                <th className="text-left p-3 text-sm font-medium text-muted-foreground hidden sm:table-cell">{t("fileManage.fileSize")}</th>
+                                <th className="text-left p-3 text-sm font-medium text-muted-foreground hidden md:table-cell">{t("fileManage.fileType")}</th>
+                                <th className="text-left p-3 text-sm font-medium text-muted-foreground hidden lg:table-cell">{t("fileManage.uploadTime")}</th>
+                                <th className="text-right p-3 text-sm font-medium text-muted-foreground">{t("fileManage.actions")}</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y">
@@ -296,7 +297,7 @@ export default function FilesPage() {
                                                 size="icon"
                                                 className="h-8 w-8"
                                                 onClick={() => copyUrl(file.url)}
-                                                title="复制链接"
+                                                title={t("fileManage.copyLink")}
                                             >
                                                 <Copy className="h-3.5 w-3.5" />
                                             </Button>
@@ -305,7 +306,7 @@ export default function FilesPage() {
                                                 size="icon"
                                                 className="h-8 w-8"
                                                 asChild
-                                                title="新窗口打开"
+                                                title={t("fileManage.openInNewTab")}
                                             >
                                                 <a href={file.url} target="_blank" rel="noopener noreferrer">
                                                     <ExternalLink className="h-3.5 w-3.5" />
@@ -316,7 +317,7 @@ export default function FilesPage() {
                                                 size="icon"
                                                 className="h-8 w-8 text-destructive hover:text-destructive"
                                                 onClick={() => setDeleteTarget(file)}
-                                                title="删除"
+                                                title={t("fileManage.delete")}
                                             >
                                                 <Trash2 className="h-3.5 w-3.5" />
                                             </Button>
@@ -333,19 +334,19 @@ export default function FilesPage() {
             <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>确认删除</AlertDialogTitle>
+                        <AlertDialogTitle>{t("fileManage.confirmDelete")}</AlertDialogTitle>
                         <AlertDialogDescription>
-                            确定要删除文件 <strong>{deleteTarget?.name}</strong> 吗？此操作不可撤销。
-                            {deleteTarget?.is_image && "引用此图片的文章将无法显示该图片。"}
+                            {t("fileManage.confirmDeleteDesc", { name: deleteTarget?.name || "" })}
+                            {deleteTarget?.is_image && t("fileManage.imageWarning")}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel>取消</AlertDialogCancel>
+                        <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                         <AlertDialogAction
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             onClick={() => deleteTarget && handleDelete(deleteTarget)}
                         >
-                            删除
+                            {t("fileManage.delete")}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

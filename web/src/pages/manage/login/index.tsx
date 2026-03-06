@@ -30,7 +30,7 @@ export default function LoginPage() {
   // Check auth status and admin existence
   useEffect(() => {
     if (!mounted) return;
-    
+
     const init = async () => {
       try {
         // First check if admin exists
@@ -47,7 +47,7 @@ export default function LoginPage() {
           navigate("/manage", { replace: true });
           return;
         }
-        
+
         setLoading(false);
       } catch (error) {
         console.error("Init error:", error);
@@ -59,7 +59,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.usernameOrEmail.trim() || !formData.password) {
       toast.error(t("auth.invalidCredentials"));
       return;
@@ -74,17 +74,17 @@ export default function LoginPage() {
       const errorCode = error.response?.data?.error?.code;
       const errorDetails = error.response?.data?.error?.details;
       let message = error.response?.data?.error?.message || t("auth.loginFailed");
-      
+
       // Handle rate limit errors with retry time
       if (errorCode === "RATE_LIMIT" && errorDetails?.retry_after) {
         const retryMinutes = Math.ceil(errorDetails.retry_after / 60);
         if (retryMinutes > 1) {
-          message = `${message}（${retryMinutes} 分钟后重试）`;
+          message = `${message}（${retryMinutes} ${t("auth.retryMinutes") || "min retry"}）`;
         } else {
-          message = `${message}（${errorDetails.retry_after} 秒后重试）`;
+          message = `${message}（${errorDetails.retry_after} ${t("auth.retrySeconds") || "sec retry"}）`;
         }
       }
-      
+
       toast.error(message);
     } finally {
       setSubmitting(false);

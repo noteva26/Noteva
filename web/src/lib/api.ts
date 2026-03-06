@@ -59,7 +59,7 @@ function translateApiErrorMessage(code: string, message: string): string {
   // Return original message
   return message;
 }
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+const API_BASE = import.meta.env.VITE_API_URL || "/api/v1";
 
 export const api = axios.create({
   baseURL: API_BASE,
@@ -746,9 +746,6 @@ export interface AdminCommentsResponse {
   total_pages: number;
 }
 
-// Legacy type aliases
-export type PendingComment = AdminComment;
-export type PendingCommentsResponse = AdminCommentsResponse;
 
 
 // Login logs types (security)

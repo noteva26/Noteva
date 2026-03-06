@@ -259,30 +259,17 @@ pub struct ArchiveEntry {
 
 /// GET /api/v1/articles/archives - Get article archive by month
 ///
-/// Returns monthly article counts for building archive pages.
+/// Returns monthly article counts using SQL GROUP BY for efficiency.
 pub async fn get_archives(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ArchiveEntry>>, ApiError> {
-    // Fetch all published articles (we only need dates)
-    let params = ListParams::new(1, 10000);
-    let result = state.article_service
-        .list_published(&params)
+    let monthly = state.article_service
+        .get_archives_monthly()
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
-    // Group by month
-    let mut month_counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-    for article in &result.items {
-        if let Some(pub_at) = article.published_at {
-            let month = pub_at.format("%Y-%m").to_string();
-            *month_counts.entry(month).or_insert(0) += 1;
-        }
-    }
-
-    // Convert to sorted vec (newest first)
-    let archives: Vec<ArchiveEntry> = month_counts.into_iter()
-        .rev()
-        .map(|(month, count)| ArchiveEntry { month, count })
+    let archives: Vec<ArchiveEntry> = monthly.into_iter()
+        .map(|(month, count)| ArchiveEntry { month, count: count as usize })
         .collect();
 
     Ok(Json(archives))
@@ -337,7 +324,7 @@ pub async fn get_article(
 
     let article_id = article.id;
     let article_category_id = article.category_id;
-    let _article_published_at = article.published_at;
+    let article_published_at = article.published_at;
 
     let mut response: ArticleResponse = article.into();
     response = response.with_category(category).with_tags(tags.clone());
@@ -347,48 +334,38 @@ pub async fn get_article(
     response.content_html = state.article_service.render_markdown_with_shortcodes(&response.content, Some(article_id), None);
     response = response.with_toc(toc);
 
-    // Fetch prev/next articles (adjacent published articles by date)
+    // Fetch prev/next articles via targeted SQL queries (2 queries instead of loading all)
     {
         use crate::api::responses::ArticleLink;
-        let params = crate::models::ListParams::new(1, 100);
-        if let Ok(all_published) = state.article_service.list_published(&params).await {
-            let articles = all_published.items;
-            // Articles are ordered by published_at DESC (newest first)
-            // Find current article's position
-            if let Some(pos) = articles.iter().position(|a| a.id == article_id) {
-                // Next = older article (pos + 1)
-                let next_link = articles.get(pos + 1).map(|a| ArticleLink {
+        if let Some(pub_at) = article_published_at {
+            if let Ok((prev, next)) = state.article_service.get_adjacent(article_id, pub_at).await {
+                let prev_link = prev.map(|a| ArticleLink {
                     id: a.id,
-                    slug: a.slug.clone(),
-                    title: a.title.clone(),
-                    thumbnail: a.thumbnail.clone(),
+                    slug: a.slug,
+                    title: a.title,
+                    thumbnail: a.thumbnail,
                 });
-                // Prev = newer article (pos - 1)
-                let prev_link = if pos > 0 {
-                    articles.get(pos - 1).map(|a| ArticleLink {
-                        id: a.id,
-                        slug: a.slug.clone(),
-                        title: a.title.clone(),
-                        thumbnail: a.thumbnail.clone(),
-                    })
-                } else {
-                    None
-                };
+                let next_link = next.map(|a| ArticleLink {
+                    id: a.id,
+                    slug: a.slug,
+                    title: a.title,
+                    thumbnail: a.thumbnail,
+                });
                 response = response.with_prev_next(prev_link, next_link);
-
-                // Related articles: same category, excluding self, limit 5
-                let related: Vec<ArticleLink> = articles.iter()
-                    .filter(|a| a.id != article_id && a.category_id == article_category_id)
-                    .take(5)
-                    .map(|a| ArticleLink {
-                        id: a.id,
-                        slug: a.slug.clone(),
-                        title: a.title.clone(),
-                        thumbnail: a.thumbnail.clone(),
-                    })
-                    .collect();
-                response = response.with_related(related);
             }
+        }
+
+        // Related articles via targeted SQL query (1 query instead of loading all)
+        if let Ok(related_articles) = state.article_service.get_related(article_id, article_category_id, 5).await {
+            let related: Vec<ArticleLink> = related_articles.into_iter()
+                .map(|a| ArticleLink {
+                    id: a.id,
+                    slug: a.slug,
+                    title: a.title,
+                    thumbnail: a.thumbnail,
+                })
+                .collect();
+            response = response.with_related(related);
         }
     }
 

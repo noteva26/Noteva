@@ -438,7 +438,7 @@ fn parse_markdown_frontmatter(content: &str, filename: &str) -> (String, String,
 async fn check_slug_exists(pool: &DynDatabasePool, slug: &str) -> bool {
     match pool.driver() {
         DatabaseDriver::Sqlite => {
-            let p = pool.as_sqlite_or_err().unwrap();
+            let Ok(p) = pool.as_sqlite_or_err() else { return false };
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM articles WHERE slug = ?")
                 .bind(slug)
                 .fetch_one(p)
@@ -446,7 +446,7 @@ async fn check_slug_exists(pool: &DynDatabasePool, slug: &str) -> bool {
                 .unwrap_or(0) > 0
         }
         DatabaseDriver::Mysql => {
-            let p = pool.as_mysql_or_err().unwrap();
+            let Ok(p) = pool.as_mysql_or_err() else { return false };
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM articles WHERE slug = ?")
                 .bind(slug)
                 .fetch_one(p)
@@ -552,53 +552,6 @@ async fn export_table(pool: &DynDatabasePool, table: &str) -> Result<Vec<serde_j
         }
     };
     Ok(rows)
-}
-
-/// Clear a table
-async fn clear_table(pool: &DynDatabasePool, table: &str) -> Result<()> {
-    let query = format!("DELETE FROM {}", table);
-    pool.execute(&query).await?;
-    Ok(())
-}
-
-/// Import rows into a table
-async fn import_table(pool: &DynDatabasePool, table: &str, rows: &[serde_json::Value]) -> Result<()> {
-    for row in rows {
-        let obj = row.as_object().context("Row is not a JSON object")?;
-        if obj.is_empty() {
-            continue;
-        }
-
-        let columns: Vec<&String> = obj.keys().collect();
-        let col_names = columns.iter().map(|c| format!("`{}`", c)).collect::<Vec<_>>().join(", ");
-        let placeholders = columns.iter().enumerate().map(|(i, _)| format!("${}", i + 1)).collect::<Vec<_>>();
-
-        match pool.driver() {
-            DatabaseDriver::Sqlite => {
-                let p = pool.as_sqlite_or_err()?;
-                // SQLite uses positional params $1, $2...
-                let ph = placeholders.join(", ");
-                let sql = format!("INSERT OR IGNORE INTO {} ({}) VALUES ({})", table, col_names, ph);
-                let mut q = sqlx::query(&sql);
-                for col in &columns {
-                    q = bind_json_value_sqlite(q, obj.get(*col).unwrap_or(&serde_json::Value::Null));
-                }
-                q.execute(p).await?;
-            }
-            DatabaseDriver::Mysql => {
-                let p = pool.as_mysql_or_err()?;
-                // MySQL uses ? placeholders
-                let ph = columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-                let sql = format!("INSERT IGNORE INTO {} ({}) VALUES ({})", table, col_names, ph);
-                let mut q = sqlx::query(&sql);
-                for col in &columns {
-                    q = bind_json_value_mysql(q, obj.get(*col).unwrap_or(&serde_json::Value::Null));
-                }
-                q.execute(p).await?;
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Convert a SQLite row to JSON

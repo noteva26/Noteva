@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { List } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getNoteva } from "@/hooks/useNoteva";
+import { useTranslation } from "@/lib/i18n";
 
 interface TocItem {
     level: number;
@@ -14,6 +15,7 @@ interface TocSidebarProps {
 }
 
 export function TocSidebar({ toc }: TocSidebarProps) {
+    const { t } = useTranslation();
     const [activeId, setActiveId] = useState<string>("");
 
     // Filter: only show h2 and h3
@@ -71,7 +73,7 @@ export function TocSidebar({ toc }: TocSidebarProps) {
             <nav className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto">
                 <h4 className="flex items-center gap-1.5 text-sm font-semibold mb-3 text-foreground">
                     <List className="h-4 w-4" />
-                    目录
+                    {t("article.toc")}
                 </h4>
                 <ul className="space-y-0.5 text-sm border-l">
                     {visibleToc.map((item) => (

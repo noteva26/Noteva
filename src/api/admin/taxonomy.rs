@@ -17,6 +17,7 @@ pub struct CategoryRequest {
     #[serde(default)]
     pub slug: String,
     pub description: Option<String>,
+    #[allow(dead_code)]
     pub parent_id: Option<i64>,
 }
 

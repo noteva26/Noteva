@@ -766,6 +766,35 @@ impl ArticleService {
             .map_err(Into::into)
     }
 
+    /// Get adjacent (prev/next) published articles for navigation.
+    /// Returns (prev_article, next_article) where prev is newer and next is older.
+    pub async fn get_adjacent(&self, article_id: i64, published_at: chrono::DateTime<chrono::Utc>) -> Result<(Option<Article>, Option<Article>), ArticleServiceError> {
+        self.repo
+            .get_adjacent(article_id, published_at)
+            .await
+            .context("Failed to get adjacent articles")
+            .map_err(Into::into)
+    }
+
+    /// Get monthly archive counts for published articles.
+    /// Returns Vec of (month_string, count) sorted newest first.
+    pub async fn get_archives_monthly(&self) -> Result<Vec<(String, i64)>, ArticleServiceError> {
+        self.repo
+            .get_archives_monthly()
+            .await
+            .context("Failed to get monthly archives")
+            .map_err(Into::into)
+    }
+
+    /// Get related articles (same category, excluding self, published only).
+    pub async fn get_related(&self, article_id: i64, category_id: i64, limit: i64) -> Result<Vec<Article>, ArticleServiceError> {
+        self.repo
+            .get_related(article_id, category_id, limit)
+            .await
+            .context("Failed to get related articles")
+            .map_err(Into::into)
+    }
+
     // ========================================================================
     // Private helper methods
     // ========================================================================
@@ -837,11 +866,11 @@ impl ArticleService {
     }
 
     /// Remove all tag associations for an article
-    async fn remove_all_tags(&self, _article_id: i64) -> Result<(), ArticleServiceError> {
-        // Get all tags for this article and remove them
-        // Note: This is a simple implementation. A more efficient approach would be
-        // to add a method to TagRepository to remove all tags for an article at once.
-        // For now, we rely on the fact that when we add new tags, duplicates are ignored.
+    async fn remove_all_tags(&self, article_id: i64) -> Result<(), ArticleServiceError> {
+        self.tag_repo
+            .remove_all_by_article(article_id)
+            .await
+            .context("Failed to remove all tags from article")?;
         Ok(())
     }
 

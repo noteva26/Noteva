@@ -11,12 +11,12 @@ import {
 import { Globe, Check } from "lucide-react";
 
 export function LanguageSwitcher() {
-  const { locale, setLocale } = useTranslation();
+  const { locale, setLocale, t } = useTranslation();
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" title="切换语言">
+        <Button variant="ghost" size="icon" title={t("common.switchLanguage") || "Switch Language"}>
           <Globe className="h-5 w-5" />
         </Button>
       </DropdownMenuTrigger>

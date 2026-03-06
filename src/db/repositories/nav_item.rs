@@ -4,7 +4,7 @@ use crate::db::DynDatabasePool;
 use crate::models::{NavItem, NavItemTree};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use sqlx::{MySqlPool, Row, SqlitePool};
+use sqlx::{MySqlPool, SqlitePool};
 use std::collections::HashMap;
 use std::sync::Arc;
 

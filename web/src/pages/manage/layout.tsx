@@ -45,10 +45,10 @@ export default function ManageLayout() {
     { href: "/manage/pages", label: t("manage.pages"), icon: FileCode },
     { href: "/manage/nav", label: t("manage.nav"), icon: Navigation },
     { href: "/manage/comments", label: t("manage.comments"), icon: MessageSquare },
-    { href: "/manage/files", label: "空间管理", icon: HardDrive },
+    { href: "/manage/files", label: t("manage.files"), icon: HardDrive },
     { href: "/manage/plugins", label: t("manage.plugins"), icon: Puzzle },
     { href: "/manage/themes", label: t("manage.themes"), icon: Palette },
-    { href: "/manage/security", label: "安全日志", icon: Shield },
+    { href: "/manage/security", label: t("manage.security"), icon: Shield },
     { href: "/manage/settings", label: t("manage.settings"), icon: Settings },
   ];
 
@@ -57,7 +57,7 @@ export default function ManageLayout() {
   }, [fetchSettings]);
 
   useEffect(() => {
-    document.title = `${settings.site_name} - 管理后台`;
+    document.title = `${settings.site_name} - ${t("manage.adminPanel")}`;
   }, [settings.site_name]);
 
   useEffect(() => {
@@ -85,7 +85,7 @@ export default function ManageLayout() {
       return;
     }
     if (user && user.role !== "admin") {
-      alert("权限不足：只有管理员可以访问管理后台");
+      alert(t("manage.noPermission"));
       window.location.href = "/";
     }
   }, [isAuthenticated, authChecked, user, navigate]);
@@ -240,7 +240,7 @@ export default function ManageLayout() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span className="font-medium">Demo Mode</span>
-                <span className="text-sm opacity-80">- 这是演示站点，写操作已禁用</span>
+                <span className="text-sm opacity-80">- {t("manage.demoModeHint")}</span>
               </div>
             </div>
           )}

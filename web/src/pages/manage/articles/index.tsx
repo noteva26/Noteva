@@ -2,7 +2,7 @@
 import { Link } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
-import { articlesApi, Article, PagedResult } from "@/lib/api";
+import { articlesApi, Article } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";

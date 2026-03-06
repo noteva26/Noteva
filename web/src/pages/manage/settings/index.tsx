@@ -59,7 +59,7 @@ const FONT_OPTIONS = [
 export default function SettingsPage() {
   const { user } = useAuthStore();
   const { updateSettings } = useSiteStore();
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [savingSite, setSavingSite] = useState(false);
   const [savingComment, setSavingComment] = useState(false);
@@ -158,7 +158,7 @@ export default function SettingsPage() {
           permalinkStructure: "/posts/{slug}",
           fontFamily: "",
         });
-        toast.error("Failed to load settings");
+        toast.error(t("error.loadFailed"));
       })
       .finally(() => setLoading(false));
   }, [user]);
@@ -780,7 +780,7 @@ export default function SettingsPage() {
                             </p>
                             {updateInfo.release_date && (
                               <p className="text-sm text-green-700 dark:text-green-300">
-                                {t("settings.releaseDate")}: {new Date(updateInfo.release_date).toLocaleDateString()}
+                                {t("settings.releaseDate")}: {new Date(updateInfo.release_date).toLocaleDateString(locale)}
                               </p>
                             )}
                             {updateInfo.release_notes && (

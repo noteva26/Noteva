@@ -28,7 +28,7 @@ const style = `
 `;
 
 export default function SecurityPage() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [logs, setLogs] = useState<LoginLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
@@ -36,7 +36,7 @@ export default function SecurityPage() {
   const [failedCount, setFailedCount] = useState(0);
   const [page, setPage] = useState(1);
   const [perPage] = useState(20);
-  
+
   // Filters
   const [usernameFilter, setUsernameFilter] = useState("");
   const [ipFilter, setIpFilter] = useState("");
@@ -51,7 +51,7 @@ export default function SecurityPage() {
       if (successFilter !== "all") {
         params.success = successFilter === "success";
       }
-      
+
       const { data } = await adminApi.getLoginLogs(params);
       setLogs(data.logs);
       setTotal(data.total);
@@ -84,7 +84,7 @@ export default function SecurityPage() {
   const formatDate = (dateStr: string) => {
     try {
       const date = new Date(dateStr);
-      return date.toLocaleString("zh-CN", {
+      return date.toLocaleString(locale, {
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -136,7 +136,7 @@ export default function SecurityPage() {
                   onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="ip">{t("security.ipAddress")}</Label>
                 <Input
@@ -147,7 +147,7 @@ export default function SecurityPage() {
                   onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="status">{t("security.status")}</Label>
                 <Select value={successFilter} onValueChange={setSuccessFilter}>
@@ -161,7 +161,7 @@ export default function SecurityPage() {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="space-y-2 flex items-end gap-2">
                 <Button onClick={handleSearch} className="flex-1" disabled={loading}>
                   {loading ? (
@@ -241,7 +241,7 @@ export default function SecurityPage() {
                     </TableHeader>
                     <TableBody>
                       {logs.map((log, index) => (
-                        <TableRow 
+                        <TableRow
                           key={log.id}
                           className="transition-colors hover:bg-muted/50"
                           style={{

@@ -88,7 +88,7 @@ export default function CategoriesPage() {
                           </div>
                         </CardHeader>
                         <CardContent>
-                          <p className="text-muted-foreground line-clamp-2 mb-4">{article.content.slice(0, 200)}...</p>
+                          <p className="text-muted-foreground line-clamp-2 mb-4">{Noteva?.articles.getExcerpt(article)}</p>
                           {article.tags && article.tags.length > 0 && (
                             <div className="flex flex-wrap items-center gap-2">
                               {article.tags.slice(0, 3).map((tag) => (

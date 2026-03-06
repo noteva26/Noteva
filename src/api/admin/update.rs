@@ -64,6 +64,7 @@ pub struct PerformUpdateRequest {
     pub version: String,
     /// Whether this is a beta release
     #[serde(default)]
+    #[allow(dead_code)]
     pub beta: bool,
 }
 

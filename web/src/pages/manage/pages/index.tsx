@@ -54,7 +54,7 @@ interface Page {
 }
 
 export default function PagesManagePage() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [pages, setPages] = useState<Page[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -169,7 +169,7 @@ export default function PagesManagePage() {
                   {page.status === "published" ? t("page.published") : t("page.draft")}
                 </Badge>
               </TableCell>
-              <TableCell>{new Date(page.updated_at).toLocaleString()}</TableCell>
+              <TableCell>{new Date(page.updated_at).toLocaleString(locale)}</TableCell>
               <TableCell className="text-right">
                 <Button variant="ghost" size="icon" onClick={() => openEditDialog(page)}>
                   <Pencil className="h-4 w-4" />

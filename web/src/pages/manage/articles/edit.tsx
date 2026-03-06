@@ -4,7 +4,6 @@ import {
   articlesApi,
   categoriesApi,
   tagsApi,
-  uploadApi,
   Category,
   Tag,
   UpdateArticleInput,
@@ -170,7 +169,7 @@ export default function EditArticlePage() {
         setSelectedTags(tagIds);
         setLastSavedContent(JSON.stringify({ ...formData, selectedTags: tagIds }));
       } catch (error) {
-        toast.error("加载失败");
+        toast.error(t("error.loadFailed"));
         navigate("/manage/articles");
       } finally {
         setLoading(false);

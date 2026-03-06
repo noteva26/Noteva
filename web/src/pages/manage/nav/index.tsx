@@ -203,7 +203,7 @@ export default function NavManagePage() {
     const siblings = allItems
       .filter(i => i.parent_id === item.parent_id)
       .sort((a, b) => a.sort_order - b.sort_order);
-    
+
     const idx = siblings.findIndex(s => s.id === item.id);
     if (idx === -1) return;
     if (direction === "up" && idx === 0) return;
@@ -226,7 +226,7 @@ export default function NavManagePage() {
   };
 
   const getNavTypeLabel = (item: NavItem) => {
-    if (item.nav_type === "builtin" && !item.target) return "分组";
+    if (item.nav_type === "builtin" && !item.target) return t("navManage.group");
     if (item.nav_type === "builtin") return t("navManage.builtin");
     if (item.nav_type === "page") return t("navManage.customPage");
     if (item.nav_type === "external") return t("navManage.external");
@@ -256,9 +256,8 @@ export default function NavManagePage() {
     return (
       <div key={item.id} className="mb-2">
         <div
-          className={`flex items-center gap-3 p-3 border rounded-lg ${
-            !item.visible ? "opacity-50 bg-muted/50" : "bg-card"
-          } ${level === 0 ? "border-primary/30" : ""}`}
+          className={`flex items-center gap-3 p-3 border rounded-lg ${!item.visible ? "opacity-50 bg-muted/50" : "bg-card"
+            } ${level === 0 ? "border-primary/30" : ""}`}
           style={{ marginLeft: level * 32 }}
         >
           <div className="w-6 flex justify-center">
@@ -305,7 +304,7 @@ export default function NavManagePage() {
             {level === 0 && (
               <Button variant="outline" size="sm" className="h-8 ml-1" onClick={() => openCreateDialog(item.id)}>
                 <Plus className="h-3 w-3 mr-1" />
-                子项
+                {t("navManage.addChild")}
               </Button>
             )}
           </div>
@@ -327,11 +326,11 @@ export default function NavManagePage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold">{t("navManage.title")}</h1>
-          <p className="text-sm text-muted-foreground mt-1">一级导航可作为分组（下拉菜单），二级导航为实际链接</p>
+          <p className="text-sm text-muted-foreground mt-1">{t("navManage.navHint")}</p>
         </div>
         <Button onClick={() => openCreateDialog(null)}>
           <Plus className="h-4 w-4 mr-2" />
-          添加一级导航
+          {t("navManage.addTopNav")}
         </Button>
       </div>
 
@@ -345,7 +344,7 @@ export default function NavManagePage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingItem ? t("navManage.editNav") : (parentId ? "添加子导航" : "添加一级导航")}</DialogTitle>
+            <DialogTitle>{editingItem ? t("navManage.editNav") : (parentId ? t("navManage.addSubNav") : t("navManage.addTopNav"))}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -368,7 +367,7 @@ export default function NavManagePage() {
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {parentId === null && <SelectItem value="group">仅分组（下拉菜单）</SelectItem>}
+                  {parentId === null && <SelectItem value="group">{t("navManage.groupOnly")}</SelectItem>}
                   <SelectItem value="builtin">{t("navManage.builtin")}</SelectItem>
                   <SelectItem value="page">{t("navManage.customPage")}</SelectItem>
                   <SelectItem value="external">{t("navManage.external")}</SelectItem>

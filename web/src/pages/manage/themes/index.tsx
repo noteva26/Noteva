@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 
 export default function ThemesPage() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [themes, setThemes] = useState<ThemeResponse[]>([]);
   const [currentTheme, setCurrentTheme] = useState("");
   const [loading, setLoading] = useState(true);
@@ -244,7 +244,7 @@ export default function ThemesPage() {
     setInstallingFromStore(theme.slug);
     try {
       if (!theme.github_url) {
-        toast.error("No GitHub URL available");
+        toast.error(t("theme.noGitHubUrl") || "No GitHub URL available");
         return;
       }
 
@@ -579,7 +579,7 @@ export default function ThemesPage() {
                           </h3>
                           <p className="text-xs text-muted-foreground">
                             {release.tag_name}
-                            {release.published_at && ` · ${new Date(release.published_at).toLocaleDateString()}`}
+                            {release.published_at && ` · ${new Date(release.published_at).toLocaleDateString(locale)}`}
                           </p>
                         </div>
                       </div>
@@ -721,7 +721,7 @@ function ThemeCard({ theme, isActive, isDefault, switching, deleting, onSwitch, 
                 </Badge>
               )}
               {!theme.compatible && (
-                <span title={theme.compatibility_message || "Not compatible"}>
+                <span title={theme.compatibility_message || t("theme.incompatible") || "Not compatible"}>
                   <AlertTriangle className="h-4 w-4 text-amber-500" />
                 </span>
               )}

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Plus, X, List, GripVertical } from "lucide-react";
 import type { PluginSettingsSchema, PluginSettingsField } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 
 // --- Value parsing ---
 
@@ -39,6 +40,7 @@ interface ArrayFieldEditorProps {
 }
 
 function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps) {
+  const { t } = useTranslation();
   const items = Array.isArray(value) ? value : [];
 
   const addItem = () => {
@@ -99,7 +101,7 @@ function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps
       ))}
       <Button type="button" variant="outline" className="w-full" onClick={addItem}>
         <Plus className="h-4 w-4 mr-2" />
-        添加项目
+        {t("common.addItem") || "Add Item"}
       </Button>
     </div>
   );

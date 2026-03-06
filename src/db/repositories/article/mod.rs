@@ -10,7 +10,6 @@
 //! - 1.1: WHEN 用户提交新文章 THEN Article_Manager SHALL 创建文章记录并生成唯一标识符
 //! - 1.2: WHEN 用户请求文章列表 THEN Article_Manager SHALL 返回分页的文章列表，支持按时间排序
 
-use crate::db::macros::{dispatch, impl_dual_fn, impl_row_mapper};
 use crate::db::DynDatabasePool;
 use crate::models::{Article, ArticleStatus, CreateArticleInput, UpdateArticleInput};
 use anyhow::{Context, Result};
@@ -87,6 +86,17 @@ pub trait ArticleRepository: Send + Sync {
 
     /// List draft articles whose scheduled_at has passed (for auto-publishing)
     async fn list_scheduled_due(&self) -> Result<Vec<Article>>;
+
+    /// Get adjacent (prev/next) published articles relative to a given published_at time.
+    /// Returns (prev_article, next_article) where prev is newer and next is older.
+    async fn get_adjacent(&self, article_id: i64, published_at: chrono::DateTime<Utc>) -> Result<(Option<Article>, Option<Article>)>;
+
+    /// Get monthly archive counts for published articles using SQL GROUP BY.
+    /// Returns Vec of (month_string, count) sorted newest first.
+    async fn get_archives_monthly(&self) -> Result<Vec<(String, i64)>>;
+
+    /// Get related articles (same category, excluding self, published only, limited).
+    async fn get_related(&self, article_id: i64, category_id: i64, limit: i64) -> Result<Vec<Article>>;
 }
 
 /// SQLx-based article repository implementation
@@ -195,6 +205,20 @@ impl ArticleRepository for SqlxArticleRepository {
     async fn list_scheduled_due(&self) -> Result<Vec<Article>> {
         let now = Utc::now();
         dispatch!(self, list_scheduled_due_articles, &now)
+    }
+
+    async fn get_adjacent(&self, article_id: i64, published_at: chrono::DateTime<Utc>) -> Result<(Option<Article>, Option<Article>)> {
+        let prev = dispatch!(self, get_prev_article, article_id, &published_at)?;
+        let next = dispatch!(self, get_next_article, article_id, &published_at)?;
+        Ok((prev, next))
+    }
+
+    async fn get_archives_monthly(&self) -> Result<Vec<(String, i64)>> {
+        dispatch!(self, get_archives_monthly)
+    }
+
+    async fn get_related(&self, article_id: i64, category_id: i64, limit: i64) -> Result<Vec<Article>> {
+        dispatch!(self, get_related_articles, article_id, category_id, limit)
     }
 }
 
@@ -346,3 +370,137 @@ impl_dual_fn! {
         Ok(())
     }
 }
+
+/// SQL for prev/next queries (same for both DBs)
+const PREV_ARTICLE_SQL: &str = r#"
+    SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+    FROM articles
+    WHERE status = 'published' AND published_at > ? AND id != ?
+    ORDER BY published_at ASC
+    LIMIT 1
+"#;
+
+const NEXT_ARTICLE_SQL: &str = r#"
+    SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+    FROM articles
+    WHERE status = 'published' AND published_at < ? AND id != ?
+    ORDER BY published_at DESC
+    LIMIT 1
+"#;
+
+const RELATED_ARTICLES_SQL: &str = r#"
+    SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+    FROM articles
+    WHERE status = 'published' AND category_id = ? AND id != ?
+    ORDER BY published_at DESC
+    LIMIT ?
+"#;
+
+pub(super) async fn get_prev_article_sqlite(pool: &SqlitePool, article_id: i64, published_at: &chrono::DateTime<Utc>) -> Result<Option<Article>> {
+    let row = sqlx::query(PREV_ARTICLE_SQL)
+        .bind(published_at).bind(article_id)
+        .fetch_optional(pool).await
+        .context("Failed to get previous article")?;
+    match row {
+        Some(row) => Ok(Some(row_to_article_sqlite(&row)?)),
+        None => Ok(None),
+    }
+}
+
+pub(super) async fn get_prev_article_mysql(pool: &MySqlPool, article_id: i64, published_at: &chrono::DateTime<Utc>) -> Result<Option<Article>> {
+    let row = sqlx::query(PREV_ARTICLE_SQL)
+        .bind(published_at).bind(article_id)
+        .fetch_optional(pool).await
+        .context("Failed to get previous article")?;
+    match row {
+        Some(row) => Ok(Some(row_to_article_mysql(&row)?)),
+        None => Ok(None),
+    }
+}
+
+pub(super) async fn get_next_article_sqlite(pool: &SqlitePool, article_id: i64, published_at: &chrono::DateTime<Utc>) -> Result<Option<Article>> {
+    let row = sqlx::query(NEXT_ARTICLE_SQL)
+        .bind(published_at).bind(article_id)
+        .fetch_optional(pool).await
+        .context("Failed to get next article")?;
+    match row {
+        Some(row) => Ok(Some(row_to_article_sqlite(&row)?)),
+        None => Ok(None),
+    }
+}
+
+pub(super) async fn get_next_article_mysql(pool: &MySqlPool, article_id: i64, published_at: &chrono::DateTime<Utc>) -> Result<Option<Article>> {
+    let row = sqlx::query(NEXT_ARTICLE_SQL)
+        .bind(published_at).bind(article_id)
+        .fetch_optional(pool).await
+        .context("Failed to get next article")?;
+    match row {
+        Some(row) => Ok(Some(row_to_article_mysql(&row)?)),
+        None => Ok(None),
+    }
+}
+
+/// SQLite: monthly archive counts via strftime
+pub(super) async fn get_archives_monthly_sqlite(pool: &SqlitePool) -> Result<Vec<(String, i64)>> {
+    let rows = sqlx::query(
+        r#"
+        SELECT strftime('%Y-%m', published_at) as month, COUNT(*) as count
+        FROM articles
+        WHERE status = 'published' AND published_at IS NOT NULL
+        GROUP BY month
+        ORDER BY month DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to get monthly archives")?;
+
+    let mut result = Vec::new();
+    for row in &rows {
+        let month: String = row.get("month");
+        let count: i64 = row.get("count");
+        result.push((month, count));
+    }
+    Ok(result)
+}
+
+/// MySQL: monthly archive counts via DATE_FORMAT
+pub(super) async fn get_archives_monthly_mysql(pool: &MySqlPool) -> Result<Vec<(String, i64)>> {
+    let rows = sqlx::query(
+        r#"
+        SELECT DATE_FORMAT(published_at, '%Y-%m') as month, COUNT(*) as count
+        FROM articles
+        WHERE status = 'published' AND published_at IS NOT NULL
+        GROUP BY month
+        ORDER BY month DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to get monthly archives")?;
+
+    let mut result = Vec::new();
+    for row in &rows {
+        let month: String = row.get("month");
+        let count: i64 = row.get("count");
+        result.push((month, count));
+    }
+    Ok(result)
+}
+
+pub(super) async fn get_related_articles_sqlite(pool: &SqlitePool, article_id: i64, category_id: i64, limit: i64) -> Result<Vec<Article>> {
+    let rows = sqlx::query(RELATED_ARTICLES_SQL)
+        .bind(category_id).bind(article_id).bind(limit)
+        .fetch_all(pool).await
+        .context("Failed to get related articles")?;
+    rows.iter().map(row_to_article_sqlite).collect()
+}
+
+pub(super) async fn get_related_articles_mysql(pool: &MySqlPool, article_id: i64, category_id: i64, limit: i64) -> Result<Vec<Article>> {
+    let rows = sqlx::query(RELATED_ARTICLES_SQL)
+        .bind(category_id).bind(article_id).bind(limit)
+        .fetch_all(pool).await
+        .context("Failed to get related articles")?;
+    rows.iter().map(row_to_article_mysql).collect()
+}
+

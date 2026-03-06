@@ -27,7 +27,7 @@ export default function SetupPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.username.trim()) {
       toast.error(t("auth.username") + " " + t("common.error"));
       return;
@@ -57,9 +57,9 @@ export default function SetupPage() {
     } catch (error: any) {
       const errorCode = error.response?.data?.error?.code;
       let message = error.response?.data?.error?.message || t("setup.error");
-      
+
       // Handle admin already exists error
-      if (errorCode === "FORBIDDEN" && message.includes("管理员")) {
+      if (errorCode === "FORBIDDEN") {
         toast.error(message);
         // Redirect to login after 2 seconds
         setTimeout(() => {
@@ -67,7 +67,7 @@ export default function SetupPage() {
         }, 2000);
         return;
       }
-      
+
       toast.error(message);
     } finally {
       setSubmitting(false);
@@ -106,7 +106,7 @@ export default function SetupPage() {
                 autoComplete="username"
               />
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="email">{t("auth.email")}</Label>
               <Input

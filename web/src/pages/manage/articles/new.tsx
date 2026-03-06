@@ -157,7 +157,7 @@ export default function NewArticlePage() {
         setPluginButtons(buttons);
         setDataReady(true);
       })
-      .catch(() => { toast.error("Failed to load data"); setDataReady(true); });
+      .catch(() => { toast.error(t("error.loadFailed")); setDataReady(true); });
   }, []);
 
   const generateSlug = (title: string) => {

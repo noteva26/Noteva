@@ -51,6 +51,9 @@ pub trait TagRepository: Send + Sync {
     
     /// Get tags for an article
     async fn get_by_article_id(&self, article_id: i64) -> Result<Vec<Tag>>;
+
+    /// Remove all tags from an article (for re-tagging)
+    async fn remove_all_by_article(&self, article_id: i64) -> Result<()>;
 }
 
 
@@ -113,6 +116,10 @@ impl TagRepository for SqlxTagRepository {
     
     async fn get_by_article_id(&self, article_id: i64) -> Result<Vec<Tag>> {
         dispatch!(self, get_tags_by_article, article_id)
+    }
+
+    async fn remove_all_by_article(&self, article_id: i64) -> Result<()> {
+        dispatch!(self, remove_all_tags_by_article, article_id)
     }
 }
 
@@ -544,6 +551,18 @@ fn row_to_tag_mysql(row: &sqlx::mysql::MySqlRow) -> Result<Tag> {
         name: row.get("name"),
         created_at: row.get("created_at"),
     })
+}
+
+impl_dual_fn! {
+    /// Remove all tag associations from an article
+    async fn remove_all_tags_by_article(pool, article_id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM article_tags WHERE article_id = ?")
+            .bind(article_id)
+            .execute(pool)
+            .await
+            .context("Failed to remove all tags from article")?;
+        Ok(())
+    }
 }
 
 
