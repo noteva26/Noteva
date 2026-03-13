@@ -13,6 +13,21 @@ import { Plus, X, List, GripVertical } from "lucide-react";
 import type { PluginSettingsSchema, PluginSettingsField } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
 
+/**
+ * Resolve an i18n-capable string: accepts either a plain string or
+ * an object like { "zh-CN": "中文", "en": "English", "zh-TW": "繁體" }.
+ * Falls back: exact locale → language prefix → zh-CN → en → first value → raw.
+ */
+function resolveI18n(value: unknown, locale: string): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const obj = value as Record<string, string>;
+    const lang = locale.split("-")[0]; // "zh" from "zh-CN"
+    return obj[locale] ?? obj[lang] ?? obj["zh-CN"] ?? obj["en"] ?? Object.values(obj)[0] ?? "";
+  }
+  return String(value ?? "");
+}
+
 // --- Value parsing ---
 
 /** Parse raw settings values (strings from backend) into proper JS types */
@@ -40,7 +55,7 @@ interface ArrayFieldEditorProps {
 }
 
 function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const items = Array.isArray(value) ? value : [];
 
   const addItem = () => {
@@ -91,7 +106,7 @@ function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps
               <Input
                 key={field.id}
                 type={field.type === "number" ? "number" : "text"}
-                placeholder={field.placeholder || field.label + (field.required ? " *" : "")}
+                placeholder={resolveI18n(field.placeholder, locale) || resolveI18n(field.label, locale) + (field.required ? " *" : "")}
                 value={(item[field.id] as string) || ""}
                 onChange={(e) => updateItem(index, field.id, field.type === "number" ? Number(e.target.value) : e.target.value)}
               />
@@ -116,6 +131,7 @@ interface SettingsFieldProps {
 }
 
 export function SettingsField({ field, value, onChange }: SettingsFieldProps) {
+  const { locale } = useTranslation();
   const v = value ?? field.default ?? "";
 
   switch (field.type) {
@@ -142,7 +158,7 @@ export function SettingsField({ field, value, onChange }: SettingsFieldProps) {
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             {field.options?.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              <SelectItem key={opt.value} value={opt.value}>{resolveI18n(opt.label, locale)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -215,6 +231,8 @@ interface SettingsRendererProps {
  * Used by both plugin and theme settings panels.
  */
 export function SettingsRenderer({ schema, values, onChange, emptyMessage }: SettingsRendererProps) {
+  const { locale } = useTranslation();
+
   if (!schema?.sections?.length) {
     return (
       <p className="text-center text-muted-foreground py-8">
@@ -234,7 +252,7 @@ export function SettingsRenderer({ schema, values, onChange, emptyMessage }: Set
     <Accordion type="multiple" defaultValue={defaultOpen ? [defaultOpen] : []} className="w-full">
       {schema.sections.map((section) => (
         <AccordionItem key={section.id} value={section.id}>
-          <AccordionTrigger className="text-sm">{section.title}</AccordionTrigger>
+          <AccordionTrigger className="text-sm">{resolveI18n(section.title, locale)}</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-4">
               {section.fields.map((field) => (
@@ -242,9 +260,9 @@ export function SettingsRenderer({ schema, values, onChange, emptyMessage }: Set
                   {field.type === "switch" ? (
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <Label htmlFor={field.id}>{field.label}</Label>
+                        <Label htmlFor={field.id}>{resolveI18n(field.label, locale)}</Label>
                         {field.description && (
-                          <p className="text-xs text-muted-foreground">{field.description}</p>
+                          <p className="text-xs text-muted-foreground">{resolveI18n(field.description, locale)}</p>
                         )}
                       </div>
                       <SettingsField
@@ -255,14 +273,14 @@ export function SettingsRenderer({ schema, values, onChange, emptyMessage }: Set
                     </div>
                   ) : (
                     <>
-                      <Label htmlFor={field.id}>{field.label}</Label>
+                      <Label htmlFor={field.id}>{resolveI18n(field.label, locale)}</Label>
                       <SettingsField
                         field={field}
                         value={values[field.id]}
                         onChange={(v) => updateValue(field.id, v)}
                       />
                       {field.description && (
-                        <p className="text-xs text-muted-foreground">{field.description}</p>
+                        <p className="text-xs text-muted-foreground">{resolveI18n(field.description, locale)}</p>
                       )}
                     </>
                   )}

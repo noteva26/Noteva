@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { categoriesApi, Category, CreateCategoryInput } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -207,7 +207,7 @@ export default function CategoriesPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="slug">Slug</Label>
+              <Label htmlFor="slug">{t("common.slug")}</Label>
               <Input
                 id="slug"
                 value={form.slug}

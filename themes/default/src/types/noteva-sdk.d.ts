@@ -293,6 +293,12 @@ interface NotevaSDK {
     setLocale(locale: string): void;
     addMessages(locale: string, messages: Record<string, any>): void;
     t(key: string, params?: Record<string, any>): string;
+    /** Load custom locales from server-injected window.__CUSTOM_LOCALES__ */
+    loadCustomLocales(): Array<{ code: string; name: string; translations: Record<string, any> }>;
+    /** Get all custom locales (auto-loads on first call) */
+    getCustomLocales(): Array<{ code: string; name: string; translations: Record<string, any> }>;
+    /** Get all available locales (builtin + custom merged) */
+    getLocales(builtinLocales?: Array<{ code: string; name: string }>): Array<{ code: string; name: string; nativeName: string; isCustom?: boolean }>;
   };
 
   // 插件系统

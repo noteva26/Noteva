@@ -19,6 +19,7 @@ pub mod password;
 pub mod rate_limiter;
 pub mod settings;
 pub mod tag;
+pub mod locale;
 pub mod user;
 
 pub use article::{ArticleService, ArticleServiceError, generate_slug as generate_article_slug};

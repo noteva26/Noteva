@@ -177,6 +177,22 @@ export const authApi = {
 
   changePassword: (currentPassword: string, newPassword: string) =>
     api.put<void>("/auth/password", { current_password: currentPassword, new_password: newPassword }),
+
+  // 2FA methods
+  get2FAStatus: () =>
+    api.get<{ enabled: boolean }>("/auth/2fa/status"),
+
+  setup2FA: () =>
+    api.post<{ secret: string; qr_code: string }>("/auth/2fa/setup"),
+
+  enable2FA: (code: string) =>
+    api.post<{ success: boolean; message: string }>("/auth/2fa/enable", { code }),
+
+  disable2FA: (password: string, code: string) =>
+    api.post<{ success: boolean; message: string }>("/auth/2fa/disable", { password, code }),
+
+  verify2FA: (challengeToken: string, code: string) =>
+    api.post<{ token: string; user: User }>("/auth/2fa/verify", { challenge_token: challengeToken, code }),
 };
 
 // Articles API
@@ -282,11 +298,11 @@ export const adminApi = {
   updateSettings: (data: SiteSettingsInput) =>
     api.put<SiteSettings>("/admin/settings", data),
 
-  checkUpdate: (beta: boolean = false) =>
-    api.get<UpdateCheckResponse>("/admin/update-check", { params: { beta } }),
+  checkUpdate: () =>
+    api.get<UpdateCheckResponse>("/admin/update-check"),
 
-  performUpdate: (version: string, beta: boolean = false) =>
-    api.post<PerformUpdateResponse>("/admin/update-perform", { version, beta }),
+  performUpdate: (version: string) =>
+    api.post<PerformUpdateResponse>("/admin/update-perform", { version }),
 
   // Login logs (security)
   getLoginLogs: (params?: { page?: number; per_page?: number; username?: string; ip_address?: string; success?: boolean }) =>
@@ -397,6 +413,7 @@ export interface User {
   role: "admin" | "editor" | "author";
   display_name?: string | null;
   avatar?: string | null;
+  totp_enabled?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -651,26 +668,27 @@ export interface PluginUpdatesResponse {
 export interface PluginSettingsField {
   id: string;
   type: "text" | "textarea" | "number" | "switch" | "select" | "radio" | "checkbox" | "color" | "image" | "array";
-  label: string;
+  label: string | Record<string, string>;
   default?: unknown;
-  description?: string;
+  description?: string | Record<string, string>;
+  placeholder?: string | Record<string, string>;
   secret?: boolean;
-  options?: { value: string; label: string }[];
+  options?: { value: string; label: string | Record<string, string> }[];
   min?: number;
   max?: number;
   // array 类型专用：定义数组项的字段结构
   itemFields?: {
     id: string;
-    label: string;
+    label: string | Record<string, string>;
     type: "text" | "number";
-    placeholder?: string;
+    placeholder?: string | Record<string, string>;
     required?: boolean;
   }[];
 }
 
 export interface PluginSettingsSection {
   id: string;
-  title: string;
+  title: string | Record<string, string>;
   fields: PluginSettingsField[];
 }
 
@@ -690,7 +708,6 @@ export interface UpdateCheckResponse {
   release_url: string | null;
   release_notes: string | null;
   release_date: string | null;
-  is_beta: boolean;
   error: string | null;
 }
 
@@ -815,4 +832,30 @@ export const filesApi = {
 
   delete: (filename: string) =>
     api.delete(`/admin/files/${encodeURIComponent(filename)}`),
+};
+
+// Custom Locales API
+export interface CustomLocaleItem {
+  code: string;
+  name: string;
+}
+
+export interface CustomLocaleDetail {
+  code: string;
+  name: string;
+  translations: Record<string, unknown>;
+}
+
+export const localesApi = {
+  list: () =>
+    api.get<{ locales: CustomLocaleItem[] }>("/locales"),
+
+  get: (code: string) =>
+    api.get<CustomLocaleDetail>(`/locales/${code}`),
+
+  upsert: (code: string, name: string, json_content: Record<string, unknown>) =>
+    api.post<CustomLocaleItem>("/admin/locales", { code, name, json_content }),
+
+  delete: (code: string) =>
+    api.delete(`/admin/locales/${code}`),
 };

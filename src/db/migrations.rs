@@ -740,6 +740,30 @@ pub const MIGRATIONS: &[Migration] = &[
             ALTER TABLE articles ADD FULLTEXT INDEX ft_articles_title_content (title, content) WITH PARSER ngram;
         "#,
     },
+    // Migration 28: Add TOTP two-factor authentication fields to users
+    Migration {
+        version: 28,
+        name: "add_user_totp_fields",
+        up_sqlite: r#"
+            ALTER TABLE users ADD COLUMN totp_secret TEXT;
+            ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+        "#,
+        up_mysql: r#"
+            ALTER TABLE users ADD COLUMN totp_secret TEXT;
+            ALTER TABLE users ADD COLUMN totp_enabled TINYINT NOT NULL DEFAULT 0;
+        "#,
+    },
+    // Migration 29: Drop custom_locales table (locales moved to file storage in data/locales/)
+    Migration {
+        version: 29,
+        name: "create_custom_locales",
+        up_sqlite: r#"
+            DROP TABLE IF EXISTS custom_locales;
+        "#,
+        up_mysql: r#"
+            DROP TABLE IF EXISTS custom_locales;
+        "#,
+    },
 ];
 
 /// Run all pending migrations

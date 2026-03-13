@@ -94,7 +94,11 @@ export function getArticleUrl(article: { id: number | string; slug?: string }): 
     return noteva.site.getArticleUrl(article);
   }
   // 默认使用 slug
-  return `/posts/${article.slug || article.id}`;
+  // Fallback: check permalink structure from site config
+  const config = (window as any).__SITE_CONFIG__;
+  const permalink = (noteva?.site as any)?._permalinkStructure || config?.permalink_structure || '/posts/{slug}';
+  const identifier = permalink.includes('{id}') ? article.id : (article.slug || article.id);
+  return `/posts/${identifier}`;
 }
 
 /**

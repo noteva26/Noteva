@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   articlesApi,
@@ -261,7 +261,7 @@ export default function NewArticlePage() {
             <Input id="title" placeholder={t("article.title")} value={form.title} onChange={(e) => handleTitleChange(e.target.value)} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="slug">Slug</Label>
+            <Label htmlFor="slug">{t("common.slug")}</Label>
             <Input id="slug" placeholder="url-friendly-slug" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))} />
           </div>
           <div className="space-y-2">

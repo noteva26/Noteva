@@ -275,7 +275,11 @@ pub async fn get_archives(
     Ok(Json(archives))
 }
 
-/// GET /api/v1/articles/:slug - Get article by slug
+/// GET /api/v1/articles/:slug - Get article by slug or ID
+/// 
+/// Resolves articles based on the current permalink_structure setting:
+/// - `/posts/{slug}` mode: treats identifier as slug; if numeric and not found, tries by ID and returns canonical_url for redirect
+/// - `/posts/{id}` mode: treats identifier as ID; if non-numeric, tries by slug and returns canonical_url for redirect
 /// 
 /// For public access, only returns published articles.
 /// Draft/archived articles return 404 to prevent information leakage.
@@ -287,23 +291,51 @@ pub async fn get_article(
     State(state): State<AppState>,
     Path(identifier): Path<String>,
 ) -> Result<Json<ArticleResponse>, ApiError> {
-    // Try to parse as ID first, then fall back to slug
-    let article = if let Ok(id) = identifier.parse::<i64>() {
-        // It's a numeric ID
-        state
-            .article_service
-            .get_by_id(id)
-            .await
-            .map_err(|e| ApiError::internal_error(e.to_string()))?
-            .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", identifier)))?
+    // Read permalink structure setting
+    let permalink_structure = state.settings_service
+        .get(crate::services::settings::keys::PERMALINK_STRUCTURE)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "/posts/{slug}".to_string());
+
+    let is_id_mode = permalink_structure.contains("{id}");
+    let is_numeric = identifier.parse::<i64>().is_ok();
+
+    // Resolve article based on permalink mode
+    let (article, needs_redirect) = if is_id_mode {
+        // ID mode: prefer ID resolution
+        if let Ok(id) = identifier.parse::<i64>() {
+            // Numeric identifier in ID mode: resolve by ID (primary path)
+            let art = state.article_service.get_by_id(id).await
+                .map_err(|e| ApiError::internal_error(e.to_string()))?
+                .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", identifier)))?;
+            (art, false)
+        } else {
+            // Non-numeric identifier in ID mode: try slug, redirect to canonical ID URL
+            let art = state.article_service.get_by_slug(&identifier).await
+                .map_err(|e| ApiError::internal_error(e.to_string()))?
+                .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", identifier)))?;
+            (art, true)
+        }
     } else {
-        // It's a slug
-        state
-            .article_service
-            .get_by_slug(&identifier)
-            .await
-            .map_err(|e| ApiError::internal_error(e.to_string()))?
-            .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", identifier)))?
+        // Slug mode (default): prefer slug resolution
+        // First try as slug
+        let by_slug = state.article_service.get_by_slug(&identifier).await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+        if let Some(art) = by_slug {
+            (art, false)
+        } else if is_numeric {
+            // Slug not found, identifier is numeric: try by ID, redirect to canonical slug URL
+            let id = identifier.parse::<i64>().unwrap();
+            let art = state.article_service.get_by_id(id).await
+                .map_err(|e| ApiError::internal_error(e.to_string()))?
+                .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", identifier)))?;
+            (art, true)
+        } else {
+            return Err(ApiError::not_found(format!("Article not found: {}", identifier)));
+        }
     };
 
     // Only return published articles for public access
@@ -323,6 +355,7 @@ pub async fn get_article(
         .unwrap_or_default();
 
     let article_id = article.id;
+    let article_slug = article.slug.clone();
     let article_category_id = article.category_id;
     let article_published_at = article.published_at;
 
@@ -333,6 +366,17 @@ pub async fn get_article(
     let toc = state.article_service.extract_toc(&response.content);
     response.content_html = state.article_service.render_markdown_with_shortcodes(&response.content, Some(article_id), None);
     response = response.with_toc(toc);
+
+    // Generate canonical URL if redirect is needed
+    if needs_redirect {
+        let canonical_url = crate::services::settings::generate_article_url(
+            &permalink_structure,
+            article_id,
+            &article_slug,
+            article_published_at.as_ref(),
+        );
+        response = response.with_canonical_url(canonical_url);
+    }
 
     // Fetch prev/next articles via targeted SQL queries (2 queries instead of loading all)
     {

@@ -1,6 +1,6 @@
 [package]
 name = "noteva"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "A lightweight modern blog system"
 authors = ["Noteva Team"]
@@ -51,6 +51,10 @@ moka = { version = "0.12", features = ["future"] }
 
 # Password hashing
 argon2 = "0.5"
+
+# TOTP two-factor authentication
+totp-rs = { version = "5", features = ["qr", "gen_secret"] }
+data-encoding = "2"
 
 # Markdown rendering
 pulldown-cmark = "0.10"

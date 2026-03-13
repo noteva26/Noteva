@@ -359,7 +359,7 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
     let settings_repo = SqlxSettingsRepository::new(state.pool.clone());
     let settings = settings_repo.get_many(&[
         "site_name", "site_description", "site_subtitle", "site_logo",
-        "site_footer", "custom_css", "custom_js", "site_url",
+        "site_footer", "custom_css", "custom_js", "site_url", "permalink_structure",
     ]).await.unwrap_or_default();
     
     let site_name = settings.get("site_name").cloned().unwrap_or_else(|| "Noteva".to_string());
@@ -370,6 +370,8 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
     let custom_css = settings.get("custom_css").cloned().unwrap_or_default();
     let custom_js = settings.get("custom_js").cloned().unwrap_or_default();
     let site_url = settings.get("site_url").cloned().unwrap_or_default();
+    let permalink_structure = settings.get("permalink_structure").cloned().unwrap_or_else(|| "/posts/{slug}".to_string());
+    let is_id_mode = permalink_structure.contains("{id}");
     
     // Build config JSON
     let config_json = serde_json::json!({
@@ -423,7 +425,8 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
         let canonical_url = if base_url.is_empty() {
             String::new()
         } else {
-            format!("{}/posts/{}", base_url, seo.slug)
+            let identifier = if is_id_mode { seo.id.to_string() } else { seo.slug.clone() };
+            format!("{}/posts/{}", base_url, identifier)
         };
         let og_image = seo.thumbnail.as_deref().unwrap_or("").to_string();
         let og_image_full = if og_image.is_empty() {
@@ -636,16 +639,39 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
     } else {
         format!("\n<style id=\"noteva-custom-css\">{}</style>", custom_css)
     };
-    
+
+    // Load custom locales from file storage for theme i18n
+    let custom_locales_json = {
+        use crate::services::locale;
+        let locales = locale::list_locales().await.unwrap_or_default();
+        if locales.is_empty() {
+            String::from("[]")
+        } else {
+            let mut items = Vec::new();
+            for loc in &locales {
+                if let Ok(Some(full)) = locale::get_locale(&loc.code).await {
+                    items.push(serde_json::json!({
+                        "code": loc.code,
+                        "name": loc.name,
+                        "translations": serde_json::from_str::<serde_json::Value>(&full.json_content)
+                            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
+                    }));
+                }
+            }
+            serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
+        }
+    };
+
     let head_injection = format!(
         r#"{}
-<script>window.__SITE_CONFIG__={};</script>
+<script>window.__SITE_CONFIG__={};window.__CUSTOM_LOCALES__={};</script>
 <link rel="stylesheet" href="/noteva-sdk.css?v={}">
 <script src="/noteva-sdk.js?v={}"></script>
 <link rel="stylesheet" href="/api/v1/plugins/assets/plugins.css?v={}">
 <script src="/api/v1/plugins/assets/plugins.js?v={}"></script>{}"#,
         meta_tags,
         serde_json::to_string(&config_json).unwrap_or_else(|_| "{}".to_string()),
+        custom_locales_json,
         version, version, version, version,
         custom_css_tag
     );
@@ -687,6 +713,7 @@ async fn inject_seo_into_html(html_bytes: &[u8], state: &AppState, asset_path: &
 
 /// Article SEO data
 struct ArticleSeo {
+    id: i64,
     title: String,
     excerpt: String,
     content_html: String,
@@ -743,6 +770,7 @@ async fn fetch_article_seo(slug: &str, pool: &crate::db::DynDatabasePool, _site_
     let updated_at = article.updated_at.to_rfc3339();
     
     Some(ArticleSeo {
+        id: article.id,
         title: article.title,
         excerpt,
         content_html: article.content_html,

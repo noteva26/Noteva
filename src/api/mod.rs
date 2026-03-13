@@ -35,7 +35,9 @@ pub mod static_files;
 pub mod tags;
 pub mod theme;
 pub mod theme_install;
+pub mod two_factor;
 pub mod upload;
+pub mod locales;
 
 use axum::{
     extract::DefaultBodyLimit,
@@ -87,6 +89,9 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .route("/admin/articles/:id", axum::routing::delete(articles::delete_article_handler))
         // Admin comment operations
         .route("/admin/comments/:id", axum::routing::delete(comments::delete_comment))
+        // Admin locale management
+        .route("/admin/locales", axum::routing::post(locales::upsert_locale))
+        .route("/admin/locales/:code", axum::routing::delete(locales::delete_locale))
         .layer(DefaultBodyLimit::max(admin_body_limit))
         .route_layer(axum_middleware::from_fn(middleware::require_admin))
         .route_layer(axum_middleware::from_fn_with_state(
@@ -97,6 +102,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
     // Protected routes (need auth but not admin)
     let protected_routes = Router::new()
         .nest("/auth", auth::protected_router())
+        .nest("/auth/2fa", two_factor::router())
         .nest("/upload", upload::router()
             .layer(DefaultBodyLimit::max(image_body_limit)))
         .route("/articles", axum::routing::post(articles::create_article_handler))
@@ -113,6 +119,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .nest("/categories", categories::router())
         .nest("/tags", tags::router())
         .nest("/auth", auth::public_router())
+        .nest("/auth/2fa", two_factor::public_router())
         .nest("/site", site::router())
         .nest("/theme", Router::new()
             .route("/config", axum::routing::get(theme::get_theme_config))
@@ -143,6 +150,9 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .route("/like", axum::routing::post(comments::like))
         .route("/like/check", axum::routing::get(comments::check_like))
         .route("/view/:article_id", axum::routing::post(comments::increment_view))
+        // Public locale endpoints
+        .route("/locales", axum::routing::get(locales::list_locales))
+        .route("/locales/:code", axum::routing::get(locales::get_locale))
         .merge(admin_routes)
         .merge(protected_routes)
 }

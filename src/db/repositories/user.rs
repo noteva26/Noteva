@@ -138,6 +138,8 @@ impl_row_mapper! {
             .map(|s| UserStatus::from_str(&s).unwrap_or(UserStatus::Active))
             .unwrap_or(UserStatus::Active);
 
+        let totp_enabled_raw: Option<i32> = row.try_get("totp_enabled").ok();
+
         Ok(User {
             id: row.get("id"),
             username: row.get("username"),
@@ -147,6 +149,8 @@ impl_row_mapper! {
             status,
             display_name: row.try_get("display_name").ok(),
             avatar: row.try_get("avatar").ok(),
+            totp_secret: row.try_get("totp_secret").ok().flatten(),
+            totp_enabled: totp_enabled_raw.unwrap_or(0) != 0,
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         })
@@ -160,7 +164,7 @@ impl_row_mapper! {
 async fn get_user_by_id_sqlite(pool: &SqlitePool, id: i64) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, totp_secret, totp_enabled, created_at, updated_at
         FROM users
         WHERE id = ?
         "#,
@@ -179,7 +183,7 @@ async fn get_user_by_id_sqlite(pool: &SqlitePool, id: i64) -> Result<Option<User
 async fn get_user_by_username_sqlite(pool: &SqlitePool, username: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, totp_secret, totp_enabled, created_at, updated_at
         FROM users
         WHERE username = ?
         "#,
@@ -198,7 +202,7 @@ async fn get_user_by_username_sqlite(pool: &SqlitePool, username: &str) -> Resul
 async fn get_user_by_email_sqlite(pool: &SqlitePool, email: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, totp_secret, totp_enabled, created_at, updated_at
         FROM users
         WHERE email = ?
         "#,
@@ -249,6 +253,8 @@ async fn create_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
         status: user.status,
         display_name: user.display_name.clone(),
         avatar: user.avatar.clone(),
+        totp_secret: None,
+        totp_enabled: false,
         created_at: now,
         updated_at: now,
     })
@@ -262,7 +268,7 @@ async fn update_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
     sqlx::query(
         r#"
         UPDATE users
-        SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, display_name = ?, avatar = ?, updated_at = ?
+        SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, display_name = ?, avatar = ?, totp_secret = ?, totp_enabled = ?, updated_at = ?
         WHERE id = ?
         "#,
     )
@@ -273,6 +279,8 @@ async fn update_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
     .bind(&status_str)
     .bind(&user.display_name)
     .bind(&user.avatar)
+    .bind(&user.totp_secret)
+    .bind(if user.totp_enabled { 1 } else { 0 })
     .bind(now)
     .bind(user.id)
     .execute(pool)
@@ -289,7 +297,7 @@ async fn list_users_sqlite(pool: &SqlitePool, page: i64, per_page: i64) -> Resul
     
     let rows = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, totp_secret, totp_enabled, created_at, updated_at
         FROM users
         ORDER BY id ASC
         LIMIT ? OFFSET ?
@@ -318,7 +326,7 @@ async fn list_users_sqlite(pool: &SqlitePool, page: i64, per_page: i64) -> Resul
 async fn get_user_by_id_mysql(pool: &MySqlPool, id: i64) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, totp_secret, totp_enabled, created_at, updated_at
         FROM users
         WHERE id = ?
         "#,
@@ -337,7 +345,7 @@ async fn get_user_by_id_mysql(pool: &MySqlPool, id: i64) -> Result<Option<User>>
 async fn get_user_by_username_mysql(pool: &MySqlPool, username: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, totp_secret, totp_enabled, created_at, updated_at
         FROM users
         WHERE username = ?
         "#,
@@ -356,7 +364,7 @@ async fn get_user_by_username_mysql(pool: &MySqlPool, username: &str) -> Result<
 async fn get_user_by_email_mysql(pool: &MySqlPool, email: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, totp_secret, totp_enabled, created_at, updated_at
         FROM users
         WHERE email = ?
         "#,
@@ -407,6 +415,8 @@ async fn create_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
         status: user.status,
         display_name: user.display_name.clone(),
         avatar: user.avatar.clone(),
+        totp_secret: None,
+        totp_enabled: false,
         created_at: now,
         updated_at: now,
     })
@@ -420,7 +430,7 @@ async fn update_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
     sqlx::query(
         r#"
         UPDATE users
-        SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, display_name = ?, avatar = ?, updated_at = ?
+        SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, display_name = ?, avatar = ?, totp_secret = ?, totp_enabled = ?, updated_at = ?
         WHERE id = ?
         "#,
     )
@@ -431,6 +441,8 @@ async fn update_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
     .bind(&status_str)
     .bind(&user.display_name)
     .bind(&user.avatar)
+    .bind(&user.totp_secret)
+    .bind(if user.totp_enabled { 1 } else { 0 })
     .bind(now)
     .bind(user.id)
     .execute(pool)
@@ -447,7 +459,7 @@ async fn list_users_mysql(pool: &MySqlPool, page: i64, per_page: i64) -> Result<
     
     let rows = sqlx::query(
         r#"
-        SELECT id, username, email, password_hash, role, status, display_name, avatar, created_at, updated_at
+        SELECT id, username, email, password_hash, role, status, display_name, avatar, totp_secret, totp_enabled, created_at, updated_at
         FROM users
         ORDER BY id ASC
         LIMIT ? OFFSET ?

@@ -56,6 +56,7 @@ pub struct UserResponse {
     pub status: String,
     pub display_name: Option<String>,
     pub avatar: Option<String>,
+    pub totp_enabled: bool,
     pub created_at: String,
 }
 
@@ -69,6 +70,7 @@ impl From<crate::models::User> for UserResponse {
             status: user.status.to_string(),
             display_name: user.display_name,
             avatar: user.avatar,
+            totp_enabled: user.totp_enabled,
             created_at: user.created_at.to_rfc3339(),
         }
     }
@@ -306,6 +308,22 @@ async fn login(
         .map_err(|e| ApiError::internal_error(e.to_string()))?
         .ok_or_else(|| ApiError::internal_error("Session validation failed"))?;
 
+    // Check if 2FA is enabled — return challenge instead of full login
+    if user.totp_enabled {
+        // Clear failed attempts (password was correct)
+        state.rate_limiter.clear_username_attempts(&body.username_or_email).await;
+        log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), true, Some("2FA challenge issued")).await;
+
+        // Don't set cookies yet — user must complete 2FA first
+        return Ok((
+            HeaderMap::new(),
+            Json(AuthResponse {
+                user: user.into(),
+                token: session.id,
+            }),
+        ).into_response());
+    }
+
     // Clear failed attempts on successful login
     state.rate_limiter.clear_username_attempts(&body.username_or_email).await;
     
@@ -353,7 +371,7 @@ async fn login(
             user: user.into(),
             token: session.id,
         }),
-    ))
+    ).into_response())
 }
 
 /// POST /api/v1/auth/logout - User logout

@@ -34,6 +34,11 @@ pub struct User {
     pub display_name: Option<String>,
     /// Avatar URL
     pub avatar: Option<String>,
+    /// TOTP secret for 2FA (encrypted, None if not set up)
+    #[serde(skip_serializing)]
+    pub totp_secret: Option<String>,
+    /// Whether TOTP 2FA is enabled
+    pub totp_enabled: bool,
     /// Creation timestamp
     pub created_at: DateTime<Utc>,
     /// Last update timestamp
@@ -61,6 +66,8 @@ impl User {
             status: UserStatus::Active,
             display_name: None,
             avatar: None,
+            totp_secret: None,
+            totp_enabled: false,
             created_at: now,
             updated_at: now,
         }

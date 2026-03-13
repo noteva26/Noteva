@@ -51,6 +51,9 @@ pub struct ArticleResponse {
     pub related: Option<Vec<ArticleLink>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scheduled_at: Option<String>,
+    /// Canonical URL based on permalink setting (present when URL mismatch detected)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canonical_url: Option<String>,
 }
 
 /// Simplified article response for list views
@@ -177,6 +180,7 @@ impl From<crate::models::Article> for ArticleResponse {
             next: None,
             related: None,
             scheduled_at: article.scheduled_at.map(|dt| dt.to_rfc3339()),
+            canonical_url: None,
         }
     }
 }
@@ -241,6 +245,12 @@ impl ArticleResponse {
         if !related.is_empty() {
             self.related = Some(related);
         }
+        self
+    }
+
+    /// Set canonical URL for permalink redirect
+    pub fn with_canonical_url(mut self, url: String) -> Self {
+        self.canonical_url = Some(url);
         self
     }
 }

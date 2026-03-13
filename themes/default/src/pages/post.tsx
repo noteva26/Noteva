@@ -91,6 +91,11 @@ export default function PostPage() {
 
       try {
         const data = await Noteva.articles.get(slug);
+        // Permalink redirect: if backend says URL should be different, navigate there
+        if ((data as any).canonical_url) {
+          navigate((data as any).canonical_url, { replace: true });
+          return;
+        }
         setArticle(data);
         setLikeCount(Noteva.articles.getStats(data).likes);
 

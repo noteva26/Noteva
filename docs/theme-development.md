@@ -1,6 +1,6 @@
 # Noteva 主题开发文档
 
-> 版本：v0.1.9-beta
+> 版本：v0.2.1
 
 ## 快速开始
 
@@ -81,6 +81,25 @@ const site = await Noteva.site.getInfo();
 //   custom_js: "...",                // v0.1.9 新增
 // }
 ```
+
+### 生成文章 URL（重要）
+
+**务必使用此方法生成文章链接，不要硬编码 `/posts/${slug}`。**
+
+文章 URL 格式取决于后台设置的 `permalink_structure`（`/posts/{slug}` 或 `/posts/{id}`），SDK 会自动处理：
+
+```javascript
+// ✅ 正确做法：始终使用 getArticleUrl
+const url = Noteva.site.getArticleUrl(article);
+// slug 模式 → "/posts/hello-world"
+// id 模式   → "/posts/42"
+
+// ❌ 错误做法：硬编码 slug
+const url = `/posts/${article.slug}`;  // id 模式下会生成错误的 URL！
+```
+
+> **React/Vue 主题**：SDK 类型定义为 `getArticleUrl(article: { id: number | string; slug?: string }): string`。
+> 如果 SDK 尚未加载（fallback 场景），内置主题会自动从 `window.__SITE_CONFIG__` 读取 permalink 设置。
 
 ### 获取导航菜单
 
@@ -353,6 +372,7 @@ const article = await Noteva.articles.get('hello-world');  // 通过 slug
 //   prev: { id, title, slug },            // v0.1.8 新增
 //   next: { id, title, slug },            // v0.1.8 新增
 //   related: [{ id, title, slug }]        // v0.1.8 新增（同分类）
+//   toc: [{ id, text, level }],           // v0.2.0 新增（目录结构）
 // }
 ```
 
@@ -627,8 +647,8 @@ Noteva.ready(async () => {
     <main>
       ${articles.map(a => `
         <article>
-          <h2><a href="/posts/${a.slug}">${a.title}</a></h2>
-          <p>${a.excerpt || ''}</p>
+          <h2><a href="${Noteva.site.getArticleUrl(a)}">${a.title}</a></h2>
+          <p>${Noteva.articles.getExcerpt(a, 150)}</p>
         </article>
       `).join('')}
     </main>
@@ -646,10 +666,74 @@ Noteva.ready(async () => {
 
 ## 注意事项
 
-1. **不要手动引入 SDK** - 后端自动注入
-2. **使用 `Noteva.ready()`** - 确保 SDK 加载完成
-3. **API 路径已封装** - 直接使用 SDK 方法，不要手动拼接
-4. **导航支持二级菜单** - 检查 `children` 字段
+1. **不要手动引入 SDK** — 后端自动注入
+2. **使用 `Noteva.ready()`** — 确保 SDK 加载完成
+3. **使用 `getArticleUrl()`** — 不要硬编码文章链接，permalink 模式可能是 id 或 slug
+4. **API 路径已封装** — 直接使用 SDK 方法，不要手动拼接 `/api/v1/*`
+5. **导航支持二级菜单** — 检查 `children` 字段
+6. **暗色模式** — 使用 `.dark` CSS class 选择器，不要用 `prefers-color-scheme`
+
+## 暗色模式
+
+后台切换暗色模式时会在 `<html>` 标签添加 `class="dark"`。主题应使用此 class 实现暗色样式：
+
+```css
+/* ✅ 正确做法 */
+.dark body { background: #1a1a1a; color: #e5e5e5; }
+.dark .card { background: #2a2a2a; }
+
+/* ❌ 错误做法 */
+@media (prefers-color-scheme: dark) { ... }
+```
+
+## 开发与构建
+
+### 开发流程
+
+```bash
+# 1. 启动后端（端口 8080）
+cargo run
+
+# 2. 进入主题目录开发
+cd themes/my-theme
+pnpm install
+pnpm dev          # 主题自身的 dev server（可选）
+
+# 3. 构建主题
+pnpm build        # 输出到 dist/
+
+# 4. 后台切换到该主题测试
+# 访问 http://localhost:8080/manage/settings → 主题 → 切换
+```
+
+### 打包发布
+
+发布主题时只需包含以下文件：
+
+```
+my-theme/
+├── theme.json          # 必需
+├── settings.json       # 可选
+├── preview.png         # 推荐
+└── dist/               # 必需（编译后的前端资源）
+    ├── index.html
+    ├── assets/
+    └── ...
+```
+
+**不要包含** `node_modules`、`src`、`package.json` 等源码文件。用户安装的是编译后的产物。
+
+### 兼容性声明
+
+在 `theme.json` 中通过 `requires` 字段声明最低兼容版本：
+
+```json
+{
+  "name": "My Theme",
+  "version": "1.0.0",
+  "requires": ">=0.2.0"
+}
+```
 
 ## 商业主题授权
 
@@ -694,3 +778,117 @@ Noteva.ready(async () => {
 ```
 
 详细的 WASM 授权验证实现参见 `docs/plugin-development.md` 中的 `plugin_activate` / `theme_activate` 章节。
+
+## 自定义国际化（i18n）
+
+Noteva 支持用户上传自定义语言包 JSON，实现任意语言的界面翻译。自定义语言包数据由后端在页面加载时自动注入，**所有主题无需单独适配即可使用**。
+
+### 工作原理
+
+后端在注入 SDK 时，同时注入 `window.__CUSTOM_LOCALES__` 全局变量：
+
+```html
+<!-- 后端自动注入（无需手动引入） -->
+<script>
+  window.__SITE_CONFIG__ = { ... };
+  window.__CUSTOM_LOCALES__ = [
+    {
+      "code": "ja",
+      "name": "日本語",
+      "translations": { "common": { "save": "保存", ... }, ... }
+    },
+    ...
+  ];
+</script>
+```
+
+### 在主题中使用
+
+主题通过 SDK 的 `Noteva.i18n` API 获取自定义语言包数据：
+
+```typescript
+// 方式一：使用 SDK API 获取自定义语言包列表
+const customLocales = Noteva.i18n.getCustomLocales();
+// 返回: [{ code: "ja", name: "日本語", translations: { ... } }, ...]
+
+// 方式二：获取所有可用语言（内置 + 自定义合并）
+const allLocales = Noteva.i18n.getLocales(builtinLocales);
+// 返回: [{ code: "zh-CN", ... }, { code: "ja", name: "日本語", isCustom: true }, ...]
+
+// 方式三：直接注册到主题的 i18n 系统
+for (const item of Noteva.i18n.getCustomLocales()) {
+  customMessages[item.code] = item.translations;
+  localeList.push({ code: item.code, name: item.name, isCustom: true });
+}
+```
+
+### SDK `Noteva.i18n` API 参考
+
+| 方法 | 返回值 | 说明 |
+|------|--------|------|
+| `getLocale()` | `string` | 获取当前语言代码，如 `"zh-CN"` |
+| `setLocale(code)` | `void` | 切换语言，触发 `locale:change` 事件 |
+| `addMessages(locale, messages)` | `void` | 注册翻译消息（合并到已有消息） |
+| `t(key, params?)` | `string` | 按 key 翻译，支持 `{name}` 参数占位符 |
+| `loadCustomLocales()` | `Array` | 从 `window.__CUSTOM_LOCALES__` 加载自定义语言包 |
+| `getCustomLocales()` | `Array<{code, name, translations}>` | 获取所有自定义语言包（首次调用自动加载） |
+| `getLocales(builtinLocales?)` | `Array<{code, name, nativeName, isCustom?}>` | 合并内置 + 自定义语言列表 |
+
+> `getCustomLocales()` 和 `getLocales()` 是懒加载的，首次调用时自动读取服务端注入的数据，无需手动调用 `loadCustomLocales()`。
+
+### JSON 格式
+
+自定义语言包 JSON 结构与内置语言包完全相同，采用嵌套对象 + 点分路径：
+
+```json
+{
+  "common": {
+    "save": "保存",
+    "cancel": "キャンセル",
+    "delete": "削除"
+  },
+  "manage": {
+    "dashboard": "ダッシュボード",
+    "articles": "記事"
+  },
+  "article": {
+    "title": "タイトル",
+    "publish": "公開"
+  }
+}
+```
+
+> 缺失的翻译 key 会自动 fallback 到简体中文（`zh-CN`），不会导致页面报错。
+
+### 管理方式
+
+管理员在管理后台 **设置 → 自定义语言包** 中管理：
+
+- **粘贴 JSON**：直接粘贴翻译 JSON
+- **上传文件**：上传 `.json` 文件（自动读取文件名作为语言代码）
+- **从 URL 加载**：输入 JSON 文件的远程 URL
+
+### API 端点
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/api/v1/locales` | 公开 | 获取自定义语言列表（code + name） |
+| GET | `/api/v1/locales/:code` | 公开 | 获取指定语言的完整翻译 |
+| POST | `/api/v1/admin/locales` | 管理员 | 创建/更新自定义语言包 |
+| DELETE | `/api/v1/admin/locales/:code` | 管理员 | 删除自定义语言包 |
+
+### 存储
+
+自定义语言包以 JSON 文件形式存储在 `data/locales/` 目录下，每个语言对应一个文件（如 `data/locales/ja.json`）。文件格式为：
+
+```json
+{
+  "name": "日本語",
+  "translations": {
+    "common": { "save": "保存", ... },
+    ...
+  }
+}
+```
+
+用户也可以直接将 JSON 文件放入 `data/locales/` 目录，服务重启后自动识别。

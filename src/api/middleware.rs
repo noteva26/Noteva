@@ -367,11 +367,19 @@ pub async fn demo_guard(
     }
     
     // Whitelist: endpoints that should work in demo mode
+    // Principle: allow read-like and interactive features, block data mutation
     let whitelisted = [
-        "/api/v1/auth/login",      // Login
-        "/api/v1/auth/logout",     // Logout
-        "/api/v1/comments",        // Allow posting comments (for demo interaction)
-        "/api/v1/site/render",     // Markdown preview
+        "/api/v1/auth/login",          // Login
+        "/api/v1/auth/logout",         // Logout
+        "/api/v1/auth/register",       // Register (let users try the flow)
+        "/api/v1/auth/2fa",            // 2FA verify (part of login flow)
+        "/api/v1/comments",            // Post comments (demo interaction)
+        "/api/v1/like",                // Like/unlike (demo interaction)
+        "/api/v1/view/",               // View count increment (not real data)
+        "/api/v1/site/render",         // Markdown preview
+        "/api/v1/cache/",              // Frontend cache read/write
+        "/api/v1/plugins/proxy",       // Plugin proxy (for plugin demos)
+        "/api/v1/plugins/",            // Plugin API routes (read-like)
     ];
     
     // Check if path is whitelisted

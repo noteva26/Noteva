@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Link, Outlet } from "react-router-dom";
 import { motion } from "motion/react";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
-import { useTranslation } from "@/lib/i18n";
+import { useTranslation, loadCustomLocales } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -54,6 +54,7 @@ export default function ManageLayout() {
 
   useEffect(() => {
     fetchSettings();
+    loadCustomLocales();
   }, [fetchSettings]);
 
   useEffect(() => {
@@ -239,7 +240,7 @@ export default function ManageLayout() {
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span className="font-medium">Demo Mode</span>
+                <span className="font-medium">{t("manage.demoMode")}</span>
                 <span className="text-sm opacity-80">- {t("manage.demoModeHint")}</span>
               </div>
             </div>

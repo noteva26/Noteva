@@ -51,9 +51,20 @@ async fn get_site_description(state: &AppState) -> String {
 }
 
 /// Helper: build article URL based on permalink_structure setting
-async fn build_article_url(base: &str, slug: &str, _state: &AppState) -> String {
-    // Default permalink: /posts/{slug}
-    format!("{}/posts/{}", base.trim_end_matches('/'), slug)
+async fn build_article_url(base: &str, id: i64, slug: &str, state: &AppState) -> String {
+    let permalink_structure = state.settings_service
+        .get(crate::services::settings::keys::PERMALINK_STRUCTURE)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "/posts/{slug}".to_string());
+
+    let identifier = if permalink_structure.contains("{id}") {
+        id.to_string()
+    } else {
+        slug.to_string()
+    };
+    format!("{}/posts/{}", base.trim_end_matches('/'), identifier)
 }
 
 /// XML-escape a string
@@ -133,7 +144,7 @@ pub async fn sitemap_xml(State(state): State<AppState>) -> Response {
             if article.status != ArticleStatus::Published {
                 continue;
             }
-            let url = build_article_url(base, &article.slug, &state).await;
+            let url = build_article_url(base, article.id, &article.slug, &state).await;
             let lastmod = w3c_datetime(&article.updated_at);
             xml.push_str(&format!(
                 "  <url>\n    <loc>{}</loc>\n    <lastmod>{}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>0.8</priority>\n  </url>\n",
@@ -224,7 +235,13 @@ pub async fn feed_xml(State(state): State<AppState>) -> Response {
     }
     xml.push_str(&format!("  <description>{}</description>\n", xml_escape(&site_desc)));
     xml.push_str(&format!("  <generator>Noteva {}</generator>\n", env!("CARGO_PKG_VERSION")));
-    xml.push_str("  <language>zh-CN</language>\n");
+    let lang = state.settings_service
+        .get("site_language")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "zh-CN".to_string());
+    xml.push_str(&format!("  <language>{}</language>\n", xml_escape(&lang)));
 
     // Latest 50 published articles
     let article_repo = SqlxArticleRepository::new(state.pool.clone());
@@ -240,7 +257,7 @@ pub async fn feed_xml(State(state): State<AppState>) -> Response {
                 continue;
             }
             let pub_date = article.published_at.unwrap_or(article.created_at);
-            let url = build_article_url(base, &article.slug, &state).await;
+            let url = build_article_url(base, article.id, &article.slug, &state).await;
 
             // Generate excerpt: strip markdown, limit 300 chars
             let excerpt: String = article.content

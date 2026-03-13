@@ -4,6 +4,24 @@
 
 Noteva 的所有重要变更都会记录在这里。
 
+## [v0.2.1] - 2026-03-13
+
+### 🎉 新功能
+- **SDK i18n API** — 新增 `Noteva.i18n.getCustomLocales()` / `getLocales()` / `loadCustomLocales()`，主题无需手动读取 `window.__CUSTOM_LOCALES__`
+- **自定义语言包文件存储** — 语言包从数据库迁移至 `data/locales/*.json`，JSON 文件直接管理，更轻量
+- **管理后台日语支持** — 内置日语翻译（`ja.json`），150+ 翻译 key 覆盖全部管理界面
+
+### 📝 改进
+- Default + Prose 主题 `loadCustomLocales()` 改用 SDK API，去除重复代码
+- `noteva-sdk.d.ts` TypeScript 类型声明同步更新
+- Demo 模式白名单扩展：新增点赞、浏览计数、注册、2FA、缓存、插件代理等交互端点
+- `locale.rs` 从 `db/repositories/` 移至 `services/`（文件 I/O 不属于数据库层）
+- Migration 29 改为 `DROP TABLE IF EXISTS custom_locales`（已废弃）
+- Prose 主题移除调试 `console.log`
+- 文档新增 SDK `Noteva.i18n` API 参考表
+
+---
+
 ## [v0.2.0] - 2026-03-06
 
 ### 🎉 亮点

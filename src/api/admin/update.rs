@@ -23,19 +23,11 @@ pub struct UpdateCheckResponse {
     pub release_notes: Option<String>,
     /// Release date
     pub release_date: Option<String>,
-    /// Whether checking beta releases
-    pub is_beta: bool,
     /// Error message if check failed
     pub error: Option<String>,
 }
 
-/// Query parameters for update check
-#[derive(Debug, Deserialize)]
-pub struct UpdateCheckQuery {
-    /// Whether to check beta releases
-    #[serde(default)]
-    pub beta: bool,
-}
+
 
 /// GitHub release info
 #[derive(Debug, Deserialize)]
@@ -62,10 +54,6 @@ struct GitHubAsset {
 pub struct PerformUpdateRequest {
     /// Target version to update to (e.g. "0.2.0")
     pub version: String,
-    /// Whether this is a beta release
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub beta: bool,
 }
 
 /// Response for perform update
@@ -81,16 +69,10 @@ pub struct PerformUpdateResponse {
 /// Checks GitHub releases for new versions.
 pub async fn check_update(
     _user: AuthenticatedUser,
-    axum::extract::Query(query): axum::extract::Query<UpdateCheckQuery>,
 ) -> Json<UpdateCheckResponse> {
     let current_version = APP_VERSION.to_string();
     
-    // Determine which branch to check
-    let api_url = if query.beta {
-        "https://api.github.com/repos/noteva26/Noteva/releases"
-    } else {
-        "https://api.github.com/repos/noteva26/Noteva/releases/latest"
-    };
+    let api_url = "https://api.github.com/repos/noteva26/Noteva/releases/latest";
     
     // Make HTTP request to GitHub API
     let client = match reqwest::Client::builder()
@@ -107,7 +89,6 @@ pub async fn check_update(
                 release_url: None,
                 release_notes: None,
                 release_date: None,
-                is_beta: query.beta,
                 error: Some(format!("Failed to create HTTP client: {}", e)),
             });
         }
@@ -123,7 +104,6 @@ pub async fn check_update(
                 release_url: None,
                 release_notes: None,
                 release_date: None,
-                is_beta: query.beta,
                 error: Some(format!("Failed to fetch releases: {}", e)),
             });
         }
@@ -137,57 +117,15 @@ pub async fn check_update(
             release_url: None,
             release_notes: None,
             release_date: None,
-            is_beta: query.beta,
             error: Some(format!("GitHub API returned status: {}", response.status())),
         });
     }
     
-    // Parse response
-    let release = if query.beta {
-        // For beta, get all releases and find the latest (including prereleases)
-        match response.json::<Vec<GitHubRelease>>().await {
-            Ok(releases) => {
-                releases.into_iter().next()
-            }
-            Err(e) => {
-                return Json(UpdateCheckResponse {
-                    current_version,
-                    latest_version: None,
-                    update_available: false,
-                    release_url: None,
-                    release_notes: None,
-                    release_date: None,
-                    is_beta: query.beta,
-                    error: Some(format!("Failed to parse releases: {}", e)),
-                });
-            }
-        }
-    } else {
-        // For stable, get the latest release
-        match response.json::<GitHubRelease>().await {
-            Ok(r) => Some(r),
-            Err(e) => {
-                return Json(UpdateCheckResponse {
-                    current_version,
-                    latest_version: None,
-                    update_available: false,
-                    release_url: None,
-                    release_notes: None,
-                    release_date: None,
-                    is_beta: query.beta,
-                    error: Some(format!("Failed to parse release: {}", e)),
-                });
-            }
-        }
-    };
-    
-    match release {
-        Some(rel) => {
-            // Remove 'v' prefix if present for comparison
+    // Parse latest release
+    match response.json::<GitHubRelease>().await {
+        Ok(rel) => {
             let latest = rel.tag_name.trim_start_matches('v').to_string();
             let current = current_version.trim_start_matches('v');
-            
-            // Simple version comparison (works for semver)
             let update_available = version_compare(&latest, current);
             
             Json(UpdateCheckResponse {
@@ -197,11 +135,10 @@ pub async fn check_update(
                 release_url: Some(rel.html_url),
                 release_notes: rel.body,
                 release_date: rel.published_at,
-                is_beta: query.beta,
                 error: None,
             })
         }
-        None => {
+        Err(e) => {
             Json(UpdateCheckResponse {
                 current_version,
                 latest_version: None,
@@ -209,8 +146,7 @@ pub async fn check_update(
                 release_url: None,
                 release_notes: None,
                 release_date: None,
-                is_beta: query.beta,
-                error: Some("No releases found".to_string()),
+                error: Some(format!("Failed to parse release: {}", e)),
             })
         }
     }
