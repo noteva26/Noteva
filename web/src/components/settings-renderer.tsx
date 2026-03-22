@@ -12,6 +12,14 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Plus, X, List, GripVertical } from "lucide-react";
 import type { PluginSettingsSchema, PluginSettingsField } from "@/lib/api";
 
+/** Resolve i18n field (string | Record<lang, string>) to a plain string */
+function loc(v: string | Record<string, string> | undefined): string {
+  if (!v) return "";
+  if (typeof v === "string") return v;
+  const lang = document.documentElement.lang || "en";
+  return v[lang] || v[lang.split("-")[0]] || v.en || Object.values(v)[0] || "";
+}
+
 // --- Value parsing ---
 
 /** Parse raw settings values (strings from backend) into proper JS types */
@@ -89,7 +97,7 @@ function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps
               <Input
                 key={field.id}
                 type={field.type === "number" ? "number" : "text"}
-                placeholder={field.placeholder || field.label + (field.required ? " *" : "")}
+                placeholder={loc(field.placeholder) || loc(field.label) + (field.required ? " *" : "")}
                 value={(item[field.id] as string) || ""}
                 onChange={(e) => updateItem(index, field.id, field.type === "number" ? Number(e.target.value) : e.target.value)}
               />
@@ -140,7 +148,7 @@ export function SettingsField({ field, value, onChange }: SettingsFieldProps) {
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             {field.options?.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              <SelectItem key={opt.value} value={opt.value}>{loc(opt.label)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -232,7 +240,7 @@ export function SettingsRenderer({ schema, values, onChange, emptyMessage }: Set
     <Accordion type="multiple" defaultValue={defaultOpen ? [defaultOpen] : []} className="w-full">
       {schema.sections.map((section) => (
         <AccordionItem key={section.id} value={section.id}>
-          <AccordionTrigger className="text-sm">{section.title}</AccordionTrigger>
+          <AccordionTrigger className="text-sm">{loc(section.title)}</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-4">
               {section.fields.map((field) => (
@@ -240,9 +248,9 @@ export function SettingsRenderer({ schema, values, onChange, emptyMessage }: Set
                   {field.type === "switch" ? (
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <Label htmlFor={field.id}>{field.label}</Label>
+                        <Label htmlFor={field.id}>{loc(field.label)}</Label>
                         {field.description && (
-                          <p className="text-xs text-muted-foreground">{field.description}</p>
+                          <p className="text-xs text-muted-foreground">{loc(field.description)}</p>
                         )}
                       </div>
                       <SettingsField
@@ -253,14 +261,14 @@ export function SettingsRenderer({ schema, values, onChange, emptyMessage }: Set
                     </div>
                   ) : (
                     <>
-                      <Label htmlFor={field.id}>{field.label}</Label>
+                      <Label htmlFor={field.id}>{loc(field.label)}</Label>
                       <SettingsField
                         field={field}
                         value={values[field.id]}
                         onChange={(v) => updateValue(field.id, v)}
                       />
                       {field.description && (
-                        <p className="text-xs text-muted-foreground">{field.description}</p>
+                        <p className="text-xs text-muted-foreground">{loc(field.description)}</p>
                       )}
                     </>
                   )}
