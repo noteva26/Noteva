@@ -7,8 +7,8 @@ This document serves as a comprehensive guide for AI coding assistants working o
 Noteva is a lightweight, modern blog system built with Rust. It features a WASM-sandboxed plugin system, multi-theme support with any frontend framework, and a React-based admin dashboard. Single-binary deployment, SQLite by default.
 
 - Repository: https://github.com/noteva26/Noteva
-- License: MIT
-- Version: v0.1.6-beta
+- License: GPL-3.0
+- Version: v0.2.1
 
 ## Tech Stack
 

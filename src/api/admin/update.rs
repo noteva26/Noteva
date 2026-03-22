@@ -4,6 +4,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::api::middleware::{ApiError, AuthenticatedUser};
+use sha2::Digest;
 
 /// App version constant - update when releasing
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -343,7 +344,47 @@ pub async fn perform_update(
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to read download: {}", e)))?;
     
-    tracing::info!("Downloaded {} bytes, extracting binary...", archive_bytes.len());
+    tracing::info!("Downloaded {} bytes, verifying checksum...", archive_bytes.len());
+
+    // SHA256 verification: try to download the .sha256 checksum file
+    let checksum_url = format!("{}.sha256", asset.browser_download_url);
+    let checksum_ok = match client.get(&checksum_url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.text().await {
+                Ok(checksum_text) => {
+                    // Checksum file format: "<hash>  <filename>" or just "<hash>"
+                    let expected_hash = checksum_text.trim().split_whitespace().next().unwrap_or("").to_lowercase();
+                    
+                    // Compute SHA256 of downloaded archive
+                    let mut hasher = sha2::Sha256::new();
+                    sha2::Digest::update(&mut hasher, &archive_bytes);
+                    let actual_hash = format!("{:x}", sha2::Digest::finalize(hasher));
+                    
+                    if expected_hash == actual_hash {
+                        tracing::info!("SHA256 checksum verified: {}", actual_hash);
+                        true
+                    } else {
+                        return Err(ApiError::internal_error(format!(
+                            "SHA256 mismatch! Expected: {}, Got: {}. Download may be corrupted.",
+                            expected_hash, actual_hash
+                        )));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Could not read checksum file: {}", e);
+                    false
+                }
+            }
+        }
+        _ => {
+            tracing::warn!("No .sha256 checksum file available for this release, skipping verification");
+            false
+        }
+    };
+    
+    if !checksum_ok {
+        tracing::warn!("Proceeding without checksum verification");
+    }
     
     // Extract binary from archive
     let binary_data = extract_binary(&archive_bytes, asset_name)

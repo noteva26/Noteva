@@ -1,4 +1,4 @@
-﻿//! SQLite implementations for article repository
+//! SQLite implementations for article repository
 use super::*;
 
 // ============================================================================
@@ -103,15 +103,13 @@ pub(super) async fn get_article_by_slug_sqlite(pool: &SqlitePool, slug: &str) ->
     }
 }
 
-pub(super) async fn list_articles_sqlite(pool: &SqlitePool, offset: i64, limit: i64) -> Result<Vec<Article>> {
-    let rows = sqlx::query(
-        r#"
-        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-        FROM articles
-        ORDER BY created_at DESC
-        LIMIT ? OFFSET ?
-        "#,
-    )
+pub(super) async fn list_articles_sqlite(pool: &SqlitePool, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+    let query = format!(
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+         FROM articles ORDER BY {} LIMIT ? OFFSET ?",
+        sort_by.order_by_sql()
+    );
+    let rows = sqlx::query(&query)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
@@ -175,16 +173,13 @@ pub(super) async fn update_article_sqlite(pool: &SqlitePool, id: i64, input: &Up
         .ok_or_else(|| anyhow::anyhow!("Article not found after update"))
 }
 
-pub(super) async fn list_articles_by_category_sqlite(pool: &SqlitePool, category_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>> {
-    let rows = sqlx::query(
-        r#"
-        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-        FROM articles
-        WHERE category_id = ?
-        ORDER BY is_pinned DESC, pin_order ASC, published_at DESC NULLS LAST, created_at DESC
-        LIMIT ? OFFSET ?
-        "#,
-    )
+pub(super) async fn list_articles_by_category_sqlite(pool: &SqlitePool, category_id: i64, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+    let query = format!(
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+         FROM articles WHERE category_id = ? ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?",
+        sort_by.order_by_sql()
+    );
+    let rows = sqlx::query(&query)
     .bind(category_id)
     .bind(limit)
     .bind(offset)
@@ -195,17 +190,14 @@ pub(super) async fn list_articles_by_category_sqlite(pool: &SqlitePool, category
     rows.iter().map(row_to_article_sqlite).collect()
 }
 
-pub(super) async fn list_articles_by_tag_sqlite(pool: &SqlitePool, tag_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>> {
-    let rows = sqlx::query(
-        r#"
-        SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order
-        FROM articles a
-        INNER JOIN article_tags at ON a.id = at.article_id
-        WHERE at.tag_id = ?
-        ORDER BY a.is_pinned DESC, a.pin_order ASC, a.published_at DESC NULLS LAST, a.created_at DESC
-        LIMIT ? OFFSET ?
-        "#,
-    )
+pub(super) async fn list_articles_by_tag_sqlite(pool: &SqlitePool, tag_id: i64, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+    let query = format!(
+        "SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order \
+         FROM articles a INNER JOIN article_tags at ON a.id = at.article_id \
+         WHERE at.tag_id = ? ORDER BY a.is_pinned DESC, a.pin_order ASC, {} LIMIT ? OFFSET ?",
+        sort_by.order_by_sql()
+    );
+    let rows = sqlx::query(&query)
     .bind(tag_id)
     .bind(limit)
     .bind(offset)
@@ -216,16 +208,13 @@ pub(super) async fn list_articles_by_tag_sqlite(pool: &SqlitePool, tag_id: i64, 
     rows.iter().map(row_to_article_sqlite).collect()
 }
 
-pub(super) async fn list_published_articles_sqlite(pool: &SqlitePool, offset: i64, limit: i64) -> Result<Vec<Article>> {
-    let rows = sqlx::query(
-        r#"
-        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-        FROM articles
-        WHERE status = 'published'
-        ORDER BY is_pinned DESC, pin_order ASC, published_at DESC
-        LIMIT ? OFFSET ?
-        "#,
-    )
+pub(super) async fn list_published_articles_sqlite(pool: &SqlitePool, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+    let query = format!(
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+         FROM articles WHERE status = 'published' ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?",
+        sort_by.order_by_sql()
+    );
+    let rows = sqlx::query(&query)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
@@ -235,33 +224,30 @@ pub(super) async fn list_published_articles_sqlite(pool: &SqlitePool, offset: i6
     rows.iter().map(row_to_article_sqlite).collect()
 }
 
-pub(super) async fn search_articles_sqlite(pool: &SqlitePool, keyword: &str, offset: i64, limit: i64, published_only: bool) -> Result<Vec<Article>> {
+pub(super) async fn search_articles_sqlite(pool: &SqlitePool, keyword: &str, offset: i64, limit: i64, published_only: bool, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
     // FTS5 requires at least 2 characters; fallback to LIKE for very short queries
     let use_fts = keyword.chars().count() >= 2;
+    let order = sort_by.order_by_sql();
 
     let rows = if use_fts {
         // FTS5 search — much faster than LIKE for large datasets
         let fts_query = format!("\"{}\"", keyword.replace('"', "\"\""));
         let query = if published_only {
-            r#"
-            SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order
-            FROM articles a
-            INNER JOIN articles_fts fts ON a.id = fts.rowid
-            WHERE fts.articles_fts MATCH ? AND a.status = 'published'
-            ORDER BY a.is_pinned DESC, a.pin_order ASC, a.published_at DESC
-            LIMIT ? OFFSET ?
-            "#
+            format!(
+                "SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order \
+                 FROM articles a INNER JOIN articles_fts fts ON a.id = fts.rowid \
+                 WHERE fts.articles_fts MATCH ? AND a.status = 'published' \
+                 ORDER BY a.is_pinned DESC, a.pin_order ASC, {} LIMIT ? OFFSET ?", order
+            )
         } else {
-            r#"
-            SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order
-            FROM articles a
-            INNER JOIN articles_fts fts ON a.id = fts.rowid
-            WHERE fts.articles_fts MATCH ?
-            ORDER BY a.created_at DESC
-            LIMIT ? OFFSET ?
-            "#
+            format!(
+                "SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order \
+                 FROM articles a INNER JOIN articles_fts fts ON a.id = fts.rowid \
+                 WHERE fts.articles_fts MATCH ? \
+                 ORDER BY {} LIMIT ? OFFSET ?", order
+            )
         };
-        sqlx::query(query)
+        sqlx::query(&query)
             .bind(&fts_query)
             .bind(limit)
             .bind(offset)
@@ -272,23 +258,19 @@ pub(super) async fn search_articles_sqlite(pool: &SqlitePool, keyword: &str, off
         // Fallback to LIKE for single-char queries
         let search_pattern = format!("%{}%", keyword);
         let query = if published_only {
-            r#"
-            SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-            FROM articles
-            WHERE status = 'published' AND (title LIKE ? OR content LIKE ?)
-            ORDER BY is_pinned DESC, pin_order ASC, published_at DESC
-            LIMIT ? OFFSET ?
-            "#
+            format!(
+                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+                 FROM articles WHERE status = 'published' AND (title LIKE ? OR content LIKE ?) \
+                 ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?", order
+            )
         } else {
-            r#"
-            SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-            FROM articles
-            WHERE title LIKE ? OR content LIKE ?
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-            "#
+            format!(
+                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+                 FROM articles WHERE title LIKE ? OR content LIKE ? \
+                 ORDER BY {} LIMIT ? OFFSET ?", order
+            )
         };
-        sqlx::query(query)
+        sqlx::query(&query)
             .bind(&search_pattern)
             .bind(&search_pattern)
             .bind(limit)

@@ -51,7 +51,7 @@ pub fn router() -> Router<AppState> {
         .route("/image", post(upload_image))
         .route("/images", post(upload_images))
         .route("/file", post(upload_file))
-        .route("/plugin/:plugin_id/file", post(upload_plugin_file))
+        .route("/plugin/{plugin_id}/file", post(upload_plugin_file))
 }
 
 /// POST /api/v1/upload/image - Upload a single image
@@ -479,6 +479,15 @@ async fn upload_plugin_file(
     axum::extract::Path(plugin_id): axum::extract::Path<String>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, ApiError> {
+    // Validate plugin_id to prevent path traversal
+    if plugin_id.contains("..")
+        || plugin_id.contains('/')
+        || plugin_id.contains('\\')
+        || !plugin_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(ApiError::validation_error("Invalid plugin ID"));
+    }
+
     let config = &state.upload_config;
     
     // Create plugin-specific upload directory
@@ -540,7 +549,8 @@ async fn upload_plugin_file(
     Err(ApiError::validation_error("No file provided"))
 }
 
-/// Simple base64 encoder (no external dependency)
+/// Base64-encode data (standard alphabet, padding)
+/// Uses a simple inline implementation to avoid adding a crate dependency.
 fn simple_base64_encode(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::with_capacity((data.len() + 2) / 3 * 4);

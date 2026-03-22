@@ -24,8 +24,8 @@ cache:
   # redis_url: "redis://127.0.0.1:6379"
 
 upload:
-  dir: "uploads"
-  max_size: 10485760  # 10MB (for images)
+  path: "uploads"
+  max_file_size: 10485760  # 10MB (for images)
   max_plugin_file_size: 52428800  # 50MB (for plugin files)
   allowed_types:
     - "image/jpeg"

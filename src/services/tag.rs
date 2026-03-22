@@ -343,6 +343,21 @@ impl TagService {
             .map_err(Into::into)
     }
 
+    /// Get tags for multiple articles in one query (batch, avoids N+1)
+    ///
+    /// # Arguments
+    /// * `article_ids` - Slice of article IDs
+    ///
+    /// # Returns
+    /// HashMap of article_id -> Vec<Tag>
+    pub async fn get_by_article_ids(&self, article_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<Tag>>, TagServiceError> {
+        self.repo
+            .get_by_article_ids(article_ids)
+            .await
+            .context("Failed to batch get tags by article IDs")
+            .map_err(Into::into)
+    }
+
     /// Invalidate all tag caches
     ///
     /// CRITICAL: This must be called whenever tags are created, updated, or deleted

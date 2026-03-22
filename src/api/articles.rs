@@ -24,7 +24,7 @@ use serde::Deserialize;
 use crate::api::common::{default_page, default_page_size};
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 use crate::api::responses::{ArticleResponse, PaginatedArticlesResponse};
-use crate::models::{ArticleStatus, ListParams};
+use crate::models::{ArticleSortBy, ArticleStatus, ListParams};
 
 /// Query parameters for listing articles
 #[derive(Debug, Deserialize)]
@@ -165,37 +165,40 @@ pub async fn list_articles(
         None
     };
 
+    // Parse sort order from query string
+    let sort_by = ArticleSortBy::from_str(query.sort.as_deref().unwrap_or("date"));
+
     let result = if let Some(ref keyword) = query.keyword {
         // Search by keyword
         state
             .article_service
-            .search(keyword, &params, filter_published)
+            .search(keyword, &params, filter_published, sort_by)
             .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?
     } else if let Some(cat_id) = category_id {
         // Filter by category
         state
             .article_service
-            .list_by_category(cat_id, &params)
+            .list_by_category(cat_id, &params, sort_by)
             .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?
     } else if let Some(t_id) = tag_id {
         // Filter by tag
         state
             .article_service
-            .list_by_tag(t_id, &params)
+            .list_by_tag(t_id, &params, sort_by)
             .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?
     } else if filter_published {
         state
             .article_service
-            .list_published(&params)
+            .list_published(&params, sort_by)
             .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?
     } else {
         state
             .article_service
-            .list(&params)
+            .list(&params, sort_by)
             .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?
     };
@@ -205,7 +208,14 @@ pub async fn list_articles(
     let per_page = result.per_page;
     let total_pages = result.total_pages();
     
-    // Fetch categories and tags for each article
+    // Batch-fetch tags for all articles (1 query instead of N)
+    let article_ids: Vec<i64> = result.items.iter().map(|a| a.id).collect();
+    let tags_map = state.tag_service
+        .get_by_article_ids(&article_ids)
+        .await
+        .unwrap_or_default();
+
+    // Build responses with category + tags
     let mut articles: Vec<ArticleResponse> = Vec::new();
     for article in result.items {
         let category = state.category_service
@@ -213,21 +223,12 @@ pub async fn list_articles(
             .await
             .ok()
             .flatten();
-        let tags = state.tag_service
-            .get_by_article_id(article.id)
-            .await
-            .unwrap_or_default();
-        
+        let tags = tags_map.get(&article.id).cloned().unwrap_or_default();
+
         let response: ArticleResponse = article.into();
         articles.push(response.with_category(category).with_tags(tags));
     }
 
-    // Apply sort if specified (post-fetch sorting)
-    match query.sort.as_deref() {
-        Some("views") => articles.sort_by(|a, b| b.view_count.cmp(&a.view_count)),
-        Some("comments") => articles.sort_by(|a, b| b.comment_count.cmp(&a.comment_count)),
-        _ => {} // default: already sorted by date from DB
-    }
 
     // Hook: article_list_filter — allow plugins to modify article list
     state.hook_manager.trigger(
@@ -729,21 +730,14 @@ where
 {
     type Rejection = ApiError;
 
-    fn from_request_parts<'life0, 'life1, 'async_trait>(
-        parts: &'life0 mut axum::http::request::Parts,
-        _state: &'life1 S,
-    ) -> core::pin::Pin<Box<dyn core::future::Future<Output = Result<Self, Self::Rejection>> + Send + 'async_trait>>
-    where
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        Self: 'async_trait,
-    {
-        Box::pin(async move {
-            parts
-                .extensions
-                .get::<AuthenticatedUser>()
-                .cloned()
-                .ok_or_else(|| ApiError::unauthorized("Authentication required"))
-        })
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        parts
+            .extensions
+            .get::<AuthenticatedUser>()
+            .cloned()
+            .ok_or_else(|| ApiError::unauthorized("Authentication required"))
     }
 }

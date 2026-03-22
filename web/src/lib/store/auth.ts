@@ -24,21 +24,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true, error: null });
     try {
       const { data } = await authApi.login(usernameOrEmail, password);
-      // If 2FA is enabled, the server returns user+token but no cookies
-      if (data.user.totp_enabled) {
-        set({ isLoading: false });
-        // Throw a 2FA challenge error that the login page will catch
-        const err = new Error("2FA_REQUIRED") as any;
-        err.challengeToken = data.token;
-        err.is2FA = true;
-        throw err;
-      }
       // Cookie is set automatically by the server (httpOnly)
       set({ user: data.user, isAuthenticated: true, isLoading: false });
     } catch (error: any) {
-      if (error.is2FA) {
-        throw error; // Re-throw 2FA challenge
-      }
       const message = error.response?.data?.error?.message || "Login failed";
       set({ error: message, isLoading: false });
       throw error;

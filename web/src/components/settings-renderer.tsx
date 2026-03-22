@@ -11,22 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Plus, X, List, GripVertical } from "lucide-react";
 import type { PluginSettingsSchema, PluginSettingsField } from "@/lib/api";
-import { useTranslation } from "@/lib/i18n";
-
-/**
- * Resolve an i18n-capable string: accepts either a plain string or
- * an object like { "zh-CN": "中文", "en": "English", "zh-TW": "繁體" }.
- * Falls back: exact locale → language prefix → zh-CN → en → first value → raw.
- */
-function resolveI18n(value: unknown, locale: string): string {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const obj = value as Record<string, string>;
-    const lang = locale.split("-")[0]; // "zh" from "zh-CN"
-    return obj[locale] ?? obj[lang] ?? obj["zh-CN"] ?? obj["en"] ?? Object.values(obj)[0] ?? "";
-  }
-  return String(value ?? "");
-}
 
 // --- Value parsing ---
 
@@ -55,7 +39,6 @@ interface ArrayFieldEditorProps {
 }
 
 function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps) {
-  const { t, locale } = useTranslation();
   const items = Array.isArray(value) ? value : [];
 
   const addItem = () => {
@@ -106,7 +89,7 @@ function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps
               <Input
                 key={field.id}
                 type={field.type === "number" ? "number" : "text"}
-                placeholder={resolveI18n(field.placeholder, locale) || resolveI18n(field.label, locale) + (field.required ? " *" : "")}
+                placeholder={field.placeholder || field.label + (field.required ? " *" : "")}
                 value={(item[field.id] as string) || ""}
                 onChange={(e) => updateItem(index, field.id, field.type === "number" ? Number(e.target.value) : e.target.value)}
               />
@@ -116,7 +99,7 @@ function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps
       ))}
       <Button type="button" variant="outline" className="w-full" onClick={addItem}>
         <Plus className="h-4 w-4 mr-2" />
-        {t("common.addItem") || "Add Item"}
+        添加项目
       </Button>
     </div>
   );
@@ -131,7 +114,6 @@ interface SettingsFieldProps {
 }
 
 export function SettingsField({ field, value, onChange }: SettingsFieldProps) {
-  const { locale } = useTranslation();
   const v = value ?? field.default ?? "";
 
   switch (field.type) {
@@ -158,7 +140,7 @@ export function SettingsField({ field, value, onChange }: SettingsFieldProps) {
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             {field.options?.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>{resolveI18n(opt.label, locale)}</SelectItem>
+              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -231,8 +213,6 @@ interface SettingsRendererProps {
  * Used by both plugin and theme settings panels.
  */
 export function SettingsRenderer({ schema, values, onChange, emptyMessage }: SettingsRendererProps) {
-  const { locale } = useTranslation();
-
   if (!schema?.sections?.length) {
     return (
       <p className="text-center text-muted-foreground py-8">
@@ -252,7 +232,7 @@ export function SettingsRenderer({ schema, values, onChange, emptyMessage }: Set
     <Accordion type="multiple" defaultValue={defaultOpen ? [defaultOpen] : []} className="w-full">
       {schema.sections.map((section) => (
         <AccordionItem key={section.id} value={section.id}>
-          <AccordionTrigger className="text-sm">{resolveI18n(section.title, locale)}</AccordionTrigger>
+          <AccordionTrigger className="text-sm">{section.title}</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-4">
               {section.fields.map((field) => (
@@ -260,9 +240,9 @@ export function SettingsRenderer({ schema, values, onChange, emptyMessage }: Set
                   {field.type === "switch" ? (
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <Label htmlFor={field.id}>{resolveI18n(field.label, locale)}</Label>
+                        <Label htmlFor={field.id}>{field.label}</Label>
                         {field.description && (
-                          <p className="text-xs text-muted-foreground">{resolveI18n(field.description, locale)}</p>
+                          <p className="text-xs text-muted-foreground">{field.description}</p>
                         )}
                       </div>
                       <SettingsField
@@ -273,14 +253,14 @@ export function SettingsRenderer({ schema, values, onChange, emptyMessage }: Set
                     </div>
                   ) : (
                     <>
-                      <Label htmlFor={field.id}>{resolveI18n(field.label, locale)}</Label>
+                      <Label htmlFor={field.id}>{field.label}</Label>
                       <SettingsField
                         field={field}
                         value={values[field.id]}
                         onChange={(v) => updateValue(field.id, v)}
                       />
                       {field.description && (
-                        <p className="text-xs text-muted-foreground">{resolveI18n(field.description, locale)}</p>
+                        <p className="text-xs text-muted-foreground">{field.description}</p>
                       )}
                     </>
                   )}

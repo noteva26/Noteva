@@ -20,6 +20,14 @@
 - 🌐 **SEO** — Sitemap、RSS Feed、robots.txt 自动生成
 - 🔐 **安全** — 登录限速、CSRF 保护、安全日志
 
+## 🌐 在线演示
+
+| | |
+|---|---|
+| **演示站** | [demo.noteva.org](https://demo.noteva.org/) |
+| **管理后台** | [demo.noteva.org/manage](https://demo.noteva.org/manage) |
+| **账号 / 密码** | `demo` / `demo123456` |
+
 ## 🚀 部署
 
 ### 一键脚本（推荐）

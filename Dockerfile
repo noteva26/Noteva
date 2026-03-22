@@ -60,8 +60,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy binary from builder
+# Copy binaries from builder
 COPY --from=rust-builder /app/target/release/noteva .
+COPY --from=rust-builder /app/target/release/wasm-worker .
 
 # Copy config example
 COPY config.example.yml ./config.example.yml

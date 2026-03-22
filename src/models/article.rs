@@ -155,6 +155,47 @@ impl std::fmt::Display for ArticleStatus {
     }
 }
 
+/// Sort order for article listings
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ArticleSortBy {
+    /// Sort by published_at DESC (default)
+    #[default]
+    Date,
+    /// Sort by view_count DESC
+    Views,
+    /// Sort by comment_count DESC
+    Comments,
+}
+
+impl ArticleSortBy {
+    /// Parse from query string value
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "views" => Self::Views,
+            "comments" => Self::Comments,
+            _ => Self::Date,
+        }
+    }
+
+    /// Generate SQL ORDER BY clause
+    pub fn order_by_sql(&self) -> &'static str {
+        match self {
+            Self::Date => "published_at DESC, created_at DESC",
+            Self::Views => "view_count DESC, published_at DESC",
+            Self::Comments => "comment_count DESC, published_at DESC",
+        }
+    }
+
+    /// Cache key suffix
+    pub fn cache_key(&self) -> &'static str {
+        match self {
+            Self::Date => "date",
+            Self::Views => "views",
+            Self::Comments => "comments",
+        }
+    }
+}
+
 /// Input for creating a new article
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateArticleInput {

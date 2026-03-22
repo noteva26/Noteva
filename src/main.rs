@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
     tracing::info!("Starting Noteva blog system...");
 
     // Load configuration
-    let config = Config::load(Path::new("config.yml"))?;
+    let config = Config::load_with_env(Path::new("config.yml"))?;
     tracing::debug!("Configuration loaded");
 
     // Initialize database
@@ -224,6 +224,27 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Start expired session cleanup task (runs every 30 minutes)
+    {
+        let user_svc = state.user_service.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1800));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                match user_svc.cleanup_expired_sessions().await {
+                    Ok(count) if count > 0 => {
+                        tracing::info!(deleted = count, "cleaned up expired sessions");
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to cleanup expired sessions");
+                    }
+                    _ => {}
+                }
+            }
+        });
+    }
+
     // Start plugin activation re-verification task
     // Checks enabled plugins with activate.interval_hours > 0 and re-triggers plugin_activate
     {
@@ -369,12 +390,40 @@ async fn main() -> Result<()> {
     // Build router
     let app = api::build_router(state, &config.server.cors_origin);
 
-    // Start server
+    // Start server with graceful shutdown
     let addr = format!("{}:{}", config.server.host, config.server.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(addr = %addr, "server listening");
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
+    tracing::info!("server shut down gracefully");
     Ok(())
+}
+
+/// Wait for shutdown signal (Ctrl+C or SIGTERM)
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("received Ctrl+C, shutting down..."),
+        _ = terminate => tracing::info!("received SIGTERM, shutting down..."),
+    }
 }

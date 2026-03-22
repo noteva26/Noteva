@@ -1,4 +1,4 @@
-﻿//! Article repository
+//! Article repository
 //!
 //! Database operations for articles.
 //!
@@ -11,7 +11,7 @@
 //! - 1.2: WHEN 用户请求文章列表 THEN Article_Manager SHALL 返回分页的文章列表，支持按时间排序
 
 use crate::db::DynDatabasePool;
-use crate::models::{Article, ArticleStatus, CreateArticleInput, UpdateArticleInput};
+use crate::models::{Article, ArticleSortBy, ArticleStatus, CreateArticleInput, UpdateArticleInput};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -40,7 +40,7 @@ pub trait ArticleRepository: Send + Sync {
     async fn get_by_slug(&self, slug: &str) -> Result<Option<Article>>;
 
     /// List articles with pagination (all statuses)
-    async fn list(&self, offset: i64, limit: i64) -> Result<Vec<Article>>;
+    async fn list(&self, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>>;
 
     /// Count total articles (all statuses)
     async fn count(&self) -> Result<i64>;
@@ -52,13 +52,13 @@ pub trait ArticleRepository: Send + Sync {
     async fn delete(&self, id: i64) -> Result<()>;
 
     /// List articles by category with pagination
-    async fn list_by_category(&self, category_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>>;
+    async fn list_by_category(&self, category_id: i64, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>>;
 
     /// List articles by tag with pagination
-    async fn list_by_tag(&self, tag_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>>;
+    async fn list_by_tag(&self, tag_id: i64, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>>;
 
     /// List only published articles with pagination (ordered by published_at DESC)
-    async fn list_published(&self, offset: i64, limit: i64) -> Result<Vec<Article>>;
+    async fn list_published(&self, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>>;
 
     /// Count published articles
     async fn count_published(&self) -> Result<i64>;
@@ -76,7 +76,7 @@ pub trait ArticleRepository: Send + Sync {
     async fn exists_by_slug_excluding(&self, slug: &str, exclude_id: i64) -> Result<bool>;
 
     /// Search articles by keyword in title and content
-    async fn search(&self, keyword: &str, offset: i64, limit: i64, published_only: bool) -> Result<Vec<Article>>;
+    async fn search(&self, keyword: &str, offset: i64, limit: i64, published_only: bool, sort_by: ArticleSortBy) -> Result<Vec<Article>>;
 
     /// Count search results
     async fn count_search(&self, keyword: &str, published_only: bool) -> Result<i64>;
@@ -132,8 +132,8 @@ impl ArticleRepository for SqlxArticleRepository {
         dispatch!(self, get_article_by_slug, slug)
     }
 
-    async fn list(&self, offset: i64, limit: i64) -> Result<Vec<Article>> {
-        dispatch!(self, list_articles, offset, limit)
+    async fn list(&self, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+        dispatch!(self, list_articles, offset, limit, sort_by)
     }
 
     async fn count(&self) -> Result<i64> {
@@ -148,16 +148,16 @@ impl ArticleRepository for SqlxArticleRepository {
         dispatch!(self, delete_article, id)
     }
 
-    async fn list_by_category(&self, category_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>> {
-        dispatch!(self, list_articles_by_category, category_id, offset, limit)
+    async fn list_by_category(&self, category_id: i64, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+        dispatch!(self, list_articles_by_category, category_id, offset, limit, sort_by)
     }
 
-    async fn list_by_tag(&self, tag_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>> {
-        dispatch!(self, list_articles_by_tag, tag_id, offset, limit)
+    async fn list_by_tag(&self, tag_id: i64, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+        dispatch!(self, list_articles_by_tag, tag_id, offset, limit, sort_by)
     }
 
-    async fn list_published(&self, offset: i64, limit: i64) -> Result<Vec<Article>> {
-        dispatch!(self, list_published_articles, offset, limit)
+    async fn list_published(&self, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+        dispatch!(self, list_published_articles, offset, limit, sort_by)
     }
 
     async fn count_published(&self) -> Result<i64> {
@@ -180,8 +180,8 @@ impl ArticleRepository for SqlxArticleRepository {
         dispatch!(self, exists_by_slug_excluding, exclude_id, slug)
     }
 
-    async fn search(&self, keyword: &str, offset: i64, limit: i64, published_only: bool) -> Result<Vec<Article>> {
-        dispatch!(self, search_articles, keyword, offset, limit, published_only)
+    async fn search(&self, keyword: &str, offset: i64, limit: i64, published_only: bool, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+        dispatch!(self, search_articles, keyword, offset, limit, published_only, sort_by)
     }
 
     async fn count_search(&self, keyword: &str, published_only: bool) -> Result<i64> {

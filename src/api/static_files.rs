@@ -163,7 +163,20 @@ async fn serve_theme_static(path: &str, state: &AppState) -> Response {
 async fn serve_uploads(path: &str) -> Response {
     let file_path = PathBuf::from(".").join(path.trim_start_matches('/'));
     
-    match fs::read(&file_path).await {
+    // Path traversal guard: resolve and verify path stays within uploads/
+    let uploads_dir = match PathBuf::from("uploads").canonicalize() {
+        Ok(p) => p,
+        Err(_) => return not_found(),
+    };
+    let canonical = match file_path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return not_found(),
+    };
+    if !canonical.starts_with(&uploads_dir) {
+        return not_found();
+    }
+    
+    match fs::read(&canonical).await {
         Ok(contents) => {
             let content_type = get_content_type(path);
             Response::builder()

@@ -16,7 +16,7 @@ use crate::db::repositories::{
     SqlxCategoryRepository, SqlxPageRepository, SqlxSettingsRepository, SettingsRepository,
     TagRepository, SqlxTagRepository,
 };
-use crate::models::ArticleStatus;
+use crate::models::{ArticleSortBy, ArticleStatus};
 
 /// Helper: get site_url from settings, fallback to empty string
 async fn get_site_url(state: &AppState) -> String {
@@ -139,7 +139,7 @@ pub async fn sitemap_xml(State(state): State<AppState>) -> Response {
 
     // Published articles (up to 5000)
     let article_repo = SqlxArticleRepository::new(state.pool.clone());
-    if let Ok(articles) = article_repo.list_published(0, 5000).await {
+    if let Ok(articles) = article_repo.list_published(0, 5000, ArticleSortBy::default()).await {
         for article in &articles {
             if article.status != ArticleStatus::Published {
                 continue;
@@ -245,7 +245,7 @@ pub async fn feed_xml(State(state): State<AppState>) -> Response {
 
     // Latest 50 published articles
     let article_repo = SqlxArticleRepository::new(state.pool.clone());
-    if let Ok(articles) = article_repo.list_published(0, 50).await {
+    if let Ok(articles) = article_repo.list_published(0, 50, ArticleSortBy::default()).await {
         // Build date from most recent article
         if let Some(first) = articles.first() {
             let pub_date = first.published_at.unwrap_or(first.created_at);

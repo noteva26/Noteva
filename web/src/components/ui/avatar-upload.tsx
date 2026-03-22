@@ -1,4 +1,4 @@
-"use client";
+
 
 import { useState, useRef, useCallback } from "react";
 import { uploadApi } from "@/lib/api";
@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Upload, X, Loader2, User } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useTranslation } from "@/lib/i18n";
 
 interface AvatarUploadProps {
   value?: string;
@@ -18,16 +17,15 @@ interface AvatarUploadProps {
 export function AvatarUpload({ value, onChange, className }: AvatarUploadProps) {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { t } = useTranslation();
 
   const handleUpload = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) {
-      toast.error(t("settings.avatarInvalidType") || "Please select an image file");
+      toast.error("请选择图片文件");
       return;
     }
 
     if (file.size > 2 * 1024 * 1024) {
-      toast.error(t("settings.avatarTooLarge") || "Avatar must be under 2MB");
+      toast.error("头像大小不能超过 2MB");
       return;
     }
 
@@ -35,9 +33,9 @@ export function AvatarUpload({ value, onChange, className }: AvatarUploadProps) 
     try {
       const { data } = await uploadApi.image(file);
       onChange?.(data.url);
-      toast.success(t("settings.avatarUploadSuccess") || "Avatar uploaded");
+      toast.success("头像上传成功");
     } catch (error) {
-      toast.error(t("settings.avatarUploadFailed") || "Avatar upload failed");
+      toast.error("头像上传失败");
     } finally {
       setUploading(false);
     }
@@ -64,7 +62,7 @@ export function AvatarUpload({ value, onChange, className }: AvatarUploadProps) 
       />
 
       {/* Avatar preview */}
-      <div
+      <div 
         className="relative w-16 h-16 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer border-2 border-dashed border-muted-foreground/25 hover:border-primary/50 transition-colors"
         onClick={() => fileInputRef.current?.click()}
       >

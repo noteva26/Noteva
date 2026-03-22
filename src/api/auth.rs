@@ -76,19 +76,6 @@ impl From<crate::models::User> for UserResponse {
     }
 }
 
-/// Build the auth router
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/register", post(register))
-        .route("/login", post(login))
-        .route("/logout", post(logout))
-        .route("/me", get(get_current_user))
-        .route("/profile", put(update_profile))
-        .route("/password", put(change_password))
-
-        .route("/has-admin", get(has_admin))
-}
-
 /// Build protected auth routes (requires auth middleware)
 pub fn protected_router() -> Router<AppState> {
     Router::new()
@@ -203,11 +190,13 @@ async fn register(
     let mut headers = HeaderMap::new();
     headers.insert(
         header::SET_COOKIE,
-        HeaderValue::from_str(&session_cookie).expect("session cookie contains invalid header chars"),
+        HeaderValue::from_str(&session_cookie)
+            .map_err(|_| ApiError::internal_error("Failed to build session cookie"))?,
     );
     headers.append(
         header::SET_COOKIE,
-        HeaderValue::from_str(&csrf_cookie).expect("csrf cookie contains invalid header chars"),
+        HeaderValue::from_str(&csrf_cookie)
+            .map_err(|_| ApiError::internal_error("Failed to build CSRF cookie"))?,
     );
 
     Ok((
@@ -358,11 +347,13 @@ async fn login(
     let mut response_headers = HeaderMap::new();
     response_headers.insert(
         header::SET_COOKIE,
-        HeaderValue::from_str(&session_cookie).expect("session cookie contains invalid header chars"),
+        HeaderValue::from_str(&session_cookie)
+            .map_err(|_| ApiError::internal_error("Failed to build session cookie"))?,
     );
     response_headers.append(
         header::SET_COOKIE,
-        HeaderValue::from_str(&csrf_cookie).expect("csrf cookie contains invalid header chars"),
+        HeaderValue::from_str(&csrf_cookie)
+            .map_err(|_| ApiError::internal_error("Failed to build CSRF cookie"))?,
     );
 
     Ok((
@@ -529,6 +520,10 @@ async fn change_password(
 
 /// Extract IP address from request headers
 /// Checks X-Forwarded-For, X-Real-IP, and falls back to connection info
+///
+/// **Security note**: X-Forwarded-For can be spoofed by clients when not
+/// behind a trusted reverse proxy. Only rely on this for rate limiting,
+/// not for security-critical access control.
 fn extract_ip_address(headers: &HeaderMap) -> Option<String> {
     // Check X-Forwarded-For header (proxy/load balancer)
     if let Some(forwarded) = headers.get("x-forwarded-for") {

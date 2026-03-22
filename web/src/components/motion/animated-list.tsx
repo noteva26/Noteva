@@ -1,4 +1,4 @@
-"use client"
+
 
 import { motion, Variants } from "motion/react"
 import { Children, ReactNode } from "react"

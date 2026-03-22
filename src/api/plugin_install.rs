@@ -373,6 +373,14 @@ pub async fn uninstall_plugin(
     _user: AuthenticatedUser,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    // Validate plugin id to prevent path traversal
+    if id.contains("..")
+        || id.contains('/')
+        || id.contains('\\')
+    {
+        return Err(ApiError::validation_error("Invalid plugin ID"));
+    }
+
     let plugin_path = Path::new("plugins").join(&id);
     
     if !plugin_path.exists() {
@@ -420,12 +428,24 @@ fn extract_zip(data: &[u8], dest: &Path) -> Result<String, ApiError> {
         .and_then(|name: &str| name.split('/').next())
         .map(|s: &str| s.to_string())
         .ok_or_else(|| ApiError::validation_error("Empty archive"))?;
+
+    // Canonicalize dest for Zip Slip prevention
+    let dest_canonical = dest.canonicalize()
+        .map_err(|e| ApiError::internal_error(format!("Canonicalize error: {}", e)))?;
     
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)
             .map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
         
         let outpath = dest.join(file.name());
+
+        // Zip Slip guard: reject entries that escape dest directory
+        let normalized = outpath.components().collect::<std::path::PathBuf>();
+        if !normalized.starts_with(&dest_canonical) && !normalized.starts_with(dest) {
+            return Err(ApiError::validation_error(
+                format!("Malicious ZIP entry detected: {}", file.name())
+            ));
+        }
         
         if file.name().ends_with('/') {
             fs::create_dir_all(&outpath)
@@ -459,6 +479,10 @@ fn extract_tar(data: &[u8], dest: &Path) -> Result<String, ApiError> {
 fn extract_tar_inner<R: Read>(reader: R, dest: &Path) -> Result<String, ApiError> {
     let mut archive = Archive::new(reader);
     let mut plugin_name = String::new();
+
+    // Canonicalize dest for Zip Slip prevention
+    let dest_canonical = dest.canonicalize()
+        .map_err(|e| ApiError::internal_error(format!("Canonicalize error: {}", e)))?;
     
     for entry in archive.entries()
         .map_err(|e| ApiError::validation_error(format!("Invalid TAR: {}", e)))? 
@@ -468,6 +492,13 @@ fn extract_tar_inner<R: Read>(reader: R, dest: &Path) -> Result<String, ApiError
         
         let path = entry.path()
             .map_err(|e| ApiError::internal_error(format!("Path error: {}", e)))?;
+
+        // Zip Slip guard: reject entries containing ..
+        if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            return Err(ApiError::validation_error(
+                format!("Malicious TAR entry detected: {}", path.display())
+            ));
+        }
         
         if plugin_name.is_empty() {
             if let Some(first) = path.components().next() {
@@ -476,6 +507,14 @@ fn extract_tar_inner<R: Read>(reader: R, dest: &Path) -> Result<String, ApiError
         }
         
         let outpath = dest.join(&path);
+
+        // Double-check: final path must be within dest
+        let normalized = outpath.components().collect::<std::path::PathBuf>();
+        if !normalized.starts_with(&dest_canonical) && !normalized.starts_with(dest) {
+            return Err(ApiError::validation_error(
+                format!("Malicious TAR entry detected: {}", path.display())
+            ));
+        }
         
         if entry.header().entry_type().is_dir() {
             fs::create_dir_all(&outpath)

@@ -15,6 +15,8 @@ use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
 
 /// Tables to back up, in dependency order (parents first)
+/// SAFETY: These names are used in `format!()` SQL (e.g. `DELETE FROM {table}`).
+/// This is safe because the values are hardcoded constants, never user input.
 const BACKUP_TABLES: &[&str] = &[
     "users",
     "categories",

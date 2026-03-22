@@ -534,9 +534,9 @@ impl UserService {
             ));
         }
 
-        if input.password.is_empty() {
+        if input.password.len() < 8 {
             return Err(UserServiceError::ValidationError(
-                "Password cannot be empty".to_string(),
+                "Password must be at least 8 characters".to_string(),
             ));
         }
 

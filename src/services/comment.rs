@@ -12,6 +12,9 @@ use crate::plugin::{HookManager, hook_names};
 /// Default cache TTL for comments (5 minutes - comments change frequently)
 const COMMENT_CACHE_TTL_SECS: u64 = 300;
 
+/// Maximum comment body length (10,000 characters)
+const MAX_COMMENT_LENGTH: usize = 10_000;
+
 /// Cache key prefixes
 const CACHE_KEY_COMMENT_BY_ARTICLE: &str = "comment:article:";
 
@@ -81,6 +84,15 @@ impl CommentService {
         ip: Option<String>,
         user_agent: Option<String>,
     ) -> Result<crate::models::Comment> {
+        // Validate comment length
+        if input.content.len() > MAX_COMMENT_LENGTH {
+            anyhow::bail!(
+                "Comment too long ({} chars). Maximum is {} characters.",
+                input.content.len(),
+                MAX_COMMENT_LENGTH
+            );
+        }
+
         // Trigger comment_before_create hook
         let hook_data = self.trigger_hook(
             hook_names::COMMENT_BEFORE_CREATE,

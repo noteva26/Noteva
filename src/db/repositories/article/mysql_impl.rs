@@ -1,4 +1,4 @@
-﻿//! MySQL implementations for article repository
+//! MySQL implementations for article repository
 use super::*;
 
 // ============================================================================
@@ -103,15 +103,13 @@ pub(super) async fn get_article_by_slug_mysql(pool: &MySqlPool, slug: &str) -> R
     }
 }
 
-pub(super) async fn list_articles_mysql(pool: &MySqlPool, offset: i64, limit: i64) -> Result<Vec<Article>> {
-    let rows = sqlx::query(
-        r#"
-        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-        FROM articles
-        ORDER BY created_at DESC
-        LIMIT ? OFFSET ?
-        "#,
-    )
+pub(super) async fn list_articles_mysql(pool: &MySqlPool, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+    let query = format!(
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+         FROM articles ORDER BY {} LIMIT ? OFFSET ?",
+        sort_by.order_by_sql()
+    );
+    let rows = sqlx::query(&query)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
@@ -175,16 +173,13 @@ pub(super) async fn update_article_mysql(pool: &MySqlPool, id: i64, input: &Upda
         .ok_or_else(|| anyhow::anyhow!("Article not found after update"))
 }
 
-pub(super) async fn list_articles_by_category_mysql(pool: &MySqlPool, category_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>> {
-    let rows = sqlx::query(
-        r#"
-        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-        FROM articles
-        WHERE category_id = ?
-        ORDER BY is_pinned DESC, pin_order ASC, COALESCE(published_at, created_at) DESC
-        LIMIT ? OFFSET ?
-        "#,
-    )
+pub(super) async fn list_articles_by_category_mysql(pool: &MySqlPool, category_id: i64, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+    let query = format!(
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+         FROM articles WHERE category_id = ? ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?",
+        sort_by.order_by_sql()
+    );
+    let rows = sqlx::query(&query)
     .bind(category_id)
     .bind(limit)
     .bind(offset)
@@ -195,17 +190,14 @@ pub(super) async fn list_articles_by_category_mysql(pool: &MySqlPool, category_i
     rows.iter().map(row_to_article_mysql).collect()
 }
 
-pub(super) async fn list_articles_by_tag_mysql(pool: &MySqlPool, tag_id: i64, offset: i64, limit: i64) -> Result<Vec<Article>> {
-    let rows = sqlx::query(
-        r#"
-        SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order
-        FROM articles a
-        INNER JOIN article_tags at ON a.id = at.article_id
-        WHERE at.tag_id = ?
-        ORDER BY a.is_pinned DESC, a.pin_order ASC, COALESCE(a.published_at, a.created_at) DESC
-        LIMIT ? OFFSET ?
-        "#,
-    )
+pub(super) async fn list_articles_by_tag_mysql(pool: &MySqlPool, tag_id: i64, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+    let query = format!(
+        "SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order \
+         FROM articles a INNER JOIN article_tags at ON a.id = at.article_id \
+         WHERE at.tag_id = ? ORDER BY a.is_pinned DESC, a.pin_order ASC, {} LIMIT ? OFFSET ?",
+        sort_by.order_by_sql()
+    );
+    let rows = sqlx::query(&query)
     .bind(tag_id)
     .bind(limit)
     .bind(offset)
@@ -216,16 +208,13 @@ pub(super) async fn list_articles_by_tag_mysql(pool: &MySqlPool, tag_id: i64, of
     rows.iter().map(row_to_article_mysql).collect()
 }
 
-pub(super) async fn list_published_articles_mysql(pool: &MySqlPool, offset: i64, limit: i64) -> Result<Vec<Article>> {
-    let rows = sqlx::query(
-        r#"
-        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-        FROM articles
-        WHERE status = 'published'
-        ORDER BY is_pinned DESC, pin_order ASC, published_at DESC
-        LIMIT ? OFFSET ?
-        "#,
-    )
+pub(super) async fn list_published_articles_mysql(pool: &MySqlPool, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+    let query = format!(
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+         FROM articles WHERE status = 'published' ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?",
+        sort_by.order_by_sql()
+    );
+    let rows = sqlx::query(&query)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
@@ -235,29 +224,25 @@ pub(super) async fn list_published_articles_mysql(pool: &MySqlPool, offset: i64,
     rows.iter().map(row_to_article_mysql).collect()
 }
 
-pub(super) async fn search_articles_mysql(pool: &MySqlPool, keyword: &str, offset: i64, limit: i64, published_only: bool) -> Result<Vec<Article>> {
-    // FULLTEXT requires at least 2 characters; fallback to LIKE for very short queries
+pub(super) async fn search_articles_mysql(pool: &MySqlPool, keyword: &str, offset: i64, limit: i64, published_only: bool, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
     let use_ft = keyword.chars().count() >= 2;
+    let order = sort_by.order_by_sql();
 
     let rows = if use_ft {
         let query = if published_only {
-            r#"
-            SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-            FROM articles
-            WHERE status = 'published' AND MATCH(title, content) AGAINST(? IN BOOLEAN MODE)
-            ORDER BY is_pinned DESC, pin_order ASC, published_at DESC
-            LIMIT ? OFFSET ?
-            "#
+            format!(
+                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+                 FROM articles WHERE status = 'published' AND MATCH(title, content) AGAINST(? IN BOOLEAN MODE) \
+                 ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?", order
+            )
         } else {
-            r#"
-            SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-            FROM articles
-            WHERE MATCH(title, content) AGAINST(? IN BOOLEAN MODE)
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-            "#
+            format!(
+                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+                 FROM articles WHERE MATCH(title, content) AGAINST(? IN BOOLEAN MODE) \
+                 ORDER BY {} LIMIT ? OFFSET ?", order
+            )
         };
-        sqlx::query(query)
+        sqlx::query(&query)
             .bind(keyword)
             .bind(limit)
             .bind(offset)
@@ -267,23 +252,19 @@ pub(super) async fn search_articles_mysql(pool: &MySqlPool, keyword: &str, offse
     } else {
         let search_pattern = format!("%{}%", keyword);
         let query = if published_only {
-            r#"
-            SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-            FROM articles
-            WHERE status = 'published' AND (title LIKE ? OR content LIKE ?)
-            ORDER BY is_pinned DESC, pin_order ASC, published_at DESC
-            LIMIT ? OFFSET ?
-            "#
+            format!(
+                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+                 FROM articles WHERE status = 'published' AND (title LIKE ? OR content LIKE ?) \
+                 ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?", order
+            )
         } else {
-            r#"
-            SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
-            FROM articles
-            WHERE title LIKE ? OR content LIKE ?
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-            "#
+            format!(
+                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
+                 FROM articles WHERE title LIKE ? OR content LIKE ? \
+                 ORDER BY {} LIMIT ? OFFSET ?", order
+            )
         };
-        sqlx::query(query)
+        sqlx::query(&query)
             .bind(&search_pattern)
             .bind(&search_pattern)
             .bind(limit)

@@ -15,7 +15,7 @@ mod session;
 mod tag;
 mod user;
 
-pub use article::{Article, ArticleStatus, CreateArticleInput, ListParams, PagedResult, UpdateArticleInput};
+pub use article::{Article, ArticleSortBy, ArticleStatus, CreateArticleInput, ListParams, PagedResult, UpdateArticleInput};
 pub use category::{Category, CategoryTree, CreateCategoryInput, UpdateCategoryInput};
 pub use comment::{Comment, CommentStatus, CommentWithMeta, CreateCommentInput, Like, LikeTargetType};
 pub use nav_item::{CreateNavItemInput, NavItem, NavItemTree, NavItemType, NavOrderItem, UpdateNavItemInput, UpdateNavOrderInput};

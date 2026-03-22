@@ -1,4 +1,4 @@
-﻿//! Article service
+//! Article service
 //!
 //! Implements business logic for article management:
 //! - Create, read, update, delete articles
@@ -17,7 +17,7 @@
 use crate::cache::{Cache, CacheLayer};
 use crate::db::repositories::{ArticleRepository, TagRepository};
 use crate::models::{
-    Article, CreateArticleInput, ListParams, PagedResult, UpdateArticleInput,
+    Article, ArticleSortBy, CreateArticleInput, ListParams, PagedResult, UpdateArticleInput,
 };
 use crate::plugin::{HookManager, hook_names};
 use crate::services::markdown::MarkdownRenderer;
@@ -337,13 +337,14 @@ impl ArticleService {
     pub async fn list(
         &self,
         params: &ListParams,
+        sort_by: ArticleSortBy,
     ) -> Result<PagedResult<Article>, ArticleServiceError> {
         let offset = params.offset();
         let limit = params.limit();
 
         let articles = self
             .repo
-            .list(offset, limit)
+            .list(offset, limit, sort_by)
             .await
             .context("Failed to list articles")?;
 
@@ -364,19 +365,20 @@ impl ArticleService {
     pub async fn list_published(
         &self,
         params: &ListParams,
+        sort_by: ArticleSortBy,
     ) -> Result<PagedResult<Article>, ArticleServiceError> {
         let offset = params.offset();
         let limit = params.limit();
 
-        // Try cache first
-        let cache_key = format!("{}:published:{}:{}", CACHE_KEY_ARTICLE_LIST, offset, limit);
+        // Try cache first (include sort variant in cache key)
+        let cache_key = format!("{}:published:{}:{}:{}", CACHE_KEY_ARTICLE_LIST, offset, limit, sort_by.cache_key());
         if let Ok(Some(cached)) = self.cache.get::<PagedResult<Article>>(&cache_key).await {
             return Ok(cached);
         }
 
         let articles = self
             .repo
-            .list_published(offset, limit)
+            .list_published(offset, limit, sort_by)
             .await
             .context("Failed to list published articles")?;
 
@@ -406,13 +408,14 @@ impl ArticleService {
         &self,
         category_id: i64,
         params: &ListParams,
+        sort_by: ArticleSortBy,
     ) -> Result<PagedResult<Article>, ArticleServiceError> {
         let offset = params.offset();
         let limit = params.limit();
 
         let articles = self
             .repo
-            .list_by_category(category_id, offset, limit)
+            .list_by_category(category_id, offset, limit, sort_by)
             .await
             .context("Failed to list articles by category")?;
 
@@ -437,13 +440,14 @@ impl ArticleService {
         &self,
         tag_id: i64,
         params: &ListParams,
+        sort_by: ArticleSortBy,
     ) -> Result<PagedResult<Article>, ArticleServiceError> {
         let offset = params.offset();
         let limit = params.limit();
 
         let articles = self
             .repo
-            .list_by_tag(tag_id, offset, limit)
+            .list_by_tag(tag_id, offset, limit, sort_by)
             .await
             .context("Failed to list articles by tag")?;
 
@@ -472,13 +476,14 @@ impl ArticleService {
         keyword: &str,
         params: &ListParams,
         published_only: bool,
+        sort_by: ArticleSortBy,
     ) -> Result<PagedResult<Article>, ArticleServiceError> {
         let offset = params.offset();
         let limit = params.limit();
 
         let articles = self
             .repo
-            .search(keyword, offset, limit, published_only)
+            .search(keyword, offset, limit, published_only, sort_by)
             .await
             .context("Failed to search articles")?;
 

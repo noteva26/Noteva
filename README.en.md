@@ -20,6 +20,14 @@ A high-performance blog system built with Rust, supporting multi-theme and plugi
 - 🌐 **SEO** — Sitemap, RSS Feed, robots.txt auto-generation
 - 🔐 **Security** — Login rate limiting, CSRF protection, security logs
 
+## 🌐 Live Demo
+
+| | |
+|---|---|
+| **Demo Site** | [demo.noteva.org](https://demo.noteva.org/) |
+| **Admin Panel** | [demo.noteva.org/manage](https://demo.noteva.org/manage) |
+| **Username / Password** | `demo` / `demo123456` |
+
 ## 🚀 Deployment
 
 ### One-Click Script (Recommended)

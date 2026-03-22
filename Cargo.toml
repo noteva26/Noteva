@@ -1,10 +1,10 @@
 [package]
 name = "noteva"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "A lightweight modern blog system"
 authors = ["Noteva Team"]
-license = "MIT"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/noteva26/Noteva"
 keywords = ["blog", "cms", "rust", "axum"]
 categories = ["web-programming"]
@@ -29,10 +29,10 @@ redis-cache = ["redis"]
 
 [dependencies]
 # Web framework
-axum = { version = "0.7", features = ["macros", "multipart"] }
+axum = { version = "0.8", features = ["macros", "multipart"] }
 tokio = { version = "1", features = ["full"] }
-tower = "0.4"
-tower-http = { version = "0.5", features = ["fs", "cors", "compression-gzip", "trace"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors", "compression-gzip", "trace"] }
 
 # Database
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "mysql", "chrono", "uuid"] }
@@ -111,7 +111,7 @@ getrandom = "0.4.1"
 proptest = "1"
 
 # HTTP testing
-axum-test = "14"
+axum-test = "16"
 
 # Test utilities
 tokio-test = "0.4"

@@ -1,4 +1,4 @@
-"use client";
+
 
 import { useTranslation } from "@/lib/i18n";
 import { useEffect, useState } from "react";

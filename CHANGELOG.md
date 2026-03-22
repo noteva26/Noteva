@@ -4,6 +4,45 @@
 
 Noteva 的所有重要变更都会记录在这里。
 
+## [v0.2.2] - 2026-03-22
+
+### 🔧 框架升级
+- **Axum 0.8** — 后端框架从 0.7.9 升级至 0.8.8（路由语法 `:param` → `{param}`、tower 0.5、tower-http 0.6）
+
+### 🔒 安全修复
+- **CSRF Token 改用 CSPRNG** — `generate_csrf_token()` 从 `DefaultHasher`（可预测）改为 `getrandom`（密码学安全随机数）
+- **SHA256 更新校验** — 自动下载 `.sha256` 校验文件并验证二进制完整性，不匹配则拒绝更新
+- **许可证统一** — `Cargo.toml` 许可证从 MIT 修正为 GPL-3.0-or-later（与 LICENSE 文件一致）
+- **插件上传路径注入防护** — `plugin_id` 新增严格校验，拒绝 `../` 等路径穿越攻击
+- **评论长度限制** — 新增 10,000 字符上限，防止恶意超大评论写入数据库
+- **密码强度统一** — 注册密码校验从「非空」改为「≥8 字符」，与修改密码一致
+- **Cookie 构建安全** — `auth.rs` 中 `HeaderValue::expect()` 改为 `map_err()`，避免非法字符触发 panic
+- **Zip Slip 防护** — 主题及插件 ZIP/TAR 解压均新增路径校验，阻止恶意压缩包写入系统任意位置
+- **上传目录穿越防护** — `/uploads/` 静态文件服务新增 `canonicalize` 校验，阻止 `../` 读取配置文件和数据库
+- **CORS 配置容错** — `cors_origin` 解析失败不再 panic，回退至 `*` 并打印警告日志
+- **主题/插件删除路径校验** — `delete_theme` 和 `uninstall_plugin` 均新增名称校验，阻止路径穿越
+
+### 🧹 代码清理
+- **前端‘use client’清理** — 移除 24 个组件中无效的 Next.js `"use client"` 指令（Vite + React 项目不需要）
+
+### ⚡ 性能优化
+- **N+1 标签查询消除** — 新增 `get_by_article_ids()` 批量方法，文章列表标签获取从 N+1 次查询降为 1 次
+- **数据库级排序** — `ArticleSortBy` 枚举全链路接入（API → Service → Repository），移除内存排序
+- **具名排序支持** — 文章列表新增 `sort_by` 参数，支持按发布时间或创建时间在数据库层排序
+
+### 🐛 Bug 修复
+- **环境变量覆盖失效** — `main.rs` 从 `Config::load()` 改为 `Config::load_with_env()`，`NOTEVA_*` 环境变量现在可正常覆盖配置
+- **config.example.yml 字段名错误** — `upload.dir` → `upload.path`、`upload.max_size` → `upload.max_file_size`
+- **Docker 缺少 wasm-worker** — Dockerfile 运行时镜像新增 `wasm-worker` 二进制复制，修复容器内插件系统无法运行
+- **Release 缺少 wasm-worker** — `release.yml` 三平台打包段均新增 `wasm-worker` 二进制
+- **SHA256 校验格式不匹配** — CI 从单一 `checksums.txt` 改为同时生成每个文件的 `.sha256`，与 `update.rs` 下载格式一致
+
+### 🏗️ 运维改进
+- **过期 Session 定时清理** — `main.rs` 新增每 30 分钟自动清理过期 session 的后台任务
+- **Graceful Shutdown** — 服务器支持 Ctrl+C / SIGTERM 优雅关闭，等待进行中请求完成后再退出（Docker/K8s 兼容）
+
+---
+
 ## [v0.2.1] - 2026-03-13
 
 ### 🎉 新功能

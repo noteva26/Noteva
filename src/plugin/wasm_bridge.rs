@@ -688,12 +688,12 @@ fn load_articles_sync(
     let articles = match tokio::runtime::Handle::try_current() {
         Ok(handle) => {
             tokio::task::block_in_place(|| {
-                handle.block_on(repo.list_published(0, 10000))
+                handle.block_on(repo.list_published(0, 10000, crate::models::ArticleSortBy::default()))
             })
         }
         Err(_) => {
             match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt.block_on(repo.list_published(0, 10000)),
+                Ok(rt) => rt.block_on(repo.list_published(0, 10000, crate::models::ArticleSortBy::default())),
                 Err(_) => return vec![],
             }
         }
@@ -728,12 +728,12 @@ fn load_comments_sync(
     let articles = match tokio::runtime::Handle::try_current() {
         Ok(handle) => {
             tokio::task::block_in_place(|| {
-                handle.block_on(article_repo.list_published(0, 10000))
+                handle.block_on(article_repo.list_published(0, 10000, crate::models::ArticleSortBy::default()))
             })
         }
         Err(_) => {
             match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt.block_on(article_repo.list_published(0, 10000)),
+                Ok(rt) => rt.block_on(article_repo.list_published(0, 10000, crate::models::ArticleSortBy::default())),
                 Err(_) => return serde_json::json!({}),
             }
         }

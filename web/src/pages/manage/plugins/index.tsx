@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 
 export default function PluginsPage() {
-  const { t, locale } = useTranslation();
+  const { t } = useTranslation();
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -223,7 +223,7 @@ export default function PluginsPage() {
 
   const handleInstallFromStore = async (plugin: StorePluginInfo) => {
     if (!plugin.github_url) {
-      toast.error(t("plugin.noGitHubUrl") || "No GitHub URL available");
+      toast.error("No GitHub URL available");
       return;
     }
 
@@ -393,7 +393,7 @@ export default function PluginsPage() {
                             </Badge>
                           )}
                           {!plugin.compatible && (
-                            <span title={plugin.compatibility_message || t("plugin.incompatible") || "Not compatible"}>
+                            <span title={plugin.compatibility_message || "Not compatible"}>
                               <AlertTriangle className="h-4 w-4 text-amber-500" />
                             </span>
                           )}
@@ -418,7 +418,7 @@ export default function PluginsPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <p className="text-sm text-muted-foreground">
-                      {plugin.description || t("common.noDescription") || "No description"}
+                      {plugin.description || "No description"}
                     </p>
 
                     {plugin.shortcodes.length > 0 && (
@@ -537,14 +537,14 @@ export default function PluginsPage() {
                             </CardTitle>
                             <CardDescription className="text-xs">
                               v{plugin.version} · {plugin.author}
-                              {plugin.download_count > 0 && ` · ${plugin.download_count} ${t("plugin.downloads") || "downloads"}`}
+                              {plugin.download_count > 0 && ` · ${plugin.download_count} downloads`}
                             </CardDescription>
                           </div>
                         </div>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <p className="text-sm text-muted-foreground">
-                          {plugin.description || t("common.noDescription") || "No description"}
+                          {plugin.description || "No description"}
                         </p>
 
                         {plugin.tags.length > 0 && (
@@ -632,7 +632,7 @@ export default function PluginsPage() {
                           </h3>
                           <p className="text-xs text-muted-foreground">
                             {release.tag_name}
-                            {release.published_at && ` · ${new Date(release.published_at).toLocaleDateString(locale)}`}
+                            {release.published_at && ` · ${new Date(release.published_at).toLocaleDateString()}`}
                           </p>
                         </div>
                       </div>

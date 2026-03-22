@@ -52,6 +52,9 @@ pub trait TagRepository: Send + Sync {
     /// Get tags for an article
     async fn get_by_article_id(&self, article_id: i64) -> Result<Vec<Tag>>;
 
+    /// Get tags for multiple articles in one query (batch, avoids N+1)
+    async fn get_by_article_ids(&self, article_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<Tag>>>;
+
     /// Remove all tags from an article (for re-tagging)
     async fn remove_all_by_article(&self, article_id: i64) -> Result<()>;
 }
@@ -116,6 +119,13 @@ impl TagRepository for SqlxTagRepository {
     
     async fn get_by_article_id(&self, article_id: i64) -> Result<Vec<Tag>> {
         dispatch!(self, get_tags_by_article, article_id)
+    }
+
+    async fn get_by_article_ids(&self, article_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<Tag>>> {
+        if article_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        dispatch!(self, get_tags_by_article_ids, article_ids)
     }
 
     async fn remove_all_by_article(&self, article_id: i64) -> Result<()> {
@@ -551,6 +561,65 @@ fn row_to_tag_mysql(row: &sqlx::mysql::MySqlRow) -> Result<Tag> {
         name: row.get("name"),
         created_at: row.get("created_at"),
     })
+}
+
+
+async fn get_tags_by_article_ids_sqlite(pool: &SqlitePool, article_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<Tag>>> {
+    if article_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let placeholders: Vec<&str> = article_ids.iter().map(|_| "?").collect();
+    let sql = format!(
+        r#"
+        SELECT t.id, t.slug, t.name, t.created_at, at.article_id
+        FROM tags t
+        INNER JOIN article_tags at ON t.id = at.tag_id
+        WHERE at.article_id IN ({})
+        ORDER BY t.name
+        "#,
+        placeholders.join(", ")
+    );
+    let mut query = sqlx::query(&sql);
+    for id in article_ids {
+        query = query.bind(id);
+    }
+    let rows = query.fetch_all(pool).await.context("Failed to batch get tags by article IDs")?;
+    let mut map: std::collections::HashMap<i64, Vec<Tag>> = std::collections::HashMap::new();
+    for row in &rows {
+        let article_id: i64 = row.get("article_id");
+        let tag = row_to_tag_sqlite(row)?;
+        map.entry(article_id).or_default().push(tag);
+    }
+    Ok(map)
+}
+
+async fn get_tags_by_article_ids_mysql(pool: &MySqlPool, article_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<Tag>>> {
+    if article_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let placeholders: Vec<&str> = article_ids.iter().map(|_| "?").collect();
+    let sql = format!(
+        r#"
+        SELECT t.id, t.slug, t.name, t.created_at, at.article_id
+        FROM tags t
+        INNER JOIN article_tags at ON t.id = at.tag_id
+        WHERE at.article_id IN ({})
+        ORDER BY t.name
+        "#,
+        placeholders.join(", ")
+    );
+    let mut query = sqlx::query(&sql);
+    for id in article_ids {
+        query = query.bind(id);
+    }
+    let rows = query.fetch_all(pool).await.context("Failed to batch get tags by article IDs")?;
+    let mut map: std::collections::HashMap<i64, Vec<Tag>> = std::collections::HashMap::new();
+    for row in &rows {
+        let article_id: i64 = row.get("article_id");
+        let tag = row_to_tag_mysql(row)?;
+        map.entry(article_id).or_default().push(tag);
+    }
+    Ok(map)
 }
 
 impl_dual_fn! {

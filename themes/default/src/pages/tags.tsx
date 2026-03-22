@@ -87,7 +87,7 @@ export default function TagsPage() {
                           </div>
                         </CardHeader>
                         <CardContent>
-                          <p className="text-muted-foreground line-clamp-2 mb-4">{Noteva?.articles.getExcerpt(article)}</p>
+                          <p className="text-muted-foreground line-clamp-2 mb-4">{article.content.slice(0, 200)}...</p>
                           {article.category && (
                             <Link to={`/categories?c=${article.category.slug}`}><Badge variant="outline" className="hover:bg-secondary"><Folder className="h-3 w-3 mr-1" />{article.category.name}</Badge></Link>
                           )}

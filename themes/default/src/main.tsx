@@ -3,14 +3,10 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import "./app/globals.css";
-import { loadCustomLocales } from "./lib/i18n";
 
 // Console logo
 console.log('%c Noteva ', 'background: #4a90e2; color: white; font-size: 24px; font-weight: bold; padding: 10px 20px; border-radius: 5px;');
 console.log('%c🔗 Github: https://github.com/noteva26/Noteva', 'color: #666; font-size: 14px; margin-top: 10px;');
-
-// Load custom locales from server-injected data
-loadCustomLocales();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

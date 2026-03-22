@@ -1337,8 +1337,6 @@
   const i18n = {
     _locale: 'zh-CN',
     _messages: {},
-    _customLocales: [],  // Parsed from window.__CUSTOM_LOCALES__
-    _customLoaded: false,
 
     getLocale() {
       return this._locale;
@@ -1363,59 +1361,6 @@
       });
 
       return text;
-    },
-
-    /**
-     * 从 window.__CUSTOM_LOCALES__ 加载自定义语言包
-     * 服务端在每个主题页面注入此全局变量，包含所有自定义语言包数据
-     * 主题可在初始化时调用，也可直接使用 getCustomLocales() 自动加载
-     */
-    loadCustomLocales() {
-      if (this._customLoaded) return this._customLocales;
-      try {
-        const data = window.__CUSTOM_LOCALES__;
-        if (Array.isArray(data) && data.length > 0) {
-          this._customLocales = data.map(item => ({
-            code: item.code,
-            name: item.name,
-            translations: item.translations || {},
-          }));
-          // 同时注册到 _messages 方便 t() 使用
-          for (const item of this._customLocales) {
-            this.addMessages(item.code, item.translations);
-          }
-        }
-      } catch (e) {
-        console.warn('[Noteva] Failed to load custom locales:', e);
-      }
-      this._customLoaded = true;
-      return this._customLocales;
-    },
-
-    /**
-     * 获取所有自定义语言包（自动加载）
-     * @returns {Array<{code: string, name: string, translations: object}>}
-     */
-    getCustomLocales() {
-      if (!this._customLoaded) this.loadCustomLocales();
-      return this._customLocales;
-    },
-
-    /**
-     * 获取所有可用语言列表（内置 + 自定义）
-     * 主题可用此方法填充语言切换器
-     * @param {Array<{code: string, name: string}>} builtinLocales - 主题内置语言列表
-     * @returns {Array<{code: string, name: string, isCustom?: boolean}>}
-     */
-    getLocales(builtinLocales = []) {
-      const custom = this.getCustomLocales();
-      const customItems = custom.map(c => ({
-        code: c.code,
-        name: c.name,
-        nativeName: c.name,
-        isCustom: true,
-      }));
-      return [...builtinLocales, ...customItems];
     },
   };
 

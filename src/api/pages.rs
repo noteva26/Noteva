@@ -16,9 +16,9 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_pages))
         .route("/", post(create_page))
-        .route("/:id", get(get_page))
-        .route("/:id", put(update_page))
-        .route("/:id", delete(delete_page))
+        .route("/{id}", get(get_page))
+        .route("/{id}", put(update_page))
+        .route("/{id}", delete(delete_page))
 }
 
 pub fn public_router() -> Router<AppState> {
@@ -28,7 +28,7 @@ pub fn public_router() -> Router<AppState> {
 
 pub fn slug_router() -> Router<AppState> {
     Router::new()
-        .route("/:slug", get(get_page_by_slug))
+        .route("/{slug}", get(get_page_by_slug))
 }
 
 #[derive(Serialize)]

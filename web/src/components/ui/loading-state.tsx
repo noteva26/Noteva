@@ -1,9 +1,8 @@
-"use client"
+
 
 import { motion } from "motion/react"
 import { Loader2, LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useTranslation } from "@/lib/i18n"
 
 interface LoadingStateProps {
   title?: string
@@ -78,11 +77,10 @@ export function LoadingStateWithBorder(props: LoadingStateProps) {
  * 内联加载指示器
  */
 export function LoadingInline({ className }: { className?: string }) {
-  const { t } = useTranslation()
   return (
     <div className={cn("flex items-center gap-2 text-muted-foreground", className)}>
       <Loader2 className="size-4 animate-spin" />
-      <span className="text-sm">{t("common.loading")}</span>
+      <span className="text-sm">加载中...</span>
     </div>
   )
 }

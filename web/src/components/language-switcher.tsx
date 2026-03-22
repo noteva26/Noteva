@@ -1,6 +1,6 @@
-"use client";
 
-import { useTranslation } from "@/lib/i18n";
+
+import { useTranslation, locales, Locale } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -11,12 +11,12 @@ import {
 import { Globe, Check } from "lucide-react";
 
 export function LanguageSwitcher() {
-  const { locale, setLocale, t, locales } = useTranslation();
+  const { locale, setLocale } = useTranslation();
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" title={t("common.switchLanguage") || "Switch Language"}>
+        <Button variant="ghost" size="icon" title="切换语言">
           <Globe className="h-5 w-5" />
         </Button>
       </DropdownMenuTrigger>
@@ -27,12 +27,7 @@ export function LanguageSwitcher() {
             onClick={() => setLocale(loc.code)}
             className="flex items-center justify-between"
           >
-            <span>
-              {loc.nativeName}
-              {loc.isCustom && (
-                <span className="ml-1.5 text-[10px] text-muted-foreground opacity-60">★</span>
-              )}
-            </span>
+            <span>{loc.nativeName}</span>
             {locale === loc.code && <Check className="h-4 w-4 ml-2" />}
           </DropdownMenuItem>
         ))}

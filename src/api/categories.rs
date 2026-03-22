@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::api::common::{default_page, default_page_size};
 use crate::api::middleware::{ApiError, AppState};
 use crate::api::responses::{ArticleSummary, PaginatedArticleSummaryResponse};
-use crate::models::ListParams;
+use crate::models::{ArticleSortBy, ListParams};
 
 /// Query parameters for listing articles
 #[derive(Debug, Deserialize)]
@@ -92,7 +92,7 @@ async fn get_category_articles(
 
     let result = state
         .article_service
-        .list_by_category(category.id, &params)
+        .list_by_category(category.id, &params, ArticleSortBy::default())
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 

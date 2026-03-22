@@ -18,9 +18,9 @@ pub fn router() -> Router<AppState> {
         .route("/", post(create_nav_item))
         .route("/tree", get(list_nav_tree))
         .route("/order", put(update_nav_order))
-        .route("/:id", get(get_nav_item))
-        .route("/:id", put(update_nav_item))
-        .route("/:id", delete(delete_nav_item))
+        .route("/{id}", get(get_nav_item))
+        .route("/{id}", put(update_nav_item))
+        .route("/{id}", delete(delete_nav_item))
 }
 
 pub fn public_router() -> Router<AppState> {

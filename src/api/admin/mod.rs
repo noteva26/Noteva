@@ -47,11 +47,11 @@ pub fn router() -> Router<AppState> {
         .route("/update-perform", post(update::perform_update))
         // Category management
         .route("/categories", post(taxonomy::create_category))
-        .route("/categories/:id", put(taxonomy::update_category))
-        .route("/categories/:id", delete(taxonomy::delete_category))
+        .route("/categories/{id}", put(taxonomy::update_category))
+        .route("/categories/{id}", delete(taxonomy::delete_category))
         // Tag management
         .route("/tags", post(taxonomy::create_tag))
-        .route("/tags/:id", delete(taxonomy::delete_tag))
+        .route("/tags/{id}", delete(taxonomy::delete_tag))
         // Theme management
         .route("/themes", get(themes::list_themes))
         .route("/themes/switch", post(themes::switch_theme))
@@ -66,8 +66,8 @@ pub fn router() -> Router<AppState> {
         // Comment management
         .route("/comments", get(list_comments))
         .route("/comments/pending", get(list_pending_comments))
-        .route("/comments/:id/approve", post(approve_comment))
-        .route("/comments/:id/reject", post(reject_comment))
+        .route("/comments/{id}/approve", post(approve_comment))
+        .route("/comments/{id}/reject", post(reject_comment))
         // Login logs (security)
         .route("/login-logs", get(security::list_login_logs))
         // Backup & Restore
@@ -78,5 +78,5 @@ pub fn router() -> Router<AppState> {
         // File management
         .route("/files", get(files::list_files))
         .route("/files/stats", get(files::get_storage_stats))
-        .route("/files/:filename", delete(files::delete_file))
+        .route("/files/{filename}", delete(files::delete_file))
 }

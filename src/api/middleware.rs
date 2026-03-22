@@ -419,33 +419,11 @@ pub fn is_demo_mode() -> bool {
 // ============================================================================
 
 /// Generate a random CSRF token (64-char hex string)
-/// Uses multiple entropy sources without requiring external crates
+/// Uses OS-provided CSPRNG via getrandom for cryptographic security
 pub fn generate_csrf_token() -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    
-    let mut hasher = DefaultHasher::new();
-    // Mix multiple entropy sources
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-        .hash(&mut hasher);
-    std::thread::current().id().hash(&mut hasher);
-    COUNTER.fetch_add(1, Ordering::Relaxed).hash(&mut hasher);
-    let h1 = hasher.finish();
-    
-    // Second round with different seed
-    let mut hasher2 = DefaultHasher::new();
-    h1.hash(&mut hasher2);
-    std::time::Instant::now().hash(&mut hasher2);
-    COUNTER.fetch_add(1, Ordering::Relaxed).hash(&mut hasher2);
-    let h2 = hasher2.finish();
-    
-    format!("{:016x}{:016x}{:016x}{:016x}", h1, h2, h1 ^ h2, h1.wrapping_mul(h2))
+    let mut buf = [0u8; 32];
+    getrandom::fill(&mut buf).expect("Failed to generate random bytes for CSRF token");
+    buf.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 /// Extract CSRF token from cookie

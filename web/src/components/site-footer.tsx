@@ -1,4 +1,4 @@
-"use client";
+
 
 import { useSiteStore } from "@/lib/store/site";
 import { useTranslation } from "@/lib/i18n";
