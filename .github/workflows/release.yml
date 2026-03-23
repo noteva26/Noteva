@@ -136,6 +136,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract changelog
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES=$(awk "/^## \[v${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.en.md)
+          if [ -z "$NOTES" ]; then
+            NOTES="See [CHANGELOG](https://github.com/noteva26/Noteva/blob/main/CHANGELOG.en.md) for details."
+          fi
+          echo "NOTES<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -166,38 +181,32 @@ jobs:
             checksums.txt
           body: |
             ## Noteva ${{ github.ref_name }}
-            
+
+            ${{ steps.changelog.outputs.NOTES }}
+
+            ---
+
             ### Downloads
-            
+
             **Linux**
             - x86_64 (Intel/AMD): `noteva-linux-x86_64.tar.gz`
-            - ARM64 (树莓派/ARM服务器): `noteva-linux-arm64.tar.gz`
-            
+
             **Windows**
             - x86_64 (Intel/AMD): `noteva-windows-x86_64.zip`
             - ARM64: `noteva-windows-arm64.zip`
-            
+
             **macOS**
             - x86_64 (Intel): `noteva-macos-x86_64.tar.gz`
             - ARM64 (Apple Silicon M1/M2/M3): `noteva-macos-arm64.tar.gz`
-            
+
             ### Quick Start
             ```bash
             # Linux / macOS
             tar -xzf noteva-*.tar.gz
             cp config.example.yml config.yml
             ./noteva
-            
-            # Windows
-            # 解压 noteva-windows-*.zip
-            # 复制 config.example.yml 为 config.yml
-            # 运行 noteva.exe
+
+            # Windows: unzip, copy config.example.yml to config.yml, run noteva.exe
             ```
-            
-            ### First Time Setup
-            1. Visit http://localhost:8080
-            2. Go to `/manage` to create your admin account
-            3. Start blogging!
-            
-            ### What's New
-            See [CHANGELOG](https://github.com/noteva26/Noteva/releases) for details.
+
+            Visit http://localhost:8080/manage to create your admin account.

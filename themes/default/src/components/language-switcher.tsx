@@ -1,6 +1,6 @@
 
 
-import { useTranslation, locales, Locale } from "@/lib/i18n";
+import { useTranslation, Locale } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -11,7 +11,7 @@ import {
 import { Globe, Check } from "lucide-react";
 
 export function LanguageSwitcher() {
-  const { locale, setLocale } = useTranslation();
+  const { locale, setLocale, locales } = useTranslation();
 
   return (
     <DropdownMenu>

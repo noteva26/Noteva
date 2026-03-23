@@ -53,10 +53,32 @@ interface I18nState {
   _version: number;
 }
 
+/**
+ * Detect browser language and match against available locales.
+ * Matching priority: exact match (zh-CN) → language prefix (zh → zh-CN) → fallback to en
+ */
+function detectBrowserLocale(): Locale {
+  if (typeof navigator === "undefined") return "en";
+
+  const langs = navigator.languages?.length ? navigator.languages : [navigator.language];
+  const available = builtinLocales.map((l) => l.code);
+
+  for (const lang of langs) {
+    // Exact match: zh-CN → zh-CN
+    if (available.includes(lang)) return lang;
+    // Prefix match: zh → zh-CN, ja → ja
+    const prefix = lang.split("-")[0];
+    const match = available.find((a) => a === prefix || a.startsWith(prefix + "-"));
+    if (match) return match;
+  }
+
+  return "en";
+}
+
 export const useI18nStore = create<I18nState>()(
   persist(
     (set) => ({
-      locale: "zh-CN",
+      locale: detectBrowserLocale(),
       setLocale: (locale) => set({ locale }),
       _version: 0,
     }),

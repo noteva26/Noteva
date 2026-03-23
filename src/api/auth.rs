@@ -156,9 +156,11 @@ async fn register(
 
     // Create session for the new user
     let login_input = LoginInput::new(&user.username, &password);
+    let ip_addr = extract_ip_address(&headers);
+    let ua = headers.get(header::USER_AGENT).and_then(|h| h.to_str().ok()).map(String::from);
     let session = state
         .user_service
-        .login(login_input)
+        .login(login_input, ip_addr, ua)
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
@@ -251,7 +253,7 @@ async fn login(
 
     let session = state
         .user_service
-        .login(input)
+        .login(input, ip_address.clone(), user_agent.clone())
         .await
         .map_err(|e| {
             // Record failed attempt
@@ -392,7 +394,7 @@ async fn logout(
 
     state
         .user_service
-        .logout(token)
+        .logout(token, Some(_user.0.id))
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 

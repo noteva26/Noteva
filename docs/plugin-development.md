@@ -1,6 +1,6 @@
 # Noteva 插件开发文档
 
-> 版本：v0.1.8-beta
+> 版本：v0.2.3
 
 ## 快速开始
 
@@ -984,14 +984,14 @@ fn write_output(json: &str) -> i32 {
 
 | 钩子名 | 类型 | 触发时机 | 事件数据 | 超时 |
 |-------|------|---------|---------|------|
-| `comment_before_create` | Filter | 评论创建前 | `{ article_id, content, author_name, author_email }` | 5s |
-| `comment_after_create` | Action | 评论创建后 | `{ id, article_id, content, author_name }` | 5s |
+| `comment_before_create` | Filter | 评论创建前 | `{ article_id, parent_id, content, nickname, email, user_id, ip, user_agent }` | 5s |
+| `comment_after_create` | Action | 评论创建后 | `{ id, article_id, parent_id, content, nickname, email, user_id, status, ip, user_agent, created_at }` | 5s |
 | `comment_before_delete` | Filter | 评论删除前 | `{ id }` | 5s |
 | `comment_after_delete` | Action | 评论删除后 | `{ id, success }` | 5s |
 | `comment_before_display` | Filter | 评论显示前 | `{ comments, count }` | 5s |
-| `comment_content_filter` | Filter | 评论内容过滤 | `{ content, article_id }` | 5s |
-| `comment_approve` | Action | 评论审核通过 | `{ id, article_id, status }` | 5s |
-| `comment_reject` | Action | 评论标记为垃圾 | `{ id, article_id, status }` | 5s |
+| `comment_content_filter` | Filter | 评论内容过滤 | `{ content, article_id, user_id, ip, user_agent, nickname, email }` | 5s |
+| `comment_approve` | Action | 评论审核通过 | `{ id, approved }` | 5s |
+| `comment_reject` | Action | 评论标记为垃圾 | `{ id, rejected }` | 5s |
 
 #### Page 钩子
 
@@ -1017,13 +1017,13 @@ fn write_output(json: &str) -> i32 {
 
 | 钩子名 | 类型 | 触发时机 | 事件数据 | 超时 |
 |-------|------|---------|---------|------|
-| `user_login_before` | Filter | 用户登录前 | `{ username_or_email }` | 5s |
-| `user_login_after` | Action | 用户登录后 | `{ user_id, username, session_id }` | 5s |
-| `user_login_failed` | Action | 登录失败时 | `{ username_or_email, reason }` | 5s |
-| `user_logout` | Action | 用户登出时 | `{ session_id }` | 5s |
+| `user_login_before` | Filter | 用户登录前 | `{ username_or_email, ip }` | 5s |
+| `user_login_after` | Action | 用户登录后 | `{ user_id, username, session_id, ip, user_agent }` | 5s |
+| `user_login_failed` | Action | 登录失败时 | `{ username_or_email, reason, user_id?, ip }` | 5s |
+| `user_logout` | Action | 用户登出时 | `{ session_id, user_id }` | 5s |
 | `user_register_before` | Filter | 用户注册前 | `{ username, email }` | 5s |
 | `user_register_after` | Action | 用户注册后 | `{ id, username, email, role }` | 5s |
-| `user_profile_update` | Action | 修改头像/昵称后 | `{ id, username, display_name }` | 5s |
+| `user_profile_update` | Action | 修改资料后 | `{ id, username, email, display_name, avatar, role }` | 5s |
 | `user_password_change` | Action | 修改密码后 | `{ user_id }` | 5s |
 
 #### Settings 钩子
@@ -1048,8 +1048,8 @@ fn write_output(json: &str) -> i32 {
 | `system_init` | Action | 系统初始化完成 | `{ version, timestamp }` | 5s |
 | `cache_clear` | Action | 缓存清除时 | `{ scope, timestamp }` | 5s |
 | `theme_switch` | Action | 主题切换时 | `{ old_theme, new_theme, timestamp }` | 5s |
-| `api_request_before` | Filter | API 请求处理前 | `{ method, path, timestamp }` | 5s |
-| `api_request_after` | Action | API 请求处理后 | `{ method, path, status, timestamp }` | 5s |
+| `api_request_before` | Filter | API 请求处理前 | `{ method, uri, path, ip, user_agent, timestamp }` | 5s |
+| `api_request_after` | Action | API 请求处理后 | `{ method, uri, path, status, ip, user_agent, timestamp }` | 5s |
 
 #### Plugin 钩子
 

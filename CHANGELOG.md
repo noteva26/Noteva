@@ -4,6 +4,26 @@
 
 Noteva 的所有重要变更都会记录在这里。
 
+## [v0.2.3] - 2026-03-23
+
+### 🔌 插件系统增强
+- **Hook 数据完整性补齐** — 评论、用户登录、API 中间件等 11 个 Hook 触发点补齐 `ip`、`user_agent`、`email`、`created_at` 等上下文字段，插件无需 hack 即可获取完整请求信息
+- **插件开发文档更新** — `docs/plugin-development.md` Hook 参考表同步更新，所有事件数据字段与代码一致
+
+### 🔧 框架升级
+- **Default 主题 + 管理后台 Tailwind CSS v4** — 从 v3.4 升级至 v4，CSS-first 配置（`@theme` + `@plugin`），移除 `tailwind.config.ts`、`postcss.config`，使用 `@tailwindcss/vite` 插件
+
+### 📝 体验优化
+- **自动语言检测** — 首次访问时根据浏览器语言环境自动匹配可用语言包，无匹配则回退到英文
+
+### 🐛 Bug 修复
+- **前台自定义语言不显示** — 修复 Default 主题语言切换器仅显示内置语言的问题，现在正确加载后台添加的自定义语言包
+
+### 🏗️ CI/CD
+- **Release Notes 自动化** — `release.yml` 从 `CHANGELOG.en.md` 自动提取当前版本日志，取代硬编码模板
+
+---
+
 ## [v0.2.2] - 2026-03-22
 
 ### 🔧 框架升级

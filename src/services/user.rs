@@ -244,12 +244,13 @@ impl UserService {
     /// Satisfies requirements:
     /// - 4.3: WHEN 用户登录 THEN User_Service SHALL 验证凭据并返回会话令牌
     /// - 4.5: IF 登录凭据无效 THEN User_Service SHALL 返回认证错误
-    pub async fn login(&self, input: LoginInput) -> Result<Session, UserServiceError> {
+    pub async fn login(&self, input: LoginInput, ip: Option<String>, user_agent: Option<String>) -> Result<Session, UserServiceError> {
         // Trigger user_login_before hook
         let hook_data = self.trigger_hook(
             hook_names::USER_LOGIN_BEFORE,
             json!({
                 "username_or_email": input.username_or_email,
+                "ip": ip,
             })
         );
         
@@ -270,6 +271,7 @@ impl UserService {
                     json!({
                         "username_or_email": input.username_or_email,
                         "reason": "user_not_found",
+                        "ip": ip,
                     })
                 );
                 UserServiceError::AuthenticationError("Invalid username or password".to_string())
@@ -287,6 +289,7 @@ impl UserService {
                     "username_or_email": input.username_or_email,
                     "user_id": user.id,
                     "reason": "invalid_password",
+                    "ip": ip,
                 })
             );
             return Err(UserServiceError::AuthenticationError(
@@ -303,6 +306,7 @@ impl UserService {
                     "username_or_email": input.username_or_email,
                     "user_id": user.id,
                     "reason": "user_banned",
+                    "ip": ip,
                 })
             );
             return Err(UserServiceError::AuthenticationError(
@@ -320,6 +324,8 @@ impl UserService {
                 "user_id": user.id,
                 "username": user.username,
                 "session_id": session.id,
+                "ip": ip,
+                "user_agent": user_agent,
             })
         );
 
@@ -344,12 +350,13 @@ impl UserService {
     ///
     /// # Hooks
     /// - `user_logout` - Triggered when user logs out
-    pub async fn logout(&self, session_id: &str) -> Result<(), UserServiceError> {
+    pub async fn logout(&self, session_id: &str, user_id: Option<i64>) -> Result<(), UserServiceError> {
         // Trigger user_logout hook
         self.trigger_hook(
             hook_names::USER_LOGOUT,
             json!({
                 "session_id": session_id,
+                "user_id": user_id,
             })
         );
 
@@ -402,7 +409,10 @@ impl UserService {
             json!({
                 "id": updated.id,
                 "username": updated.username,
+                "email": updated.email,
                 "display_name": updated.display_name,
+                "avatar": updated.avatar,
+                "role": format!("{:?}", updated.role),
             }),
         );
         
@@ -762,7 +772,7 @@ mod tests {
 
         // Login with username
         let login_input = LoginInput::new("testuser", "password123");
-        let session = service.login(login_input).await.expect("Failed to login");
+        let session = service.login(login_input, None, None).await.expect("Failed to login");
 
         assert!(!session.id.is_empty());
         assert!(!session.is_expired());
@@ -778,7 +788,7 @@ mod tests {
 
         // Login with email
         let login_input = LoginInput::new("test@example.com", "password123");
-        let session = service.login(login_input).await.expect("Failed to login");
+        let session = service.login(login_input, None, None).await.expect("Failed to login");
 
         assert!(!session.id.is_empty());
         assert!(!session.is_expired());
@@ -794,7 +804,7 @@ mod tests {
 
         // Login with wrong password (Requirement 4.5)
         let login_input = LoginInput::new("testuser", "wrongpassword");
-        let result = service.login(login_input).await;
+        let result = service.login(login_input, None, None).await;
 
         assert!(matches!(result, Err(UserServiceError::AuthenticationError(_))));
     }
@@ -805,7 +815,7 @@ mod tests {
 
         // Login with nonexistent user (Requirement 4.5)
         let login_input = LoginInput::new("nonexistent", "password123");
-        let result = service.login(login_input).await;
+        let result = service.login(login_input, None, None).await;
 
         assert!(matches!(result, Err(UserServiceError::AuthenticationError(_))));
     }
@@ -823,7 +833,7 @@ mod tests {
         let registered_user = service.register(register_input).await.expect("Failed to register");
 
         let login_input = LoginInput::new("testuser", "password123");
-        let session = service.login(login_input).await.expect("Failed to login");
+        let session = service.login(login_input, None, None).await.expect("Failed to login");
 
         // Validate session (Requirement 4.7)
         let user = service
@@ -867,7 +877,7 @@ mod tests {
         service.register(register_input).await.expect("Failed to register");
 
         let login_input = LoginInput::new("testuser", "password123");
-        let session = service.login(login_input).await.expect("Failed to login");
+        let session = service.login(login_input, None, None).await.expect("Failed to login");
 
         // Session should be expired immediately (Requirement 4.4)
         let result = service
@@ -891,10 +901,10 @@ mod tests {
         service.register(register_input).await.expect("Failed to register");
 
         let login_input = LoginInput::new("testuser", "password123");
-        let session = service.login(login_input).await.expect("Failed to login");
+        let session = service.login(login_input, None, None).await.expect("Failed to login");
 
         // Logout
-        service.logout(&session.id).await.expect("Failed to logout");
+        service.logout(&session.id, None).await.expect("Failed to logout");
 
         // Session should no longer be valid
         let result = service
@@ -910,7 +920,7 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         // Logout with nonexistent session should not error
-        let result = service.logout("nonexistent-session-id").await;
+        let result = service.logout("nonexistent-session-id", None).await;
         assert!(result.is_ok());
     }
 
@@ -977,7 +987,7 @@ mod tests {
         service.register(register_input).await.expect("Failed to register");
 
         let login_input = LoginInput::new("testuser", "password123");
-        service.login(login_input).await.expect("Failed to login");
+        service.login(login_input, None, None).await.expect("Failed to login");
 
         // Cleanup expired sessions
         let count = service
@@ -1110,7 +1120,7 @@ mod property_tests {
 
                 // Login with the same credentials
                 let login_input = LoginInput::new(unique_username.clone(), password.clone());
-                let session = service.login(login_input).await
+                let session = service.login(login_input, None, None).await
                     .expect("Login should succeed with valid credentials");
 
                 // Validate the session token
@@ -1289,7 +1299,7 @@ mod property_tests {
 
                 // Login (creates an already-expired session)
                 let login_input = LoginInput::new(unique_username.clone(), password.clone());
-                let session = service.login(login_input).await
+                let session = service.login(login_input, None, None).await
                     .expect("Login should succeed");
 
                 // The session should be expired

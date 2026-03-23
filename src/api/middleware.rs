@@ -287,12 +287,21 @@ pub async fn api_hooks_middleware(
     let method = request.method().to_string();
     let uri = request.uri().to_string();
     let path = request.uri().path().to_string();
+    let ip = request.headers().get("x-forwarded-for")
+        .or_else(|| request.headers().get("x-real-ip"))
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or("").trim().to_string());
+    let ua = request.headers().get(header::USER_AGENT)
+        .and_then(|h| h.to_str().ok())
+        .map(String::from);
     
     // Trigger api_request_before hook
     let before_data = serde_json::json!({
         "method": method,
         "uri": uri,
         "path": path,
+        "ip": ip,
+        "user_agent": ua,
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
     state.hook_manager.trigger(hook_names::API_REQUEST_BEFORE, before_data);
@@ -307,6 +316,8 @@ pub async fn api_hooks_middleware(
         "uri": uri,
         "path": path,
         "status": status,
+        "ip": ip,
+        "user_agent": ua,
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
     state.hook_manager.trigger(hook_names::API_REQUEST_AFTER, after_data);

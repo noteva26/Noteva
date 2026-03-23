@@ -103,6 +103,8 @@ impl CommentService {
                 "nickname": input.nickname,
                 "email": input.email,
                 "user_id": user_id,
+                "ip": ip.as_deref(),
+                "user_agent": user_agent.as_deref(),
             })
         );
         
@@ -118,6 +120,10 @@ impl CommentService {
                 "content": input.content,
                 "article_id": input.article_id,
                 "user_id": user_id,
+                "ip": ip.as_deref(),
+                "user_agent": user_agent.as_deref(),
+                "nickname": input.nickname,
+                "email": input.email,
             })
         );
         
@@ -144,7 +150,7 @@ impl CommentService {
             }
         }
 
-        let comment = self.repo.create_with_status(input.clone(), user_id, ip, user_agent, status).await?;
+        let comment = self.repo.create_with_status(input.clone(), user_id, ip.clone(), user_agent.clone(), status).await?;
 
         // Invalidate cache - CRITICAL: must clear comment cache for this article
         let cache_key = format!("{}{}", CACHE_KEY_COMMENT_BY_ARTICLE, input.article_id);
@@ -159,8 +165,12 @@ impl CommentService {
                 "parent_id": comment.parent_id,
                 "content": comment.content,
                 "nickname": comment.nickname,
+                "email": comment.email,
                 "user_id": comment.user_id,
                 "status": comment.status.to_string(),
+                "ip": ip.as_deref(),
+                "user_agent": user_agent.as_deref(),
+                "created_at": comment.created_at.to_rfc3339(),
             })
         );
 
