@@ -159,14 +159,14 @@ export default function PostPage() {
       <SiteHeader />
       <main className="flex-1">
         <div className="container py-8 max-w-6xl mx-auto flex gap-8">
-          <article className="flex-1 min-w-0 max-w-4xl">
+          <article className="flex-1 min-w-0 max-w-4xl" data-article-id={article.id}>
             <Button variant="ghost" size="sm" className="mb-6" onClick={() => navigate(-1)}>
               <ArrowLeft className="h-4 w-4 mr-2" />{t("common.back")}
             </Button>
 
             <header className="mb-8">
               <h1 className="text-4xl font-bold mb-4">{article.title}</h1>
-              <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground article-meta">
                 <span className="flex items-center gap-1">
                   <Calendar className="h-4 w-4" />
                   {new Date(Noteva?.articles.getDate(article) || '').toLocaleDateString(getDateLocale(), { year: "numeric", month: "long", day: "numeric" })}
@@ -190,7 +190,7 @@ export default function PostPage() {
             <Card>
               <CardContent className="prose dark:prose-invert max-w-none p-6 md:p-8 [&_img.twemoji]:!w-[1.2em] [&_img.twemoji]:!h-[1.2em] [&_img.twemoji]:!inline-block [&_img.twemoji]:!m-0 [&_img.twemoji]:!align-[-0.1em] [&_img.emoji]:!w-[1.2em] [&_img.emoji]:!h-[1.2em] [&_img.emoji]:!inline-block [&_img.emoji]:!m-0 [&_img.emoji]:!align-[-0.1em]">
                 <PluginSlot name="article_content_top" />
-                <div dangerouslySetInnerHTML={{ __html: Noteva?.articles.getHtml(article) || '' }} />
+                <div className="article-content" dangerouslySetInnerHTML={{ __html: Noteva?.articles.getHtml(article) || '' }} />
                 <PluginSlot name="article_content_bottom" />
               </CardContent>
             </Card>

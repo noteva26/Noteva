@@ -80,7 +80,7 @@ export default function ArchivesPage() {
                       <h3 className="text-lg font-medium text-muted-foreground mb-3">{monthGroup.month}月</h3>
                       <ul className="space-y-3 pl-4 border-l-2 border-muted">
                         {monthGroup.articles.map((article) => (
-                          <li key={article.id} className="relative">
+                          <li key={article.id} data-article-id={article.id} className="relative">
                             <span className="absolute -left-[9px] top-2 w-4 h-4 bg-background border-2 border-muted rounded-full" />
                             <Link to={getArticleUrl(article)} className="block pl-6 py-1 hover:text-primary transition-colors">
                               <span className="text-sm text-muted-foreground mr-2">{new Date(getNoteva()?.articles.getDate(article) || '').getDate()}日</span>

@@ -647,6 +647,8 @@ pub struct PluginStoreResponse {
 #[allow(dead_code)]
 struct StoreApiItem {
     slug: String,
+    #[serde(default)]
+    plugin_id: String,
     name: String,
     description: String,
     #[serde(default)]
@@ -709,9 +711,10 @@ async fn get_plugin_store(
 
     let plugins: Vec<StorePluginInfo> = store_data.items.into_iter().map(|item| {
         let cover = if item.cover_image.is_empty() { None } else { Some(item.cover_image) };
+        let effective_id = if item.plugin_id.is_empty() { item.slug.clone() } else { item.plugin_id.clone() };
         StorePluginInfo {
-            installed: installed_ids.contains(&item.slug),
-            slug: item.slug,
+            installed: installed_ids.contains(&item.plugin_id) || installed_ids.contains(&item.slug),
+            slug: effective_id,
             name: item.name,
             version: item.version,
             description: item.description,
@@ -735,7 +738,7 @@ async fn get_plugin_store(
 /// Store check-updates request/response
 #[derive(Debug, Serialize)]
 struct StoreInstalledItem {
-    slug: String,
+    id: String,
     version: String,
 }
 
@@ -767,7 +770,7 @@ async fn check_plugin_updates(
         .get_all()
         .iter()
         .map(|p| StoreInstalledItem {
-            slug: p.metadata.id.clone(),
+            id: p.metadata.id.clone(),
             version: p.metadata.version.clone(),
         })
         .collect();

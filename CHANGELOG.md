@@ -4,6 +4,17 @@
 
 Noteva 的所有重要变更都会记录在这里。
 
+## [v0.2.4] - 2026-03-28
+
+### 🔌 插件集成规范化
+- **Default 主题 data 属性补齐** — 7 个组件统一添加 `data-article-id`、`data-comment-id`、`data-page-id` 属性及语义 CSS class（`article-meta`、`article-content`、`comment-meta`、`comment-content`、`comment-actions`、`article-list`、`page-content`），插件可通过标准选择器定位 DOM
+- **自定义页面插件扩展点** — `custom-page.tsx` 新增 `page_content_top` / `page_content_bottom` PluginSlot 插槽
+
+### 🐛 Bug 修复
+- **插件商城 ID 映射错误** — 修复主程序消费商城 API 时 `StorePluginInfo.slug` 直接使用原始 slug 而非 `plugin_id` 的问题，现在优先使用 `plugin_id`（为空时回退 slug）
+
+---
+
 ## [v0.2.3] - 2026-03-23
 
 ### 🔌 插件系统增强

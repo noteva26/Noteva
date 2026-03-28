@@ -4,6 +4,17 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.2.4] - 2026-03-28
+
+### 🔌 Plugin Integration Standardization
+- **Default Theme Data Attributes** — Added `data-article-id`, `data-comment-id`, `data-page-id` attributes and semantic CSS classes (`article-meta`, `article-content`, `comment-meta`, `comment-content`, `comment-actions`, `article-list`, `page-content`) across 7 components, enabling plugins to target DOM elements via standard selectors
+- **Custom Page Plugin Slots** — Added `page_content_top` / `page_content_bottom` PluginSlot to `custom-page.tsx`
+
+### 🐛 Bug Fixes
+- **Plugin Store ID Mapping** — Fixed blog consumer using raw store `slug` instead of `plugin_id` for `StorePluginInfo.slug`, now prioritizes `plugin_id` with slug fallback
+
+---
+
 ## [v0.2.3] - 2026-03-23
 
 ### 🔌 Plugin System Enhancements

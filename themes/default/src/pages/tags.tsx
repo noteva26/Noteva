@@ -63,7 +63,7 @@ export default function TagsPage() {
               <div className="flex items-center gap-3 mb-2"><TagsIcon className="h-8 w-8 text-primary" /><h1 className="text-3xl font-bold">#{selectedTag.name}</h1></div>
               <p className="text-muted-foreground">{t("article.totalArticles")}: {articles.length}</p>
             </div>
-            <div className="grid gap-6">
+            <div className="grid gap-6 article-list">
               {loading ? Array.from({ length: 3 }).map((_, i) => (
                 <Card key={i}><CardHeader><Skeleton className="h-6 w-3/4" /></CardHeader><CardContent><Skeleton className="h-4 w-full mb-2" /></CardContent></Card>
               )) : articles.length === 0 ? (
@@ -71,7 +71,7 @@ export default function TagsPage() {
               ) : articles.map((article) => {
                 const thumbnail = Noteva?.articles.getThumbnail(article);
                 return (
-                  <Card key={article.id} className="hover:shadow-md transition-shadow overflow-hidden">
+                  <Card key={article.id} className="hover:shadow-md transition-shadow overflow-hidden" data-article-id={article.id}>
                     <div className="flex">
                       <div className="flex-1">
                         <CardHeader>
@@ -79,7 +79,7 @@ export default function TagsPage() {
                             {Noteva?.articles.isPinned(article) && <Badge variant="destructive" className="gap-1"><Pin className="h-3 w-3" />{t("article.pinned")}</Badge>}
                             <CardTitle className="flex-1"><Link to={getArticleUrl(article)} className="hover:text-primary transition-colors">{article.title}</Link></CardTitle>
                           </div>
-                          <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground article-meta">
                             <span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(Noteva?.articles.getDate(article) || '').toLocaleDateString(getDateLocale())}</span>
                             <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{Noteva?.articles.getStats(article).views ?? 0}</span>
                             <span className="flex items-center gap-1"><Heart className="h-4 w-4" />{Noteva?.articles.getStats(article).likes ?? 0}</span>

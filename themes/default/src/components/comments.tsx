@@ -157,7 +157,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
 
   const MAX_NESTING_DEPTH = 4;
   const renderComment = (comment: Comment, depth = 0) => (
-    <div key={comment.id} className={`${depth > 0 && depth <= MAX_NESTING_DEPTH ? "ml-6 mt-3 pl-4 border-l-2 border-muted" : depth > MAX_NESTING_DEPTH ? "mt-3 pl-4 border-l-2 border-muted" : "mt-4"}`}>
+    <div key={comment.id} data-comment-id={comment.id} className={`${depth > 0 && depth <= MAX_NESTING_DEPTH ? "ml-6 mt-3 pl-4 border-l-2 border-muted" : depth > MAX_NESTING_DEPTH ? "mt-3 pl-4 border-l-2 border-muted" : "mt-4"}`}>
       <div className="flex gap-3">
         <img
           src={comment.avatar_url || "https://www.gravatar.com/avatar/?d=mp&s=80"}
@@ -166,7 +166,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
           onError={(e) => { (e.target as HTMLImageElement).src = "https://www.gravatar.com/avatar/?d=mp&s=80"; }}
         />
         <div className="flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 comment-meta">
             <span className="font-medium">{comment.nickname || "Anonymous"}</span>
             {isAuthorComment(comment) && (
               <span className="px-1.5 py-0.5 text-xs font-medium bg-primary text-primary-foreground rounded">
@@ -177,10 +177,10 @@ export function Comments({ articleId, authorId }: CommentsProps) {
               {new Date(comment.created_at || comment.createdAt || '').toLocaleDateString()}
             </span>
           </div>
-          <div className="mt-1 text-sm prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1">
+          <div className="mt-1 text-sm prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1 comment-content">
             <Markdown>{comment.content}</Markdown>
           </div>
-          <div className="flex items-center gap-4 mt-2">
+          <div className="flex items-center gap-4 mt-2 comment-actions">
             <button
               onClick={() => handleLike("comment", comment.id)}
               className={`flex items-center gap-1 text-sm ${comment.is_liked ? "text-red-500" : "text-muted-foreground"} hover:text-red-500`}
@@ -238,7 +238,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
   );
 
   return (
-    <Card className="mt-8">
+    <Card className="mt-8" data-article-id={articleId}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <MessageSquare className="h-5 w-5" />

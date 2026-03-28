@@ -170,7 +170,7 @@ export default function HomePage() {
             </motion.div>
           )}
 
-          <div className="grid gap-6">
+          <div className="grid gap-6 article-list">
             {loading ? (
               Array.from({ length: 3 }).map((_, i) => (
                 <Card key={i}>
@@ -200,7 +200,7 @@ export default function HomePage() {
                     transition={{ type: "spring", stiffness: 400, damping: 30, delay: index * 0.05 }}
                     whileHover={{ y: -2 }}
                   >
-                    <Card className="hover:shadow-md transition-shadow overflow-hidden">
+                    <Card className="hover:shadow-md transition-shadow overflow-hidden" data-article-id={article.id}>
                       <div className="flex">
                         <div className="flex-1">
                           <CardHeader>
@@ -212,7 +212,7 @@ export default function HomePage() {
                                 <Link to={getArticleUrl(article)} className="hover:text-primary transition-colors">{searchQuery ? highlightKeyword(article.title, searchQuery) : article.title}</Link>
                               </CardTitle>
                             </div>
-                            <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground article-meta">
                               <span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(Noteva?.articles.getDate(article) || '').toLocaleDateString(getDateLocale())}</span>
                               <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{Noteva?.articles.getStats(article).views ?? 0}</span>
                               <span className="flex items-center gap-1"><Heart className="h-4 w-4" />{Noteva?.articles.getStats(article).likes ?? 0}</span>

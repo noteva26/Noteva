@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
 import { getNoteva } from "@/hooks/useNoteva";
+import PluginSlot from "@/components/plugin-slot";
 
 interface Page {
   id: number; slug: string; title: string; content: string;
@@ -89,14 +90,16 @@ export default function CustomPage() {
     <div className="relative flex min-h-screen flex-col">
       <SiteHeader />
       <main className="flex-1">
-        <article className="container py-8 max-w-4xl mx-auto">
+        <article className="container py-8 max-w-4xl mx-auto" data-page-id={page.id}>
           <Button variant="ghost" size="sm" className="mb-6" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-4 w-4 mr-2" />{t("common.back")}
           </Button>
           <header className="mb-8"><h1 className="text-4xl font-bold">{page.title}</h1></header>
           <Card>
             <CardContent className="prose prose-lg dark:prose-invert max-w-none p-6 md:p-8">
-              <div dangerouslySetInnerHTML={{ __html: getHtml(page) }} />
+              <PluginSlot name="page_content_top" />
+              <div className="page-content" dangerouslySetInnerHTML={{ __html: getHtml(page) }} />
+              <PluginSlot name="page_content_bottom" />
             </CardContent>
           </Card>
         </article>
