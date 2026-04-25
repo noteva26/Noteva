@@ -10,14 +10,12 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
-use std::io::{self, Read, Cursor};
+use std::fs;
+use std::io;
 use std::path::Path;
 use tempfile::TempDir;
-use zip::ZipArchive;
-use flate2::read::GzDecoder;
-use tar::Archive;
 
+use crate::api::archive;
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 
 #[derive(Debug, Serialize)]
@@ -81,58 +79,7 @@ pub async fn upload_plugin(
         return Err(ApiError::validation_error("Unsupported format. Use .zip, .tar, or .tar.gz"));
     };
     
-    // Get plugins directory path
-    let plugins_path = Path::new("plugins");
-    if !plugins_path.exists() {
-        fs::create_dir_all(plugins_path)
-            .map_err(|e| ApiError::internal_error(format!("Failed to create plugins dir: {}", e)))?;
-    }
-    
-    let dest_path = plugins_path.join(&plugin_name);
-    let src_path = temp_dir.path().join(&plugin_name);
-    
-    if dest_path.exists() {
-        fs::remove_dir_all(&dest_path)
-            .map_err(|e| ApiError::internal_error(format!("Failed to remove existing: {}", e)))?;
-    }
-    
-    copy_dir_all(&src_path, &dest_path)
-        .map_err(|e| ApiError::internal_error(format!("Failed to install: {}", e)))?;
-    
-    // Reload plugins and ensure database record exists
-    {
-        let mut manager = state.plugin_manager.write().await;
-        let _ = manager.reload().await;
-        
-        // CRITICAL: Create initial database record for new plugin
-        if let Some(plugin) = manager.get(&plugin_name) {
-            let initial_state = crate::db::repositories::PluginState {
-                plugin_id: plugin_name.clone(),
-                enabled: false,
-                settings: std::collections::HashMap::new(),
-                last_version: None,
-            };
-            
-            if let Err(e) = manager.ensure_state_exists(&initial_state).await {
-                tracing::error!("Failed to create plugin state for {}: {}", plugin_name, e);
-                return Err(ApiError::internal_error(format!("Failed to save plugin state: {}", e)));
-            }
-            
-            // Use plugin display name for user-friendly message
-            let display_name = &plugin.metadata.name;
-            return Ok(Json(PluginInstallResponse {
-                success: true,
-                plugin_name: plugin_name.clone(),
-                message: format!("Plugin '{}' installed successfully", display_name),
-            }));
-        }
-    }
-    
-    Ok(Json(PluginInstallResponse {
-        success: true,
-        plugin_name: plugin_name.clone(),
-        message: format!("Plugin '{}' installed", plugin_name),
-    }))
+    install_plugin_from_dir(temp_dir.path(), &plugin_name, &plugin_name, &state, None).await
 }
 
 /// GET /api/v1/admin/plugins/github/releases - Get releases from any GitHub repo
@@ -267,6 +214,7 @@ pub async fn install_from_repo(
             body.plugin_id.clone()
         }
     };
+    archive::validate_package_dir_name("plugin", &actual_id)?;
 
     let plugins_path = Path::new("plugins");
     if !plugins_path.exists() {
@@ -419,121 +367,15 @@ struct GitHubAsset {
 }
 
 fn extract_zip(data: &[u8], dest: &Path) -> Result<String, ApiError> {
-    let cursor = Cursor::new(data);
-    let mut archive = ZipArchive::new(cursor)
-        .map_err(|e| ApiError::validation_error(format!("Invalid ZIP: {}", e)))?;
-    
-    let plugin_name: String = archive.file_names()
-        .next()
-        .and_then(|name: &str| name.split('/').next())
-        .map(|s: &str| s.to_string())
-        .ok_or_else(|| ApiError::validation_error("Empty archive"))?;
-
-    // Canonicalize dest for Zip Slip prevention
-    let dest_canonical = dest.canonicalize()
-        .map_err(|e| ApiError::internal_error(format!("Canonicalize error: {}", e)))?;
-    
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i)
-            .map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
-        
-        let outpath = dest.join(file.name());
-
-        // Zip Slip guard: reject entries that escape dest directory
-        let normalized = outpath.components().collect::<std::path::PathBuf>();
-        if !normalized.starts_with(&dest_canonical) && !normalized.starts_with(dest) {
-            return Err(ApiError::validation_error(
-                format!("Malicious ZIP entry detected: {}", file.name())
-            ));
-        }
-        
-        if file.name().ends_with('/') {
-            fs::create_dir_all(&outpath)
-                .map_err(|e| ApiError::internal_error(format!("Dir error: {}", e)))?;
-        } else {
-            if let Some(parent) = outpath.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| ApiError::internal_error(format!("Dir error: {}", e)))?;
-            }
-            let mut outfile = File::create(&outpath)
-                .map_err(|e| ApiError::internal_error(format!("File error: {}", e)))?;
-            io::copy(&mut file, &mut outfile)
-                .map_err(|e| ApiError::internal_error(format!("Write error: {}", e)))?;
-        }
-    }
-    
-    Ok(plugin_name)
+    archive::extract_zip(data, dest)
 }
 
 fn extract_tar_gz(data: &[u8], dest: &Path) -> Result<String, ApiError> {
-    let cursor = Cursor::new(data);
-    let decoder = GzDecoder::new(cursor);
-    extract_tar_inner(decoder, dest)
+    archive::extract_tar_gz(data, dest)
 }
 
 fn extract_tar(data: &[u8], dest: &Path) -> Result<String, ApiError> {
-    let cursor = Cursor::new(data);
-    extract_tar_inner(cursor, dest)
-}
-
-fn extract_tar_inner<R: Read>(reader: R, dest: &Path) -> Result<String, ApiError> {
-    let mut archive = Archive::new(reader);
-    let mut plugin_name = String::new();
-
-    // Canonicalize dest for Zip Slip prevention
-    let dest_canonical = dest.canonicalize()
-        .map_err(|e| ApiError::internal_error(format!("Canonicalize error: {}", e)))?;
-    
-    for entry in archive.entries()
-        .map_err(|e| ApiError::validation_error(format!("Invalid TAR: {}", e)))? 
-    {
-        let mut entry = entry
-            .map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
-        
-        let path = entry.path()
-            .map_err(|e| ApiError::internal_error(format!("Path error: {}", e)))?;
-
-        // Zip Slip guard: reject entries containing ..
-        if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
-            return Err(ApiError::validation_error(
-                format!("Malicious TAR entry detected: {}", path.display())
-            ));
-        }
-        
-        if plugin_name.is_empty() {
-            if let Some(first) = path.components().next() {
-                plugin_name = first.as_os_str().to_string_lossy().to_string();
-            }
-        }
-        
-        let outpath = dest.join(&path);
-
-        // Double-check: final path must be within dest
-        let normalized = outpath.components().collect::<std::path::PathBuf>();
-        if !normalized.starts_with(&dest_canonical) && !normalized.starts_with(dest) {
-            return Err(ApiError::validation_error(
-                format!("Malicious TAR entry detected: {}", path.display())
-            ));
-        }
-        
-        if entry.header().entry_type().is_dir() {
-            fs::create_dir_all(&outpath)
-                .map_err(|e| ApiError::internal_error(format!("Dir error: {}", e)))?;
-        } else {
-            if let Some(parent) = outpath.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| ApiError::internal_error(format!("Dir error: {}", e)))?;
-            }
-            entry.unpack(&outpath)
-                .map_err(|e| ApiError::internal_error(format!("Unpack error: {}", e)))?;
-        }
-    }
-    
-    if plugin_name.is_empty() {
-        return Err(ApiError::validation_error("Empty archive"));
-    }
-    
-    Ok(plugin_name)
+    archive::extract_tar(data, dest)
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
@@ -541,6 +383,12 @@ fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let ty = entry.file_type()?;
+        if ty.is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "symlinks are not allowed in plugin packages",
+            ));
+        }
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
         
@@ -741,15 +589,6 @@ async fn install_plugin_from_dir(
 
     let src_path = temp_dir.join(extracted_name);
 
-    // Read actual plugin id from plugin.json (may differ from store slug)
-    let actual_id = find_actual_plugin_id(temp_dir, &src_path, plugin_id);
-    let dest_path = plugins_path.join(&actual_id);
-
-    if dest_path.exists() {
-        fs::remove_dir_all(&dest_path)
-            .map_err(|e| ApiError::internal_error(format!("Remove error: {}", e)))?;
-    }
-
     // Determine the source directory to copy from:
     // 1. Flat zip (plugin.json directly in temp_dir) — e.g. CI release artifacts
     // 2. src_path is a directory with plugin.json
@@ -768,25 +607,26 @@ async fn install_plugin_from_dir(
         temp_dir.to_path_buf()
     };
 
+    if !copy_src.join("plugin.json").exists() {
+        return Err(ApiError::validation_error("plugin.json not found in archive"));
+    }
+
+    // Read actual plugin id after locating plugin.json so malformed archives
+    // cannot remove an existing plugin before the package is validated.
+    let actual_id = read_plugin_id(&copy_src.join("plugin.json"))
+        .unwrap_or_else(|| plugin_id.to_string());
+    archive::validate_package_dir_name("plugin", &actual_id)?;
+    let dest_path = plugins_path.join(&actual_id);
+
+    if dest_path.exists() {
+        fs::remove_dir_all(&dest_path)
+            .map_err(|e| ApiError::internal_error(format!("Remove error: {}", e)))?;
+    }
+
     copy_dir_all(&copy_src, &dest_path)
         .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
 
     reload_and_register_plugin(&actual_id, state, repo).await
-}
-
-/// Read the actual plugin id from plugin.json, searching multiple locations
-fn find_actual_plugin_id(temp_dir: &Path, src_path: &Path, fallback_id: &str) -> String {
-    // Try temp_dir/plugin.json (flat zip)
-    if let Some(id) = read_plugin_id(&temp_dir.join("plugin.json")) {
-        return id;
-    }
-    // Try src_path/plugin.json
-    if src_path.is_dir() {
-        if let Some(id) = read_plugin_id(&src_path.join("plugin.json")) {
-            return id;
-        }
-    }
-    fallback_id.to_string()
 }
 
 fn read_plugin_id(path: &Path) -> Option<String> {

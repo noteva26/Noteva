@@ -5,6 +5,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 
+type NotevaSDKRef = NonNullable<typeof window.Noteva>;
+type NotevaArticle = Awaited<ReturnType<NotevaSDKRef["articles"]["get"]>>;
+type NotevaCategory = Awaited<ReturnType<NotevaSDKRef["categories"]["list"]>>[number];
+type NotevaTag = Awaited<ReturnType<NotevaSDKRef["tags"]["list"]>>[number];
+type NotevaUser = NonNullable<Awaited<ReturnType<NotevaSDKRef["user"]["check"]>>>;
+
 /**
  * 获取 Noteva SDK 实例
  * 在客户端环境下返回 window.Noteva，否则返回 null
@@ -107,7 +113,7 @@ export function useArticles(params?: {
   tag?: string;
   keyword?: string;
 }) {
-  const [articles, setArticles] = useState<any[]>([]);
+  const [articles, setArticles] = useState<NotevaArticle[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -151,7 +157,7 @@ export function useArticles(params?: {
  * 获取单篇文章的 Hook
  */
 export function useArticle(slug: string) {
-  const [article, setArticle] = useState<any | null>(null);
+  const [article, setArticle] = useState<NotevaArticle | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -198,7 +204,7 @@ export function useArticle(slug: string) {
  * 获取分类列表的 Hook
  */
 export function useCategories() {
-  const [categories, setCategories] = useState<any[]>([]);
+  const [categories, setCategories] = useState<NotevaCategory[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -237,7 +243,7 @@ export function useCategories() {
  * 获取标签列表的 Hook
  */
 export function useTags() {
-  const [tags, setTags] = useState<any[]>([]);
+  const [tags, setTags] = useState<NotevaTag[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -276,7 +282,7 @@ export function useTags() {
  * 用户认证状态 Hook
  */
 export function useAuth() {
-  const [user, setUser] = useState<any | null>(null);
+  const [user, setUser] = useState<NotevaUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 

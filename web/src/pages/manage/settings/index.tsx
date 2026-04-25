@@ -1299,7 +1299,7 @@ export default function SettingsPage() {
                         setBackingUp(true);
                         try {
                           const res = await adminApi.downloadBackup();
-                          const blob = new Blob([res.data as any], { type: "application/zip" });
+                          const blob = new Blob([res.data], { type: "application/zip" });
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement("a");
                           a.href = url;
@@ -1354,7 +1354,7 @@ export default function SettingsPage() {
                         setExportingMd(true);
                         try {
                           const res = await adminApi.exportMarkdown();
-                          const blob = new Blob([res.data as any], { type: "application/zip" });
+                          const blob = new Blob([res.data], { type: "application/zip" });
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement("a");
                           a.href = url;

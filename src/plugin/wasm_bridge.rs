@@ -10,17 +10,20 @@
 
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-use tokio::sync::RwLock;
-use tracing::{debug, warn, error};
 use serde_json::Value;
+use tokio::sync::RwLock;
+use tracing::{debug, error, warn};
 
-use super::{PluginRuntime, PluginHandle, PluginManifest, Permission, PluginError};
 use super::hooks::{HookManager, PRIORITY_DEFAULT};
 use super::hook_registry::validate_plugin_hooks;
 use super::loader::{Plugin, PluginManager};
 use super::plugin_db;
-use crate::db::repositories::{PluginDataRepository, SqlxPluginDataRepository, ArticleRepository, SqlxArticleRepository, CommentRepository, SqlxCommentRepository};
+use super::{PluginError, PluginHandle, PluginManifest, Permission, PluginRuntime};
 use crate::db::DynDatabasePool;
+use crate::db::repositories::{
+    ArticleRepository, CommentRepository, PluginDataRepository, SqlxArticleRepository,
+    SqlxCommentRepository, SqlxPluginDataRepository,
+};
 
 /// Mapping from plugin_id to its WASM handle
 #[derive(Debug, Default)]
@@ -125,7 +128,7 @@ fn find_worker_exe() -> String {
 
 /// A persistent wasm-worker subprocess with stdin/stdout handles.
 struct Worker {
-    child: std::process::Child,
+    child: Arc<StdMutex<std::process::Child>>,
     stdin: std::io::BufWriter<std::process::ChildStdin>,
     stdout: std::io::BufReader<std::process::ChildStdout>,
 }
@@ -167,11 +170,28 @@ impl Worker {
             });
         }
 
-        Some(Self { child, stdin, stdout })
+        Some(Self {
+            child: Arc::new(StdMutex::new(child)),
+            stdin,
+            stdout,
+        })
     }
 
     fn is_alive(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
+        self.child
+            .lock()
+            .map(|mut child| matches!(child.try_wait(), Ok(None)))
+            .unwrap_or(false)
+    }
+
+    fn kill_child(child: &Arc<StdMutex<std::process::Child>>) {
+        if let Ok(mut child) = child.lock() {
+            let _ = child.kill();
+        }
+    }
+
+    fn terminate(&self) {
+        Self::kill_child(&self.child);
     }
 
     fn send_request(&mut self, request: &serde_json::Value) -> Option<serde_json::Value> {
@@ -193,7 +213,12 @@ impl Worker {
 
     fn shutdown(mut self) {
         let _ = self.send_request(&serde_json::json!({"cmd": "shutdown"}));
-        let _ = self.child.wait();
+        if let Ok(mut child) = self.child.lock() {
+            if matches!(child.try_wait(), Ok(None)) {
+                let _ = child.kill();
+            }
+            let _ = child.wait();
+        }
     }
 }
 
@@ -230,7 +255,7 @@ impl WorkerPool {
                 return Some(w);
             }
             // Dead worker, drop it and try next
-            let _ = w.child.kill();
+            w.terminate();
         }
         drop(pool);
         // Pool empty, spawn a fresh one
@@ -265,6 +290,7 @@ impl WorkerPool {
         // For requests with timeout, we use a thread to enforce it
         let request_clone = request.clone();
         let (tx, rx) = std::sync::mpsc::channel();
+        let child = worker.child.clone();
 
         // We need to move the worker into the thread and get it back
         let handle = std::thread::spawn(move || {
@@ -289,11 +315,10 @@ impl WorkerPool {
             }
             Err(_) => {
                 // Timeout — the thread is still blocked on I/O.
-                // We can't easily kill the thread, but the worker will be dropped
-                // when the thread eventually finishes (or the process exits).
                 tracing::warn!("WorkerPool: request timed out after {:?}", timeout);
+                // Kill the subprocess; the blocked thread will finish once I/O closes.
+                Worker::kill_child(&child);
                 // Don't join — let the thread finish in background
-                // The worker won't be returned to pool (it's consumed by the thread)
                 empty
             }
         }

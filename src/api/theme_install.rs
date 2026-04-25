@@ -10,14 +10,12 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
-use std::io::{self, Read, Cursor};
+use std::fs;
+use std::io;
 use std::path::Path;
 use tempfile::TempDir;
-use zip::ZipArchive;
-use flate2::read::GzDecoder;
-use tar::Archive;
 
+use crate::api::archive;
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 
 #[derive(Debug, Serialize)]
@@ -83,43 +81,7 @@ pub async fn upload_theme(
         return Err(ApiError::validation_error("Unsupported format. Use .zip, .tar, or .tar.gz"));
     };
     
-    let themes_path = {
-        let engine = state.theme_engine.read()
-            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        engine.get_theme_path(&theme_name).parent().unwrap_or(Path::new("themes")).to_path_buf()
-    };
-    
-    let dest_path = themes_path.join(&theme_name);
-    let src_path = temp_dir.path().join(&theme_name);
-    
-    if dest_path.exists() {
-        fs::remove_dir_all(&dest_path)
-            .map_err(|e| ApiError::internal_error(format!("Failed to remove existing: {}", e)))?;
-    }
-    
-    copy_dir_all(&src_path, &dest_path)
-        .map_err(|e| ApiError::internal_error(format!("Failed to install: {}", e)))?;
-    
-    {
-        let mut engine = state.theme_engine.write()
-            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        let _ = engine.reload_templates();
-    }
-    
-    // Get theme display name for user-friendly message
-    let display_name = {
-        let engine = state.theme_engine.read()
-            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        engine.get_theme_info(&theme_name)
-            .map(|info| info.display_name.clone())
-            .unwrap_or_else(|| theme_name.clone())
-    };
-    
-    Ok(Json(ThemeInstallResponse {
-        success: true,
-        theme_name: theme_name.clone(),
-        message: format!("Theme '{}' installed successfully", display_name),
-    }))
+    install_theme_from_dir(temp_dir.path(), &theme_name, &state).await
 }
 
 /// GET /api/v1/admin/themes/github/releases - Get releases from any GitHub repo
@@ -320,122 +282,15 @@ struct GitHubAsset {
 }
 
 fn extract_zip(data: &[u8], dest: &Path) -> Result<String, ApiError> {
-    let cursor = Cursor::new(data);
-    let mut archive = ZipArchive::new(cursor)
-        .map_err(|e| ApiError::validation_error(format!("Invalid ZIP: {}", e)))?;
-    
-    let theme_name: String = archive.file_names()
-        .next()
-        .and_then(|name: &str| name.split('/').next())
-        .map(|s: &str| s.to_string())
-        .ok_or_else(|| ApiError::validation_error("Empty archive"))?;
-    
-    // Canonicalize dest for Zip Slip prevention
-    let dest_canonical = dest.canonicalize()
-        .map_err(|e| ApiError::internal_error(format!("Canonicalize error: {}", e)))?;
-
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i)
-            .map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
-        
-        let outpath = dest.join(file.name());
-
-        // Zip Slip guard: reject entries that escape dest directory
-        // Use lexical check since outpath may not exist yet
-        let normalized = outpath.components().collect::<std::path::PathBuf>();
-        if !normalized.starts_with(&dest_canonical) && !normalized.starts_with(dest) {
-            return Err(ApiError::validation_error(
-                format!("Malicious ZIP entry detected: {}", file.name())
-            ));
-        }
-        
-        if file.name().ends_with('/') {
-            fs::create_dir_all(&outpath)
-                .map_err(|e| ApiError::internal_error(format!("Dir error: {}", e)))?;
-        } else {
-            if let Some(parent) = outpath.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| ApiError::internal_error(format!("Dir error: {}", e)))?;
-            }
-            let mut outfile = File::create(&outpath)
-                .map_err(|e| ApiError::internal_error(format!("File error: {}", e)))?;
-            io::copy(&mut file, &mut outfile)
-                .map_err(|e| ApiError::internal_error(format!("Write error: {}", e)))?;
-        }
-    }
-    
-    Ok(theme_name)
+    archive::extract_zip(data, dest)
 }
 
 fn extract_tar_gz(data: &[u8], dest: &Path) -> Result<String, ApiError> {
-    let cursor = Cursor::new(data);
-    let decoder = GzDecoder::new(cursor);
-    extract_tar_inner(decoder, dest)
+    archive::extract_tar_gz(data, dest)
 }
 
 fn extract_tar(data: &[u8], dest: &Path) -> Result<String, ApiError> {
-    let cursor = Cursor::new(data);
-    extract_tar_inner(cursor, dest)
-}
-
-fn extract_tar_inner<R: Read>(reader: R, dest: &Path) -> Result<String, ApiError> {
-    let mut archive = Archive::new(reader);
-    let mut theme_name = String::new();
-
-    // Canonicalize dest for Zip Slip prevention
-    let dest_canonical = dest.canonicalize()
-        .map_err(|e| ApiError::internal_error(format!("Canonicalize error: {}", e)))?;
-    
-    for entry in archive.entries()
-        .map_err(|e| ApiError::validation_error(format!("Invalid TAR: {}", e)))? 
-    {
-        let mut entry = entry
-            .map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
-        
-        let path = entry.path()
-            .map_err(|e| ApiError::internal_error(format!("Path error: {}", e)))?;
-
-        // Zip Slip guard: reject entries containing ..
-        if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
-            return Err(ApiError::validation_error(
-                format!("Malicious TAR entry detected: {}", path.display())
-            ));
-        }
-        
-        if theme_name.is_empty() {
-            if let Some(first) = path.components().next() {
-                theme_name = first.as_os_str().to_string_lossy().to_string();
-            }
-        }
-        
-        let outpath = dest.join(&path);
-
-        // Double-check: final path must be within dest
-        let normalized = outpath.components().collect::<std::path::PathBuf>();
-        if !normalized.starts_with(&dest_canonical) && !normalized.starts_with(dest) {
-            return Err(ApiError::validation_error(
-                format!("Malicious TAR entry detected: {}", path.display())
-            ));
-        }
-        
-        if entry.header().entry_type().is_dir() {
-            fs::create_dir_all(&outpath)
-                .map_err(|e| ApiError::internal_error(format!("Dir error: {}", e)))?;
-        } else {
-            if let Some(parent) = outpath.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| ApiError::internal_error(format!("Dir error: {}", e)))?;
-            }
-            entry.unpack(&outpath)
-                .map_err(|e| ApiError::internal_error(format!("Unpack error: {}", e)))?;
-        }
-    }
-    
-    if theme_name.is_empty() {
-        return Err(ApiError::validation_error("Empty archive"));
-    }
-    
-    Ok(theme_name)
+    archive::extract_tar(data, dest)
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
@@ -443,6 +298,12 @@ fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let ty = entry.file_type()?;
+        if ty.is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "symlinks are not allowed in theme packages",
+            ));
+        }
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
         
@@ -639,7 +500,9 @@ async fn install_theme_from_dir(
     let src_path = temp_dir.join(extracted_name);
 
     // Find theme.json — could be at root or one level deep
-    let theme_json_path = if src_path.join("theme.json").exists() {
+    let theme_json_path = if temp_dir.join("theme.json").exists() {
+        temp_dir.join("theme.json")
+    } else if src_path.join("theme.json").exists() {
         src_path.join("theme.json")
     } else {
         // Search one level deep
@@ -665,6 +528,7 @@ async fn install_theme_from_dir(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::validation_error("theme.json missing 'name' field"))?
         .to_string();
+    archive::validate_package_dir_name("theme", &theme_id)?;
 
     let theme_src_dir = theme_json_path.parent()
         .ok_or_else(|| ApiError::internal_error("theme.json has no parent dir"))?;

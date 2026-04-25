@@ -1008,10 +1008,10 @@ mod tests {
 
         // Login multiple times (creates multiple sessions)
         let login_input1 = LoginInput::new("testuser", "password123");
-        let session1 = service.login(login_input1).await.expect("Failed to login");
+        let session1 = service.login(login_input1, None, None).await.expect("Failed to login");
 
         let login_input2 = LoginInput::new("testuser", "password123");
-        let session2 = service.login(login_input2).await.expect("Failed to login");
+        let session2 = service.login(login_input2, None, None).await.expect("Failed to login");
 
         // Both sessions should be valid
         assert!(service.validate_session(&session1.id).await.unwrap().is_some());
@@ -1236,7 +1236,7 @@ mod property_tests {
                     unique_username.clone(),
                     wrong_password.clone(),
                 );
-                let wrong_password_result = service.login(wrong_password_input).await;
+                let wrong_password_result = service.login(wrong_password_input, None, None).await;
                 prop_assert!(
                     matches!(wrong_password_result, Err(UserServiceError::AuthenticationError(_))),
                     "Wrong password should return AuthenticationError"
@@ -1247,7 +1247,7 @@ mod property_tests {
                     unique_nonexistent.clone(),
                     correct_password.clone(),
                 );
-                let nonexistent_result = service.login(nonexistent_input).await;
+                let nonexistent_result = service.login(nonexistent_input, None, None).await;
                 prop_assert!(
                     matches!(nonexistent_result, Err(UserServiceError::AuthenticationError(_))),
                     "Nonexistent username should return AuthenticationError"
@@ -1315,7 +1315,7 @@ mod property_tests {
 
                 // User should be able to re-login and get a new session
                 let relogin_input = LoginInput::new(unique_username.clone(), password.clone());
-                let new_session = service.login(relogin_input).await
+                let new_session = service.login(relogin_input, None, None).await
                     .expect("Re-login should succeed");
 
                 // New session should be different from the old one

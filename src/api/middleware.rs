@@ -772,6 +772,7 @@ mod property_tests {
                 password_hash: "hash".to_string(), role,
                 status: crate::models::UserStatus::Active,
                 display_name: None, avatar: None,
+                totp_secret: None, totp_enabled: false,
                 created_at: chrono::Utc::now(), updated_at: chrono::Utc::now(),
             };
             prop_assert!(!user.is_admin());
@@ -784,6 +785,7 @@ mod property_tests {
                 password_hash: "hash".to_string(), role: UserRole::Admin,
                 status: crate::models::UserStatus::Active,
                 display_name: None, avatar: None,
+                totp_secret: None, totp_enabled: false,
                 created_at: chrono::Utc::now(), updated_at: chrono::Utc::now(),
             };
             prop_assert!(user.is_admin());
@@ -796,6 +798,7 @@ mod property_tests {
                 password_hash: "hash".to_string(), role,
                 status: crate::models::UserStatus::Active,
                 display_name: None, avatar: None,
+                totp_secret: None, totp_enabled: false,
                 created_at: chrono::Utc::now(), updated_at: chrono::Utc::now(),
             };
             let expected = matches!(role, UserRole::Admin | UserRole::Editor);
@@ -809,6 +812,7 @@ mod property_tests {
                 password_hash: "hash".to_string(), role: UserRole::Author,
                 status: crate::models::UserStatus::Active,
                 display_name: None, avatar: None,
+                totp_secret: None, totp_enabled: false,
                 created_at: chrono::Utc::now(), updated_at: chrono::Utc::now(),
             };
             prop_assert_eq!(user.can_edit(content_author_id), user_id == content_author_id);
@@ -822,6 +826,7 @@ mod property_tests {
                 password_hash: "hash".to_string(), role,
                 status: crate::models::UserStatus::Active,
                 display_name: None, avatar: None,
+                totp_secret: None, totp_enabled: false,
                 created_at: chrono::Utc::now(), updated_at: chrono::Utc::now(),
             };
             prop_assert!(user.can_edit(content_author_id));

@@ -35,7 +35,7 @@ interface PluginEditorButton {
 
 interface EnabledPluginInfo {
   id: string;
-  settings: Record<string, any>;
+  settings: Record<string, unknown>;
   editor_config?: {
     toolbar?: PluginEditorButton[];
   };

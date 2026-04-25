@@ -1,7 +1,7 @@
 ﻿    use super::*;
     use crate::db::{create_test_pool, migrations};
     use crate::db::repositories::tag::{TagRepository, SqlxTagRepository};
-    use crate::models::{ListParams, PagedResult, Tag};
+    use crate::models::{ArticleSortBy, ListParams, PagedResult, Tag};
 
     async fn setup_test_repo() -> (DynDatabasePool, SqlxArticleRepository) {
         let pool = create_test_pool().await.expect("Failed to create test pool");
@@ -50,6 +50,7 @@
             author_id,
             category_id,
             status: None,
+            scheduled_at: None,
         }
     }
 
@@ -160,7 +161,7 @@
             repo.create(&input).await.expect("Failed to create article");
         }
 
-        let articles = repo.list(0, 10).await.expect("Failed to list articles");
+        let articles = repo.list(0, 10, ArticleSortBy::default()).await.expect("Failed to list articles");
 
         assert_eq!(articles.len(), 3);
     }
@@ -179,15 +180,15 @@
         }
 
         // Get first page (2 items)
-        let page1 = repo.list(0, 2).await.expect("Failed to list articles");
+        let page1 = repo.list(0, 2, ArticleSortBy::default()).await.expect("Failed to list articles");
         assert_eq!(page1.len(), 2);
 
         // Get second page (2 items)
-        let page2 = repo.list(2, 2).await.expect("Failed to list articles");
+        let page2 = repo.list(2, 2, ArticleSortBy::default()).await.expect("Failed to list articles");
         assert_eq!(page2.len(), 2);
 
         // Get third page (1 item)
-        let page3 = repo.list(4, 2).await.expect("Failed to list articles");
+        let page3 = repo.list(4, 2, ArticleSortBy::default()).await.expect("Failed to list articles");
         assert_eq!(page3.len(), 1);
     }
 
@@ -294,10 +295,10 @@
             repo.create(&input).await.expect("Failed to create article");
         }
 
-        let cat1_articles = repo.list_by_category(category1_id, 0, 10).await.expect("Failed to list articles");
+        let cat1_articles = repo.list_by_category(category1_id, 0, 10, ArticleSortBy::default()).await.expect("Failed to list articles");
         assert_eq!(cat1_articles.len(), 3);
 
-        let cat2_articles = repo.list_by_category(category2_id, 0, 10).await.expect("Failed to list articles");
+        let cat2_articles = repo.list_by_category(category2_id, 0, 10, ArticleSortBy::default()).await.expect("Failed to list articles");
         assert_eq!(cat2_articles.len(), 2);
     }
 
@@ -329,7 +330,7 @@
         tag_repo.add_to_article(created_tag.id, article1.id).await.expect("Failed to add tag");
         tag_repo.add_to_article(created_tag.id, article2.id).await.expect("Failed to add tag");
 
-        let tagged_articles = repo.list_by_tag(created_tag.id, 0, 10).await.expect("Failed to list articles");
+        let tagged_articles = repo.list_by_tag(created_tag.id, 0, 10, ArticleSortBy::default()).await.expect("Failed to list articles");
         assert_eq!(tagged_articles.len(), 2);
     }
 
@@ -353,7 +354,7 @@
             repo.create(&input).await.expect("Failed to create article");
         }
 
-        let published = repo.list_published(0, 10).await.expect("Failed to list published articles");
+        let published = repo.list_published(0, 10, ArticleSortBy::default()).await.expect("Failed to list published articles");
         assert_eq!(published.len(), 3);
 
         // All should be published
@@ -377,7 +378,7 @@
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         }
 
-        let published = repo.list_published(0, 10).await.expect("Failed to list published articles");
+        let published = repo.list_published(0, 10, ArticleSortBy::default()).await.expect("Failed to list published articles");
         assert_eq!(published.len(), 3);
 
         // Should be ordered by published_at DESC (newest first)

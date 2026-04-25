@@ -47,7 +47,7 @@ interface PluginEditorButton {
 
 interface EnabledPluginInfo {
   id: string;
-  settings: Record<string, any>;
+  settings: Record<string, unknown>;
   editor_config?: {
     toolbar?: PluginEditorButton[];
   };
@@ -164,7 +164,7 @@ export default function EditArticlePage() {
           is_pinned: article.is_pinned || false, pin_order: article.pin_order || 0,
           scheduled_at: article.scheduled_at ? new Date(article.scheduled_at).toISOString().slice(0, 16) : "",
         };
-        const tagIds = article.tags?.map((t: any) => t.id) || [];
+        const tagIds = article.tags?.map((tag) => tag.id) || [];
         setForm(formData);
         setSelectedTags(tagIds);
         setLastSavedContent(JSON.stringify({ ...formData, selectedTags: tagIds }));

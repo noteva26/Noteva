@@ -23,9 +23,10 @@
 //!
 //! Requirements: 1.1, 2.1, 3.1, 4.2
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use sqlx::{MySqlPool, Row, SqlitePool};
+use std::collections::{HashMap, HashSet};
 
 use super::DynDatabasePool;
 use crate::config::DatabaseDriver;
@@ -790,7 +791,8 @@ pub async fn run_migrations(pool: &DynDatabasePool) -> Result<usize> {
 
     // Get applied migrations
     let applied = get_applied_migrations(pool).await?;
-    let applied_versions: Vec<i32> = applied.iter().map(|m| m.version as i32).collect();
+    validate_applied_migrations(&applied)?;
+    let applied_versions: HashSet<i32> = applied.iter().map(|m| m.version as i32).collect();
 
     let mut count = 0;
 
@@ -815,6 +817,45 @@ pub async fn run_migrations(pool: &DynDatabasePool) -> Result<usize> {
     }
 
     Ok(count)
+}
+
+fn validate_applied_migrations(applied: &[MigrationRecord]) -> Result<()> {
+    let known: HashMap<i32, &str> = MIGRATIONS
+        .iter()
+        .map(|m| (m.version, m.name))
+        .collect();
+
+    for record in applied {
+        let version = record.version as i32;
+        match known.get(&version) {
+            Some(expected_name) if *expected_name == record.name => {}
+            Some(expected_name) => bail!(
+                "Migration record mismatch for version {}: database has '{}', expected '{}'",
+                version,
+                record.name,
+                expected_name
+            ),
+            None => bail!("Unknown migration version {} recorded in database", version),
+        }
+    }
+
+    let applied_versions: HashSet<i32> = applied.iter().map(|m| m.version as i32).collect();
+    let mut found_gap = None;
+    for migration in MIGRATIONS {
+        if applied_versions.contains(&migration.version) {
+            if let Some(missing_version) = found_gap {
+                bail!(
+                    "Migration history has a gap: version {} is missing but later version {} is applied",
+                    missing_version,
+                    migration.version
+                );
+            }
+        } else if found_gap.is_none() {
+            found_gap = Some(migration.version);
+        }
+    }
+
+    Ok(())
 }
 
 /// Create the migrations tracking table if it doesn't exist
@@ -901,45 +942,59 @@ async fn apply_migration(pool: &DynDatabasePool, migration: &Migration) -> Resul
 }
 
 async fn apply_migration_sqlite(pool: &SqlitePool, migration: &Migration) -> Result<()> {
-    // Execute migration SQL (may contain multiple statements)
+    let mut tx = pool
+        .begin()
+        .await
+        .with_context(|| format!("Failed to start SQLite migration transaction {}", migration.version))?;
+
     for statement in split_sql_statements(migration.up_sqlite) {
         let statement = statement.trim();
         if !statement.is_empty() {
             sqlx::query(statement)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await
                 .with_context(|| format!("Failed to execute: {}", truncate_sql(statement)))?;
         }
     }
 
-    // Record the migration
     sqlx::query("INSERT INTO _migrations (version, name) VALUES (?, ?)")
         .bind(migration.version)
         .bind(migration.name)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+
+    tx.commit()
+        .await
+        .with_context(|| format!("Failed to commit SQLite migration {}", migration.version))?;
 
     Ok(())
 }
 
 async fn apply_migration_mysql(pool: &MySqlPool, migration: &Migration) -> Result<()> {
-    // Execute migration SQL (may contain multiple statements)
+    let mut tx = pool
+        .begin()
+        .await
+        .with_context(|| format!("Failed to start MySQL migration transaction {}", migration.version))?;
+
     for statement in split_sql_statements(migration.up_mysql) {
         let statement = statement.trim();
         if !statement.is_empty() {
             sqlx::query(statement)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await
                 .with_context(|| format!("Failed to execute: {}", truncate_sql(statement)))?;
         }
     }
 
-    // Record the migration
     sqlx::query("INSERT INTO _migrations (version, name) VALUES (?, ?)")
         .bind(migration.version)
         .bind(migration.name)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+
+    tx.commit()
+        .await
+        .with_context(|| format!("Failed to commit MySQL migration {}", migration.version))?;
 
     Ok(())
 }
@@ -1084,6 +1139,47 @@ mod tests {
         // Running again should apply 0 migrations
         let count = run_migrations(&pool).await.expect("Failed to run migrations");
         assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_migration_failure_rolls_back_statement_group() {
+        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let sqlite = pool.as_sqlite().expect("sqlite test pool");
+        create_migrations_table(&pool).await.expect("create migrations table");
+
+        let migration = Migration {
+            version: 999,
+            name: "intentional_failure",
+            up_sqlite: r#"
+                CREATE TABLE rollback_probe (id INTEGER PRIMARY KEY);
+                SELECT * FROM definitely_missing_table;
+            "#,
+            up_mysql: "",
+        };
+
+        let result = apply_migration_sqlite(sqlite, &migration).await;
+        assert!(result.is_err());
+
+        let exists: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'rollback_probe'",
+        )
+        .fetch_one(sqlite)
+        .await
+        .expect("query sqlite_master");
+        assert_eq!(exists, 0);
+    }
+
+    #[tokio::test]
+    async fn test_migration_history_gap_is_rejected() {
+        let pool = create_test_pool().await.expect("Failed to create test pool");
+        create_migrations_table(&pool).await.expect("create migrations table");
+
+        pool.execute("INSERT INTO _migrations (version, name) VALUES (2, 'create_sessions')")
+            .await
+            .expect("seed migration gap");
+
+        let err = run_migrations(&pool).await.expect_err("gap should fail");
+        assert!(err.to_string().contains("Migration history has a gap"));
     }
 
     #[tokio::test]
@@ -1442,7 +1538,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_total_migrations() {
-        assert_eq!(total_migrations(), 25);
+        assert_eq!(total_migrations(), MIGRATIONS.len());
+
+        for (index, migration) in MIGRATIONS.iter().enumerate() {
+            assert_eq!(migration.version, (index + 1) as i32);
+        }
     }
 
     #[test]

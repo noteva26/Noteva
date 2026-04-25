@@ -16,6 +16,7 @@
 //! - Static file serving with config injection
 
 pub mod admin;
+mod archive;
 pub mod articles;
 pub mod auth;
 pub mod cache;

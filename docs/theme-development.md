@@ -1,6 +1,6 @@
 # Noteva 主题开发文档
 
-> 版本：v0.1.9-beta
+> 版本：v0.2.5
 
 ## 快速开始
 
@@ -17,6 +17,13 @@ themes/
     │   └── index.html      # 入口文件
     └── preview.png         # 预览图（推荐）
 ```
+
+### v0.2.5 安装包安全约束
+
+- 主题 ZIP/TAR 包不允许路径穿越、绝对路径、Windows 盘符路径、符号链接或特殊文件。
+- 单个条目和总解包体积都有上限，避免异常压缩包占满磁盘或拖慢安装。
+- `theme.json` 必须位于包根目录或一层子目录内，安装时会读取 `short` 或 `name` 作为主题目录名，并拒绝包含 `..`、斜杠、反斜杠或冒号的名称。
+- 已构建主题仍应包含 `dist/index.html`；源码仓库安装只适合已经提交构建产物的主题。
 
 ### theme.json 示例
 
@@ -62,7 +69,7 @@ await Noteva.ready();
 const site = await Noteva.site.getInfo();
 // 返回:
 // {
-//   version: "0.1.9-beta",
+//   version: "0.2.5",
 //   name: "站点名称",
 //   description: "站点描述",
 //   subtitle: "副标题",

@@ -4,6 +4,29 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.2.5] - 2026-04-25
+
+### Security
+- **Generic plugin proxy disabled** - `/api/v1/plugins/proxy` no longer forwards arbitrary URLs, preventing frontend plugins from using a shared server proxy for SSRF or secret exposure. Plugins that need external APIs should store user configuration in plugin settings and call those endpoints from WASM backend code with the `network` permission.
+- **WASM worker sandbox hardened** - Added memory, instruction, request/response size, log, storage, and database operation limits. HTTP host calls now only allow `http/https`, block local/private/metadata addresses, and disable redirects.
+- **Plugin/theme archive extraction hardened** - ZIP/TAR extraction now rejects path traversal, symlinks, special files, unsafe package names, oversized entries, and excessive unpacked size.
+
+### Reliability
+- **Core migrations are transactional** - Migration SQL execution and `_migrations` recording now happen in one transaction, with validation for known versions, matching names, and continuous history.
+- **Plugin migrations are transactional** - Plugin migration SQL and `plugin_migrations` recording now happen in one transaction; failed migrations no longer leave partial tables or records.
+- **Safer plugin install overwrite order** - Plugin installation validates `plugin.json` and the real plugin ID before replacing an existing plugin directory.
+
+### Engineering Quality
+- **CI workflow added** - Added Rust `cargo check --all-targets --locked`, `cargo test --locked`, admin frontend build, and default theme build checks.
+- **Frontend lockfiles can be committed** - Unignored `web/pnpm-lock.yaml` and `themes/default/pnpm-lock.yaml` so CI `--frozen-lockfile` installs are reproducible.
+- **Low-risk frontend cleanup** - Removed unused admin `@dnd-kit/*` dependencies and unused default theme `axios`, plus tightened a few `any` usages without changing routes or core behavior.
+
+### Documentation
+- **Plugin development docs updated** - Documented generic proxy deprecation, WASM network restrictions, package safety rules, and transactional plugin migrations.
+- **Theme development docs updated** - Documented theme package safety rules.
+
+---
+
 ## [v0.2.4] - 2026-03-28
 
 ### 🔌 Plugin Integration Standardization

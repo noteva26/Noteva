@@ -11,7 +11,7 @@
 //!
 //! let renderer = MarkdownRenderer::new();
 //! let html = renderer.render("# Hello World\n\nThis is **bold** text.");
-//! assert!(html.contains("<h1>"));
+//! assert!(html.contains("<h1"));
 //! assert!(html.contains("<strong>"));
 //! ```
 
@@ -679,7 +679,7 @@ mod tests {
     fn test_render_heading() {
         let renderer = MarkdownRenderer::new();
         let html = renderer.render("# Heading 1");
-        assert!(html.contains("<h1>"));
+        assert!(html.contains("<h1"));
         assert!(html.contains("Heading 1"));
         assert!(html.contains("</h1>"));
     }
@@ -688,12 +688,12 @@ mod tests {
     fn test_render_multiple_headings() {
         let renderer = MarkdownRenderer::new();
         let html = renderer.render("# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6");
-        assert!(html.contains("<h1>"));
-        assert!(html.contains("<h2>"));
-        assert!(html.contains("<h3>"));
-        assert!(html.contains("<h4>"));
-        assert!(html.contains("<h5>"));
-        assert!(html.contains("<h6>"));
+        assert!(html.contains("<h1"));
+        assert!(html.contains("<h2"));
+        assert!(html.contains("<h3"));
+        assert!(html.contains("<h4"));
+        assert!(html.contains("<h5"));
+        assert!(html.contains("<h6"));
     }
 
     #[test]
@@ -872,9 +872,9 @@ fn hello() {
 [Link](https://example.com)
 "#;
         let html = renderer.render(markdown);
-        assert!(html.contains("<h1>"));
-        assert!(html.contains("<h2>"));
-        assert!(html.contains("<h3>"));
+        assert!(html.contains("<h1"));
+        assert!(html.contains("<h2"));
+        assert!(html.contains("<h3"));
         assert!(html.contains("<strong>"));
         assert!(html.contains("<em>"));
         assert!(html.contains("<pre"));
@@ -918,7 +918,7 @@ Some **bold** text."#;
         
         let html = renderer.render_with_shortcodes(markdown);
         
-        assert!(html.contains("<h1>"));
+        assert!(html.contains("<h1"));
         assert!(html.contains("shortcode-note"));
         assert!(html.contains("shortcode-note-info"));
         assert!(html.contains("<strong>bold</strong>"));

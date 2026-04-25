@@ -43,12 +43,9 @@ pub async fn run_plugin_migrations(
 
         // Execute the migration
         info!("Running plugin {} migration: {}", plugin_id, filename);
-        execute_plugin_sql(pool, sql)
+        execute_plugin_migration(pool, plugin_id, filename, sql)
             .await
             .with_context(|| format!("Plugin {} migration {} failed", plugin_id, filename))?;
-
-        // Record it
-        record_plugin_migration(pool, plugin_id, filename).await?;
         count += 1;
     }
 
@@ -292,66 +289,74 @@ async fn get_applied_plugin_migrations(
     }
 }
 
-/// Record a successfully applied plugin migration.
-async fn record_plugin_migration(
+/// Execute raw migration SQL and record it atomically where the database allows it.
+async fn execute_plugin_migration(
     pool: &DynDatabasePool,
     plugin_id: &str,
     filename: &str,
+    sql: &str,
 ) -> Result<()> {
-    match pool.driver() {
-        DatabaseDriver::Sqlite => {
-            let sqlite_pool = pool.as_sqlite_or_err()?;
-            sqlx::query(
-                "INSERT INTO plugin_migrations (plugin_id, filename) VALUES (?, ?)"
-            )
-            .bind(plugin_id)
-            .bind(filename)
-            .execute(sqlite_pool)
-            .await
-            .context("Failed to record plugin migration")?;
-        }
-        DatabaseDriver::Mysql => {
-            let mysql_pool = pool.as_mysql_or_err()?;
-            sqlx::query(
-                "INSERT INTO plugin_migrations (plugin_id, filename) VALUES (?, ?)"
-            )
-            .bind(plugin_id)
-            .bind(filename)
-            .execute(mysql_pool)
-            .await
-            .context("Failed to record plugin migration")?;
-        }
-    }
-    Ok(())
-}
-
-/// Execute raw migration SQL, splitting multi-statement strings by `;`.
-async fn execute_plugin_sql(pool: &DynDatabasePool, sql: &str) -> Result<()> {
     let statements = split_sql_statements(sql);
     match pool.driver() {
         DatabaseDriver::Sqlite => {
             let sqlite_pool = pool.as_sqlite_or_err()?;
-            for stmt in statements {
+            let mut tx = sqlite_pool
+                .begin()
+                .await
+                .with_context(|| format!("Failed to start plugin {} migration transaction", plugin_id))?;
+
+            for stmt in &statements {
                 let stmt = stmt.trim();
                 if !stmt.is_empty() {
                     sqlx::query(stmt)
-                        .execute(sqlite_pool)
+                        .execute(&mut *tx)
                         .await
                         .with_context(|| format!("Plugin SQL failed: {}", truncate(stmt, 120)))?;
                 }
             }
+
+            sqlx::query(
+                "INSERT INTO plugin_migrations (plugin_id, filename) VALUES (?, ?)"
+            )
+            .bind(plugin_id)
+            .bind(filename)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record plugin migration")?;
+
+            tx.commit()
+                .await
+                .with_context(|| format!("Failed to commit plugin {} migration", plugin_id))?;
         }
         DatabaseDriver::Mysql => {
             let mysql_pool = pool.as_mysql_or_err()?;
-            for stmt in statements {
+            let mut tx = mysql_pool
+                .begin()
+                .await
+                .with_context(|| format!("Failed to start plugin {} migration transaction", plugin_id))?;
+
+            for stmt in &statements {
                 let stmt = stmt.trim();
                 if !stmt.is_empty() {
                     sqlx::query(stmt)
-                        .execute(mysql_pool)
+                        .execute(&mut *tx)
                         .await
                         .with_context(|| format!("Plugin SQL failed: {}", truncate(stmt, 120)))?;
                 }
             }
+
+            sqlx::query(
+                "INSERT INTO plugin_migrations (plugin_id, filename) VALUES (?, ?)"
+            )
+            .bind(plugin_id)
+            .bind(filename)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record plugin migration")?;
+
+            tx.commit()
+                .await
+                .with_context(|| format!("Failed to commit plugin {} migration", plugin_id))?;
         }
     }
     Ok(())
@@ -470,5 +475,53 @@ fn truncate(s: &str, max: usize) -> String {
         format!("{}...", &s[..max])
     } else {
         s.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{create_test_pool, migrations};
+
+    #[tokio::test]
+    async fn plugin_migration_failure_rolls_back_sqlite() {
+        let pool = create_test_pool().await.expect("test pool");
+        migrations::run_migrations(&pool)
+            .await
+            .expect("core migrations");
+
+        let result = run_plugin_migrations(
+            &pool,
+            "demo",
+            &[(
+                "001_fail.sql".to_string(),
+                r#"
+                CREATE TABLE plugin_demo_probe (id INTEGER PRIMARY KEY);
+                SELECT * FROM definitely_missing_table;
+                "#
+                .to_string(),
+            )],
+        )
+        .await;
+        assert!(result.is_err());
+
+        let sqlite = pool.as_sqlite().expect("sqlite pool");
+        let table_exists: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'plugin_demo_probe'",
+        )
+        .fetch_one(sqlite)
+        .await
+        .expect("query sqlite_master");
+        assert_eq!(table_exists, 0);
+
+        let record_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM plugin_migrations WHERE plugin_id = ? AND filename = ?",
+        )
+        .bind("demo")
+        .bind("001_fail.sql")
+        .fetch_one(sqlite)
+        .await
+        .expect("query plugin_migrations");
+        assert_eq!(record_count, 0);
     }
 }

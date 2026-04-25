@@ -30,11 +30,33 @@
 //!   - host_log(...)           -> ()           (no permission required)
 
 use std::collections::HashMap;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
+
 use hmac::{Hmac, Mac};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use wasmtime::AsContextMut;
+
+const MAX_WASM_MEMORY_BYTES: usize = 16 * 1024 * 1024;
+const MAX_PLUGIN_INPUT_BYTES: usize = 4 * 1024 * 1024;
+const MAX_HOST_ARG_BYTES: usize = 4 * 1024 * 1024;
+const MAX_HOST_RETURN_BYTES: usize = 4 * 1024 * 1024;
+const MAX_HTTP_METHOD_BYTES: usize = 16;
+const MAX_HTTP_URL_BYTES: usize = 2 * 1024;
+const MAX_HTTP_HEADERS_BYTES: usize = 64 * 1024;
+const MAX_HTTP_BODY_BYTES: usize = 4 * 1024 * 1024;
+const MAX_HTTP_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_STORAGE_OPS: usize = 100;
+const MAX_STORAGE_KEY_BYTES: usize = 256;
+const MAX_STORAGE_VALUE_BYTES: usize = 64 * 1024;
+const MAX_META_OPS: usize = 100;
+const MAX_META_VALUE_BYTES: usize = 64 * 1024;
+const MAX_DB_OPS: usize = 50;
+const MAX_SQL_BYTES: usize = 16 * 1024;
+const MAX_DB_PARAMS_BYTES: usize = 64 * 1024;
+const MAX_LOG_BYTES: usize = 8 * 1024;
+const MAX_LOG_OPS: usize = 100;
 
 /// A storage operation recorded during WASM execution.
 /// These are returned to the main process for actual database execution.
@@ -81,6 +103,10 @@ struct WorkerState {
     meta_ops: Arc<Mutex<Vec<MetaOp>>>,
     /// Collected database operations (returned to main process)
     db_ops: Arc<Mutex<Vec<DbOp>>>,
+    /// Per-store resource limits applied by Wasmtime.
+    limits: wasmtime::StoreLimits,
+    /// Number of host_log calls emitted during this request.
+    log_count: usize,
 }
 
 /// Cached WASM engine + compiled modules for reuse across requests.
@@ -226,6 +252,15 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
         storage_ops: storage_ops.clone(),
         meta_ops: meta_ops.clone(),
         db_ops: db_ops.clone(),
+        limits: wasmtime::StoreLimitsBuilder::new()
+            .memory_size(MAX_WASM_MEMORY_BYTES)
+            .table_elements(10_000)
+            .instances(2)
+            .tables(4)
+            .memories(1)
+            .trap_on_grow_failure(true)
+            .build(),
+        log_count: 0,
     };
 
     match execute_wasm(wasm_path, func_name, &input_bytes, state, cache) {
@@ -292,25 +327,42 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
 }
 
 fn do_http_request(method: &str, url: &str, headers_json: &str, body: &[u8]) -> Vec<u8> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .unwrap_or_else(|_| reqwest::blocking::Client::new());
+    if body.len() > MAX_HTTP_BODY_BYTES {
+        return http_response_json(413, "Request body too large");
+    }
 
-    let mut request_builder = match method.to_uppercase().as_str() {
-        "GET" => client.get(url),
-        "POST" => client.post(url),
-        "PUT" => client.put(url),
-        "DELETE" => client.delete(url),
-        "PATCH" => client.patch(url),
-        _ => return serde_json::json!({"status": 400, "body": "Unsupported method"}).to_string().into_bytes(),
+    let url = match validate_http_url(url) {
+        Ok(url) => url,
+        Err(e) => return http_response_json(400, &e),
     };
 
-    // Parse and apply headers
+    let method = method.to_ascii_uppercase();
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .build()
+    {
+        Ok(client) => client,
+        Err(e) => return http_response_json(0, &format!("Client creation failed: {}", e)),
+    };
+
+    let mut request_builder = match method.as_str() {
+        "GET" => client.get(url.clone()),
+        "POST" => client.post(url.clone()),
+        "PUT" => client.put(url.clone()),
+        "DELETE" => client.delete(url.clone()),
+        "PATCH" => client.patch(url),
+        _ => return http_response_json(400, "Unsupported method"),
+    };
+
     if !headers_json.is_empty() {
         if let Ok(headers) = serde_json::from_str::<serde_json::Value>(headers_json) {
             if let Some(obj) = headers.as_object() {
                 for (key, value) in obj {
+                    if !is_allowed_outbound_header(key) {
+                        continue;
+                    }
                     if let Some(val_str) = value.as_str() {
                         request_builder = request_builder.header(key.as_str(), val_str);
                     }
@@ -319,35 +371,149 @@ fn do_http_request(method: &str, url: &str, headers_json: &str, body: &[u8]) -> 
         }
     }
 
-    // Add body for non-GET requests
-    if !body.is_empty() && method.to_uppercase() != "GET" {
+    if !body.is_empty() && method != "GET" {
         request_builder = request_builder.body(body.to_vec());
     }
 
     match request_builder.send() {
         Ok(response) => {
             let status = response.status().as_u16();
-            let body_text = response.text().unwrap_or_default();
-            serde_json::json!({
-                "status": status,
-                "body": body_text,
-            }).to_string().into_bytes()
+            let mut limited = Vec::new();
+            let mut reader = response.take((MAX_HTTP_RESPONSE_BYTES + 1) as u64);
+            if reader.read_to_end(&mut limited).is_err() {
+                return http_response_json(0, "Failed to read response body");
+            }
+            if limited.len() > MAX_HTTP_RESPONSE_BYTES {
+                return http_response_json(413, "Response body too large");
+            }
+            let body_text = String::from_utf8_lossy(&limited).into_owned();
+            http_response_json(status, &body_text)
         }
-        Err(e) => {
-            serde_json::json!({
-                "status": 0,
-                "body": format!("Request failed: {}", e),
-            }).to_string().into_bytes()
+        Err(e) => http_response_json(0, &format!("Request failed: {}", e)),
+    }
+}
+
+fn http_response_json(status: u16, body: &str) -> Vec<u8> {
+    serde_json::json!({
+        "status": status,
+        "body": body,
+    })
+    .to_string()
+    .into_bytes()
+}
+
+fn validate_http_url(url: &str) -> Result<reqwest::Url, String> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| "Invalid URL".to_string())?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => return Err("Only http and https URLs are allowed".to_string()),
+    }
+
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("Credentials in URL are not allowed".to_string());
+    }
+
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "URL host is required".to_string())?;
+    let normalized_host = host.trim_end_matches('.').to_ascii_lowercase();
+
+    if is_blocked_host_name(&normalized_host) {
+        return Err("Local or private hosts are not allowed".to_string());
+    }
+
+    if let Ok(ip) = normalized_host.parse::<IpAddr>() {
+        if is_blocked_ip(ip) {
+            return Err("Local or private IP addresses are not allowed".to_string());
+        }
+        return Ok(parsed);
+    }
+
+    let port = parsed
+        .port_or_known_default()
+        .ok_or_else(|| "URL port is required".to_string())?;
+    let resolved = (normalized_host.as_str(), port)
+        .to_socket_addrs()
+        .map_err(|_| "URL host could not be resolved".to_string())?;
+
+    let mut resolved_any = false;
+    for addr in resolved {
+        resolved_any = true;
+        if is_blocked_ip(addr.ip()) {
+            return Err("URL host resolves to a local or private address".to_string());
         }
     }
+    if !resolved_any {
+        return Err("URL host could not be resolved".to_string());
+    }
+
+    Ok(parsed)
+}
+
+fn is_blocked_host_name(host: &str) -> bool {
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host == "metadata.google.internal"
+        || host.ends_with(".local")
+}
+
+fn is_blocked_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => is_blocked_ipv4(ip),
+        IpAddr::V6(ip) => is_blocked_ipv6(ip),
+    }
+}
+
+fn is_blocked_ipv4(ip: Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+        || ip.is_multicast()
+        || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+}
+
+fn is_blocked_ipv6(ip: Ipv6Addr) -> bool {
+    if let Some(mapped) = ip.to_ipv4_mapped() {
+        return is_blocked_ipv4(mapped);
+    }
+
+    let segments = ip.segments();
+    ip.is_loopback()
+        || ip.is_unspecified()
+        || ip.is_multicast()
+        || (segments[0] & 0xfe00) == 0xfc00
+        || (segments[0] & 0xffc0) == 0xfe80
+}
+
+fn is_allowed_outbound_header(name: &str) -> bool {
+    !matches!(
+        name.to_ascii_lowercase().as_str(),
+        "host"
+            | "content-length"
+            | "connection"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+    )
 }
 
 
 fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerState, cache: &mut ModuleCache) -> Result<Vec<u8>, String> {
+    if input.len() > MAX_PLUGIN_INPUT_BYTES {
+        return Err("Input data exceeds plugin limit".to_string());
+    }
+
     let module = cache.get_or_compile(wasm_path)?;
     let engine = &cache.engine;
 
     let mut store = wasmtime::Store::new(engine, state);
+    store.limiter(|state| &mut state.limits);
     store.set_fuel(100_000_000).map_err(|e| format!("Failed to set fuel: {}", e))?;
 
     let mut linker = wasmtime::Linker::new(engine);
@@ -369,10 +535,10 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
             };
             let mem_data = memory.data(&caller);
 
-            let method = read_wasm_string(mem_data, method_ptr, method_len);
-            let url = read_wasm_string(mem_data, url_ptr, url_len);
-            let headers = read_wasm_string(mem_data, headers_ptr, headers_len);
-            let body = read_wasm_bytes(mem_data, body_ptr, body_len);
+            let method = read_wasm_string_limited(mem_data, method_ptr, method_len, MAX_HTTP_METHOD_BYTES);
+            let url = read_wasm_string_limited(mem_data, url_ptr, url_len, MAX_HTTP_URL_BYTES);
+            let headers = read_wasm_string_limited(mem_data, headers_ptr, headers_len, MAX_HTTP_HEADERS_BYTES);
+            let body = read_wasm_bytes_limited(mem_data, body_ptr, body_len, MAX_HTTP_BODY_BYTES);
 
             let (method, url, headers) = match (method, url, headers) {
                 (Some(m), Some(u), Some(h)) => (m, u, h),
@@ -398,7 +564,7 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
                 _ => return 0,
             };
             let mem_data = memory.data(&caller);
-            let key = match read_wasm_string(mem_data, key_ptr, key_len) {
+            let key = match read_wasm_string_limited(mem_data, key_ptr, key_len, MAX_STORAGE_KEY_BYTES) {
                 Some(k) => k,
                 None => return 0,
             };
@@ -432,11 +598,11 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
                 _ => return 0,
             };
             let mem_data = memory.data(&caller);
-            let key = match read_wasm_string(mem_data, key_ptr, key_len) {
+            let key = match read_wasm_string_limited(mem_data, key_ptr, key_len, MAX_STORAGE_KEY_BYTES) {
                 Some(k) => k,
                 None => return 0,
             };
-            let value = match read_wasm_string(mem_data, value_ptr, value_len) {
+            let value = match read_wasm_string_limited(mem_data, value_ptr, value_len, MAX_STORAGE_VALUE_BYTES) {
                 Some(v) => v,
                 None => return 0,
             };
@@ -444,6 +610,9 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
             caller.data_mut().plugin_data.insert(key.clone(), value.clone());
 
             if let Ok(mut ops) = caller.data().storage_ops.lock() {
+                if ops.len() >= MAX_STORAGE_OPS {
+                    return 0;
+                }
                 ops.push(StorageOp::Set { key, value });
             }
             1
@@ -463,7 +632,7 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
                 _ => return 0,
             };
             let mem_data = memory.data(&caller);
-            let key = match read_wasm_string(mem_data, key_ptr, key_len) {
+            let key = match read_wasm_string_limited(mem_data, key_ptr, key_len, MAX_STORAGE_KEY_BYTES) {
                 Some(k) => k,
                 None => return 0,
             };
@@ -471,6 +640,9 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
             caller.data_mut().plugin_data.remove(&key);
 
             if let Ok(mut ops) = caller.data().storage_ops.lock() {
+                if ops.len() >= MAX_STORAGE_OPS {
+                    return 0;
+                }
                 ops.push(StorageOp::Delete { key });
             }
             1
@@ -484,13 +656,20 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
          level_ptr: i32, level_len: i32,
          msg_ptr: i32, msg_len: i32| {
 
+            if caller.data().log_count >= MAX_LOG_OPS {
+                return;
+            }
+            caller.data_mut().log_count += 1;
+
             let memory = match caller.get_export("memory") {
                 Some(wasmtime::Extern::Memory(mem)) => mem,
                 _ => return,
             };
             let mem_data = memory.data(&caller);
-            let level = read_wasm_string(mem_data, level_ptr, level_len).unwrap_or_default();
-            let msg = read_wasm_string(mem_data, msg_ptr, msg_len).unwrap_or_default();
+            let level = read_wasm_string_limited(mem_data, level_ptr, level_len, MAX_HTTP_METHOD_BYTES)
+                .unwrap_or_default();
+            let msg = read_wasm_string_limited(mem_data, msg_ptr, msg_len, MAX_LOG_BYTES)
+                .unwrap_or_default();
             let plugin_id = &caller.data().plugin_id;
 
             eprintln!("[wasm:{}][{}] {}", plugin_id, level, msg);
@@ -570,7 +749,7 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
                 _ => return 0,
             };
             let mem_data = memory.data(&caller);
-            let data_json = match read_wasm_string(mem_data, data_ptr, data_len) {
+            let data_json = match read_wasm_string_limited(mem_data, data_ptr, data_len, MAX_META_VALUE_BYTES) {
                 Some(s) => s,
                 None => return 0,
             };
@@ -580,6 +759,9 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
             }
 
             if let Ok(mut ops) = caller.data().meta_ops.lock() {
+                if ops.len() >= MAX_META_OPS {
+                    return 0;
+                }
                 ops.push(MetaOp {
                     article_id: article_id as i64,
                     data: data_json,
@@ -662,15 +844,18 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
                 _ => return 0,
             };
             let mem_data = memory.data(&caller);
-            let sql = match read_wasm_string(mem_data, sql_ptr, sql_len) {
+            let sql = match read_wasm_string_limited(mem_data, sql_ptr, sql_len, MAX_SQL_BYTES) {
                 Some(s) => s,
                 None => return 0,
             };
-            let params = read_wasm_string(mem_data, params_ptr, params_len)
+            let params = read_wasm_string_limited(mem_data, params_ptr, params_len, MAX_DB_PARAMS_BYTES)
                 .unwrap_or_else(|| "[]".to_string());
 
             // Collect the operation — actual execution happens in the bridge
             if let Ok(mut ops) = caller.data().db_ops.lock() {
+                if ops.len() >= MAX_DB_OPS {
+                    return 0;
+                }
                 ops.push(DbOp::Query { sql, params });
             }
 
@@ -697,14 +882,17 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
                 _ => return 0,
             };
             let mem_data = memory.data(&caller);
-            let sql = match read_wasm_string(mem_data, sql_ptr, sql_len) {
+            let sql = match read_wasm_string_limited(mem_data, sql_ptr, sql_len, MAX_SQL_BYTES) {
                 Some(s) => s,
                 None => return 0,
             };
-            let params = read_wasm_string(mem_data, params_ptr, params_len)
+            let params = read_wasm_string_limited(mem_data, params_ptr, params_len, MAX_DB_PARAMS_BYTES)
                 .unwrap_or_else(|| "[]".to_string());
 
             if let Ok(mut ops) = caller.data().db_ops.lock() {
+                if ops.len() >= MAX_DB_OPS {
+                    return 0;
+                }
                 ops.push(DbOp::Execute { sql, params });
             }
             1
@@ -745,13 +933,19 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
             let input_len = input.len() as i32;
             let input_ptr = alloc_typed.call(&mut store, input_len)
                 .map_err(|e| format!("allocate failed: {}", e))?;
+            if input_ptr < 0 {
+                return Err("WASM allocate returned an invalid pointer".to_string());
+            }
 
             let ptr = input_ptr as usize;
             let mem = memory.data_mut(&mut store);
-            if ptr + input.len() > mem.len() {
+            let input_end = ptr
+                .checked_add(input.len())
+                .ok_or_else(|| "Input data exceeds WASM memory".to_string())?;
+            if input_end > mem.len() {
                 return Err("Input data exceeds WASM memory".to_string());
             }
-            mem[ptr..ptr + input.len()].copy_from_slice(input);
+            mem[ptr..input_end].copy_from_slice(input);
 
             if let Ok(typed_func) = func.typed::<(i32, i32), i32>(&store) {
                 let result_ptr = typed_func.call(&mut store, (input_ptr, input_len))
@@ -760,12 +954,17 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
                 if result_ptr > 0 {
                     let mem_data = memory.data(&store);
                     let rp = result_ptr as usize;
-                    if rp + 4 <= mem_data.len() {
+                    if let Some(header_end) = rp.checked_add(4).filter(|end| *end <= mem_data.len()) {
                         let result_len = u32::from_le_bytes([
                             mem_data[rp], mem_data[rp + 1], mem_data[rp + 2], mem_data[rp + 3],
                         ]) as usize;
-                        if rp + 4 + result_len <= mem_data.len() {
-                            mem_data[rp + 4..rp + 4 + result_len].to_vec()
+                        if result_len <= MAX_HOST_RETURN_BYTES {
+                            if let Some(result_end) = header_end
+                                .checked_add(result_len)
+                                .filter(|end| *end <= mem_data.len())
+                            {
+                                mem_data[header_end..result_end].to_vec()
+                            } else { vec![] }
                         } else { vec![] }
                     } else { vec![] }
                 } else { vec![] }
@@ -790,6 +989,10 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
 /// Write data to WASM memory via the allocate function.
 /// Returns the pointer (with 4-byte length prefix) or 0 on failure.
 fn write_to_wasm_memory(caller: &mut wasmtime::Caller<'_, WorkerState>, data: &[u8]) -> i32 {
+    if data.len() > MAX_HOST_RETURN_BYTES {
+        return 0;
+    }
+
     let alloc_func = match caller.get_export("allocate") {
         Some(wasmtime::Extern::Func(f)) => f,
         _ => return 0,
@@ -804,35 +1007,60 @@ fn write_to_wasm_memory(caller: &mut wasmtime::Caller<'_, WorkerState>, data: &[
         Err(_) => return 0,
     };
 
-    let total_len = 4 + data.len();
-    let ptr = match alloc_typed.call(caller.as_context_mut(), total_len as i32) {
-        Ok(p) => p as usize,
+    let total_len = match 4usize.checked_add(data.len()) {
+        Some(total_len) => total_len,
+        None => return 0,
+    };
+    let alloc_len = match i32::try_from(total_len) {
+        Ok(len) => len,
         Err(_) => return 0,
+    };
+    let ptr = match alloc_typed.call(caller.as_context_mut(), alloc_len) {
+        Ok(p) if p >= 0 => p as usize,
+        Err(_) => return 0,
+        _ => return 0,
     };
 
     let mem_data = memory.data_mut(caller.as_context_mut());
-    if ptr + total_len > mem_data.len() { return 0; }
+    let end = match ptr.checked_add(total_len) {
+        Some(end) if end <= mem_data.len() => end,
+        _ => return 0,
+    };
 
     let len_bytes = (data.len() as u32).to_le_bytes();
     mem_data[ptr..ptr + 4].copy_from_slice(&len_bytes);
-    mem_data[ptr + 4..ptr + 4 + data.len()].copy_from_slice(data);
+    mem_data[ptr + 4..end].copy_from_slice(data);
 
     ptr as i32
 }
 
-fn read_wasm_string(mem: &[u8], ptr: i32, len: i32) -> Option<String> {
-    let start = ptr as usize;
-    let length = len as usize;
-    if start + length > mem.len() { return None; }
-    String::from_utf8(mem[start..start + length].to_vec()).ok()
+fn read_wasm_string_limited(mem: &[u8], ptr: i32, len: i32, max_len: usize) -> Option<String> {
+    let bytes = read_wasm_range(mem, ptr, len, max_len)?;
+    std::str::from_utf8(bytes).ok().map(str::to_owned)
 }
 
 fn read_wasm_bytes(mem: &[u8], ptr: i32, len: i32) -> Option<Vec<u8>> {
+    read_wasm_bytes_limited(mem, ptr, len, MAX_HOST_ARG_BYTES)
+}
+
+fn read_wasm_bytes_limited(mem: &[u8], ptr: i32, len: i32, max_len: usize) -> Option<Vec<u8>> {
+    read_wasm_range(mem, ptr, len, max_len).map(|bytes| bytes.to_vec())
+}
+
+fn read_wasm_range(mem: &[u8], ptr: i32, len: i32, max_len: usize) -> Option<&[u8]> {
+    if ptr < 0 || len < 0 {
+        return None;
+    }
     let start = ptr as usize;
     let length = len as usize;
-    if length == 0 { return Some(vec![]); }
-    if start + length > mem.len() { return None; }
-    Some(mem[start..start + length].to_vec())
+    if length > max_len {
+        return None;
+    }
+    let end = start.checked_add(length)?;
+    if end > mem.len() {
+        return None;
+    }
+    Some(&mem[start..end])
 }
 
 fn base64_encode(data: &[u8]) -> String {
@@ -878,5 +1106,50 @@ fn decode_b64_char(c: u8) -> u32 {
         b'+' => 62,
         b'/' => 63,
         _ => u32::MAX,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_public_literal_http_urls() {
+        assert!(validate_http_url("https://8.8.8.8/v1").is_ok());
+        assert!(validate_http_url("http://1.1.1.1/json").is_ok());
+    }
+
+    #[test]
+    fn rejects_local_and_private_http_urls() {
+        assert!(validate_http_url("http://localhost:8080").is_err());
+        assert!(validate_http_url("http://127.0.0.1:8080").is_err());
+        assert!(validate_http_url("http://10.0.0.5").is_err());
+        assert!(validate_http_url("http://169.254.169.254/latest/meta-data").is_err());
+        assert!(validate_http_url("http://[::1]/").is_err());
+    }
+
+    #[test]
+    fn rejects_non_http_urls_and_url_credentials() {
+        assert!(validate_http_url("file:///etc/passwd").is_err());
+        assert!(validate_http_url("https://user:pass@8.8.8.8/").is_err());
+    }
+
+    #[test]
+    fn reads_wasm_memory_with_bounds() {
+        let mem = b"abcdef";
+        assert_eq!(
+            read_wasm_string_limited(mem, 1, 3, 8).as_deref(),
+            Some("bcd")
+        );
+        assert!(read_wasm_bytes_limited(mem, -1, 1, 8).is_none());
+        assert!(read_wasm_bytes_limited(mem, 1, 6, 8).is_none());
+        assert!(read_wasm_bytes_limited(mem, 1, 3, 2).is_none());
+    }
+
+    #[test]
+    fn filters_unsafe_outbound_headers() {
+        assert!(is_allowed_outbound_header("authorization"));
+        assert!(!is_allowed_outbound_header("host"));
+        assert!(!is_allowed_outbound_header("transfer-encoding"));
     }
 }

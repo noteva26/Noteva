@@ -260,7 +260,7 @@ export const adminApi = {
     const formData = new FormData();
     formData.append("file", file);
     return api.post<ThemeInstallResponse>("/admin/themes/upload", formData, {
-      headers: { "Content-Type": undefined as any },
+      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
     });
   },
 
@@ -310,16 +310,16 @@ export const adminApi = {
 
   // Backup & Restore
   downloadBackup: () =>
-    api.get("/admin/backup", { responseType: "blob" as any }),
+    api.get<Blob>("/admin/backup", { responseType: "blob" }),
   restoreBackup: (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
     return api.post("/admin/backup/restore", formData, {
-      headers: { "Content-Type": undefined as any },
+      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
     });
   },
   exportMarkdown: () =>
-    api.get("/admin/backup/export-markdown", { responseType: "blob" as any }),
+    api.get<Blob>("/admin/backup/export-markdown", { responseType: "blob" }),
 };
 
 // Public site info API (no auth required)
@@ -349,7 +349,7 @@ export const pluginsApi = {
     const formData = new FormData();
     formData.append("file", file);
     return api.post<PluginInstallResponse>("/admin/plugins/upload", formData, {
-      headers: { "Content-Type": undefined as any },
+      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
     });
   },
 
@@ -384,7 +384,7 @@ export const uploadApi = {
     formData.append("file", file);
     // Don't set Content-Type manually — let browser set it with correct boundary
     return api.post<UploadResponse>("/upload/image", formData, {
-      headers: { "Content-Type": undefined as any },
+      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
     });
   },
 
@@ -392,7 +392,7 @@ export const uploadApi = {
     const formData = new FormData();
     formData.append("file", file);
     return api.post<UploadResponse>("/upload/file", formData, {
-      headers: { "Content-Type": undefined as any },
+      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
     });
   },
 
@@ -400,7 +400,7 @@ export const uploadApi = {
     const formData = new FormData();
     files.forEach((file) => formData.append("files", file));
     return api.post<MultiUploadResponse>("/upload/images", formData, {
-      headers: { "Content-Type": undefined as any },
+      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
     });
   },
 };

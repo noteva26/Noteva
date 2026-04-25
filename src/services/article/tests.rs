@@ -3,7 +3,7 @@
     use crate::config::CacheConfig;
     use crate::db::repositories::{SqlxArticleRepository, SqlxTagRepository};
     use crate::db::{create_test_pool, migrations, DynDatabasePool};
-    use crate::models::ArticleStatus;
+    use crate::models::{ArticleSortBy, ArticleStatus};
 
     async fn setup_test_service() -> (DynDatabasePool, ArticleService) {
         let pool = create_test_pool()
@@ -191,7 +191,7 @@
         assert!(article.id > 0);
         assert_eq!(article.title, "My First Article");
         assert_eq!(article.slug, "my-first-article");
-        assert!(article.content_html.contains("<h1>"));
+        assert!(article.content_html.contains("<h1"));
         assert_eq!(article.status, ArticleStatus::Draft);
     }
 
@@ -380,7 +380,10 @@
         }
 
         let params = ListParams::new(1, 10);
-        let result = service.list(&params).await.expect("Failed to list articles");
+        let result = service
+            .list(&params, ArticleSortBy::default())
+            .await
+            .expect("Failed to list articles");
 
         assert_eq!(result.total, 5);
         assert_eq!(result.items.len(), 5);
@@ -409,7 +412,10 @@
 
         // Get first page
         let params = ListParams::new(1, 3);
-        let result = service.list(&params).await.expect("Failed to list articles");
+        let result = service
+            .list(&params, ArticleSortBy::default())
+            .await
+            .expect("Failed to list articles");
 
         assert_eq!(result.total, 10);
         assert_eq!(result.items.len(), 3);
@@ -455,7 +461,7 @@
 
         let params = ListParams::new(1, 10);
         let result = service
-            .list_published(&params)
+            .list_published(&params, ArticleSortBy::default())
             .await
             .expect("Failed to list published articles");
 
@@ -629,7 +635,7 @@
         let markdown = "# Hello\n\nThis is **bold** and *italic*.";
         let html = service.render_markdown(markdown);
 
-        assert!(html.contains("<h1>"));
+        assert!(html.contains("<h1"));
         assert!(html.contains("<strong>bold</strong>"));
         assert!(html.contains("<em>italic</em>"));
     }
@@ -653,7 +659,7 @@
             .await
             .expect("Failed to create article");
 
-        assert!(article.content_html.contains("<h1>"));
+        assert!(article.content_html.contains("<h1"));
         assert!(article.content_html.contains("<ul>"));
         assert!(article.content_html.contains("<li>"));
     }
@@ -850,7 +856,7 @@
 
                 // List articles with pagination
                 let params = ListParams::new(page, per_page);
-                let result = service.list(&params).await
+                let result = service.list(&params, ArticleSortBy::default()).await
                     .expect("list should succeed");
 
                 // Property: Total count should match the number of articles created
@@ -1021,7 +1027,7 @@
                 let html = service.render_markdown(&full_markdown);
 
                 // Property: HTML should contain the appropriate heading tag
-                let expected_heading_tag = format!("<h{}>", heading_level);
+                let expected_heading_tag = format!("<h{}", heading_level);
                 prop_assert!(
                     html.contains(&expected_heading_tag),
                     "HTML should contain {} for heading level {}. HTML: {}",

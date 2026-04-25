@@ -25,8 +25,6 @@ export default defineConfig({
           'vendor-charts': ['recharts'],
           // Markdown rendering
           'vendor-markdown': ['react-markdown', 'react-syntax-highlighter'],
-          // DnD kit
-          'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/modifiers', '@dnd-kit/utilities'],
         },
       },
     },
