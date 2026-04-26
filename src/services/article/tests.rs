@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::cache::create_cache;
 use crate::config::CacheConfig;
@@ -470,6 +469,59 @@ async fn test_list_published_articles() {
     for article in &result.items {
         assert_eq!(article.status, ArticleStatus::Published);
     }
+}
+
+#[tokio::test]
+async fn test_list_articles_by_status() {
+    let (pool, service) = setup_test_service().await;
+    let sqlite_pool = pool.as_sqlite().unwrap();
+    let author_id = create_test_user(sqlite_pool).await;
+
+    for i in 1..=2 {
+        let input = CreateArticleInput::new(
+            format!("draft-status-{}", i),
+            format!("Draft Status {}", i),
+            "Content".to_string(),
+            author_id,
+            1,
+        );
+        service
+            .create(input, None)
+            .await
+            .expect("Failed to create draft");
+    }
+
+    let archived = CreateArticleInput::new(
+        "archived-status".to_string(),
+        "Archived Status".to_string(),
+        "Content".to_string(),
+        author_id,
+        1,
+    )
+    .with_status(ArticleStatus::Archived);
+    service
+        .create(archived, None)
+        .await
+        .expect("Failed to create archived article");
+
+    let params = ListParams::new(1, 10);
+    let drafts = service
+        .list_by_status(ArticleStatus::Draft, &params, ArticleSortBy::default())
+        .await
+        .expect("Failed to list drafts");
+    let archived = service
+        .list_by_status(ArticleStatus::Archived, &params, ArticleSortBy::default())
+        .await
+        .expect("Failed to list archived articles");
+
+    assert_eq!(drafts.total, 2);
+    assert_eq!(drafts.items.len(), 2);
+    assert!(drafts
+        .items
+        .iter()
+        .all(|article| article.status == ArticleStatus::Draft));
+    assert_eq!(archived.total, 1);
+    assert_eq!(archived.items[0].status, ArticleStatus::Archived);
 }
 
 // ========================================================================

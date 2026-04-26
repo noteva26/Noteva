@@ -230,11 +230,54 @@
     .replace(/\s+/g, ' ')
     .trim();
 
+  const isEmojiImage = (src, attrs = '') => {
+    const normalizedSrc = String(src || '').toLowerCase();
+    const normalizedAttrs = String(attrs || '').toLowerCase();
+    const classMatch = attrs.match(/\bclass=["']([^"']+)["']/i);
+    if (classMatch) {
+      const classes = classMatch[1].split(/\s+/);
+      if (classes.includes('twemoji') || classes.includes('emoji')) return true;
+    }
+    if (/\bdata-(twemoji|emoji)\b/.test(normalizedAttrs)) return true;
+    if (/twemoji|@twemoji|\/twemoji[/-]/.test(normalizedSrc)) return true;
+
+    const altMatch = attrs.match(/\balt=["']([^"']+)["']/i);
+    if (altMatch) {
+      const alt = altMatch[1].trim();
+      if (alt && Array.from(alt).length <= 4 && /\p{Extended_Pictographic}/u.test(alt)) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const normalizeMarkdownImageUrl = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('<') && raw.endsWith('>')) return raw.slice(1, -1).trim();
+    return raw.split(/\s+(?=(?:"[^"]*"|'[^']*')$)/)[0].trim();
+  };
+
   const extractThumbnail = (value) => {
     const content = String(value || '');
-    const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/i)
-      || content.match(/!\[[^\]]*\]\(([^)]+)\)/);
-    return imgMatch ? imgMatch[1] : null;
+    const htmlImagePattern = /<img\b([^>]*)>/gi;
+    let htmlMatch;
+    while ((htmlMatch = htmlImagePattern.exec(content))) {
+      const attrs = htmlMatch[1] || '';
+      const srcMatch = attrs.match(/\bsrc=["']([^"']+)["']/i);
+      const src = srcMatch ? srcMatch[1].trim() : '';
+      if (src && !isEmojiImage(src, attrs)) return src;
+    }
+
+    const markdownImagePattern = /!\[[^\]]*\]\(([^)]+)\)/g;
+    let markdownMatch;
+    while ((markdownMatch = markdownImagePattern.exec(content))) {
+      const src = normalizeMarkdownImageUrl(markdownMatch[1]);
+      if (src && !isEmojiImage(src)) return src;
+    }
+
+    return null;
   };
 
   const normalizeSimpleUser = (user) => {
@@ -2655,7 +2698,7 @@
   // ============================================
   window.Noteva = {
     // 版本
-    version: '0.2.7',
+    version: '0.2.8',
     sdkVersion: SDK_VERSION,
 
     // 核心系统

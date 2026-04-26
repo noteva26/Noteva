@@ -394,8 +394,8 @@
     "checkNow": "立即检查",
     "checkedAt": "检查于 {time}",
     "viewRelease": "查看发布",
-    "stableHint": "可直接在后台检查 GitHub 发布版本。",
-    "updateHint": "检测到新的 Noteva 版本，可直接更新。",
+    "stableHint": "当前已是最新版本，可在这里检查官方更新。",
+    "updateHint": "检测到新的 Noteva 版本，可确认后在线更新。",
     "confirmTitle": "更新 Noteva",
     "confirmDescription": "确定更新到 v{version} 吗？程序会替换当前二进制并自动重启，后台可能短暂不可用。"
   },

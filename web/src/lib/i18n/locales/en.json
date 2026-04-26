@@ -394,8 +394,8 @@
     "checkNow": "Check now",
     "checkedAt": "Checked {time}",
     "viewRelease": "View release",
-    "stableHint": "Check GitHub releases without leaving the dashboard.",
-    "updateHint": "A newer Noteva release is ready to install.",
+    "stableHint": "You are running the latest version. Official updates can be checked here.",
+    "updateHint": "A newer Noteva release is available and can be installed after confirmation.",
     "confirmTitle": "Update Noteva",
     "confirmDescription": "Update to v{version}? The program will replace the current binary and restart automatically. The dashboard may be unavailable for a short time."
   },

@@ -4,6 +4,32 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.2.8] - 2026-04-27
+
+### Plugin System
+- **Plugin database API completed** - Added isolated database access for WASM plugins, allowing plugins with declared permissions to run controlled SQL operations while keeping data scoped by plugin ID.
+- **Plugin database safeguards tightened** - Strengthened permission checks, SQL validation, and execution boundaries so plugins cannot access core data or other plugins' data unexpectedly.
+
+### Admin Dashboard
+- **Sidebar version entry improved** - Added a version and update-check entry to the admin sidebar, kept release-note visibility, and removed the duplicated system update entry from settings.
+- **Dashboard recent articles capped** - The `/manage` dashboard now consistently shows only the latest 5 articles, with matching loading and rendered states.
+- **Article editor scrolling improved** - The Markdown editor and preview panes on article create/edit pages now keep a stable height and scroll internally for long content instead of stretching the whole page.
+- **Article status filtering fixed** - `/manage/articles` now queries and counts published, draft, and archived articles by status on the backend, so draft and archived filters no longer show the full article list.
+- **Scheduled publishing semantics completed** - Articles with a scheduled publish time remain drafts until the background task publishes them, scheduled times can be cleared, and the scheduled marker is removed after publication.
+
+### Bug Fixes
+- **Broken article emoji rendering fixed** - Markdown rendering no longer forces native Unicode emoji into external Twemoji images, fixing stars and other emoji appearing as broken images in default-theme article tables.
+- **Article thumbnail extraction fixed** - SDK thumbnail extraction now skips Emoji/Twemoji images, preventing the first emoji in article content from being treated as the article thumbnail.
+
+### Documentation
+- **Plugin development docs updated** - Documented the plugin database API, permission declarations, execution constraints, and usage guidance for plugin-private data.
+
+### Build & Version
+- **Version unified to 0.2.8** - Updated the Rust crate, frontend packages, default theme, SDK built-in version, and development metadata.
+- **CI test stability fixed** - Fixed a possible SQLite schema lock in the migration rollback test, reducing flaky CI failures.
+
+---
+
 ## [v0.2.7] - 2026-04-26
 
 ### Theme System

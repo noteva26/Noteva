@@ -172,7 +172,8 @@ export default function NewArticlePage() {
   const [saveState, saveArticle, isSaving] = useActionState<SaveState, ArticleSubmitStatus>(
     async (_prevState, status) => {
       const editorContent = editorRef.current?.getValue() ?? form.content;
-      const currentForm: ArticleFormState = { ...form, content: editorContent, status };
+      const submitStatus: ArticleSubmitStatus = form.scheduled_at ? "draft" : status;
+      const currentForm: ArticleFormState = { ...form, content: editorContent, status: submitStatus };
 
       if (!currentForm.title.trim()) {
         return { type: "error", message: t("article.title"), submittedAt: Date.now() };
@@ -189,7 +190,7 @@ export default function NewArticlePage() {
           title: currentForm.title,
           slug: currentForm.slug || generateSlug(currentForm.title),
           content: currentForm.content,
-          status,
+          status: submitStatus,
           category_id: currentForm.category_id,
           tag_ids: selectedTags,
           scheduled_at: currentForm.scheduled_at ? new Date(currentForm.scheduled_at).toISOString() : undefined,
@@ -198,7 +199,7 @@ export default function NewArticlePage() {
         setForm(currentForm);
         return {
           type: "success",
-          status,
+          status: submitStatus,
           articleId: response.data.id,
           savedFingerprint: createDraftFingerprint(currentForm, selectedTags),
           submittedAt: Date.now(),
@@ -306,7 +307,7 @@ export default function NewArticlePage() {
           </Button>
           <Button onClick={() => handleSubmit("published")} disabled={isSaving || !canSubmit}>
             {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saveSucceeded ? <Check className="h-4 w-4 mr-2" /> : null}
-            {t("article.publish")}
+            {form.scheduled_at ? t("article.scheduledPublish") : t("article.publish")}
           </Button>
         </div>
       </div>

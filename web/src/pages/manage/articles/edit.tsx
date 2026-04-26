@@ -160,7 +160,7 @@ export default function EditArticlePage() {
             status: currentForm.status, category_id: currentForm.category_id,
             tag_ids: selectedTags, thumbnail: currentForm.thumbnail,
             is_pinned: currentForm.is_pinned, pin_order: currentForm.pin_order,
-            scheduled_at: currentForm.scheduled_at ? new Date(currentForm.scheduled_at).toISOString() : undefined,
+            scheduled_at: currentForm.scheduled_at ? new Date(currentForm.scheduled_at).toISOString() : null,
           };
           await articlesApi.update(articleId, data);
           setForm(currentForm);
@@ -224,7 +224,8 @@ export default function EditArticlePage() {
   const [saveState, saveArticle, isSaving] = useActionState<SaveState, ArticleSubmitStatus>(
     async (_prevState, status) => {
       const editorContent = editorRef.current?.getValue() ?? form.content;
-      const currentForm: ArticleFormState = { ...form, content: editorContent, status };
+      const submitStatus: ArticleSubmitStatus = form.scheduled_at ? "draft" : status;
+      const currentForm: ArticleFormState = { ...form, content: editorContent, status: submitStatus };
 
       if (!currentForm.title.trim()) {
         return { type: "error", message: `${t("article.title")} ${t("common.error")}`, submittedAt: Date.now() };
@@ -233,16 +234,16 @@ export default function EditArticlePage() {
       try {
         const data: UpdateArticleInput = {
           title: currentForm.title, slug: currentForm.slug, content: currentForm.content,
-          status, category_id: currentForm.category_id,
+          status: submitStatus, category_id: currentForm.category_id,
           tag_ids: selectedTags, thumbnail: currentForm.thumbnail,
           is_pinned: currentForm.is_pinned, pin_order: currentForm.pin_order,
-          scheduled_at: currentForm.scheduled_at ? new Date(currentForm.scheduled_at).toISOString() : undefined,
+          scheduled_at: currentForm.scheduled_at ? new Date(currentForm.scheduled_at).toISOString() : null,
         };
         await articlesApi.update(articleId, data);
         setForm(currentForm);
         return {
           type: "success",
-          status,
+          status: submitStatus,
           savedFingerprint: createArticleFingerprint(currentForm, selectedTags),
           submittedAt: Date.now(),
         };
@@ -344,7 +345,7 @@ export default function EditArticlePage() {
           </Button>
           <Button onClick={() => handleSubmit("published")} disabled={isSaving || !canSubmit}>
             {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saveSucceeded ? <Check className="h-4 w-4 mr-2" /> : null}
-            {form.status === "published" ? t("article.update") : t("article.publish")}
+            {form.scheduled_at ? t("article.scheduledPublish") : form.status === "published" ? t("article.update") : t("article.publish")}
           </Button>
         </div>
       </div>

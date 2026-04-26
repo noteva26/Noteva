@@ -253,6 +253,52 @@ pub fn process_shortcodes(text: &str) -> String {
     result
 }
 
+/// Process text and convert emoji shortcodes to native Unicode emoji.
+///
+/// Article content should keep emoji as text instead of relying on external
+/// image assets; native emoji avoids broken images when a CDN is unavailable.
+pub fn process_shortcodes_to_unicode(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == ':' {
+            let mut shortcode = String::new();
+            let mut found_end = false;
+
+            while let Some(&next) = chars.peek() {
+                if next == ':' {
+                    chars.next();
+                    found_end = true;
+                    break;
+                } else if next.is_alphanumeric() || next == '_' || next == '+' || next == '-' {
+                    shortcode.push(next);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+
+            if found_end && !shortcode.is_empty() {
+                if let Some(emoji) = shortcode_to_emoji(&shortcode) {
+                    result.push_str(emoji);
+                } else {
+                    result.push(':');
+                    result.push_str(&shortcode);
+                    result.push(':');
+                }
+            } else {
+                result.push(':');
+                result.push_str(&shortcode);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
 /// Process HTML and convert Unicode emoji to Twemoji images
 /// This should be called after markdown rendering
 pub fn process_unicode_emoji(html: &str) -> String {
@@ -437,6 +483,15 @@ mod tests {
     fn test_process_shortcodes_invalid() {
         let result = process_shortcodes("Hello :invalid_emoji: world");
         assert!(result.contains(":invalid_emoji:"));
+    }
+
+    #[test]
+    fn test_process_shortcodes_to_unicode() {
+        let emoji = shortcode_to_emoji("smile").unwrap();
+        let result = process_shortcodes_to_unicode("Hello :smile: world");
+        assert!(result.contains(emoji));
+        assert!(!result.contains(":smile:"));
+        assert!(!result.contains("twemoji"));
     }
 
     #[test]

@@ -17,7 +17,8 @@
 use crate::cache::{Cache, CacheLayer};
 use crate::db::repositories::{ArticleRepository, TagRepository};
 use crate::models::{
-    Article, ArticleSortBy, CreateArticleInput, ListParams, PagedResult, UpdateArticleInput,
+    Article, ArticleSortBy, ArticleStatus, CreateArticleInput, ListParams, PagedResult,
+    UpdateArticleInput,
 };
 use crate::plugin::{hook_names, HookManager};
 use crate::services::markdown::MarkdownRenderer;
@@ -405,6 +406,56 @@ impl ArticleService {
         let result = PagedResult::new(articles, total, params);
 
         // Cache the result (lists use shorter TTL for freshness)
+        let _ = self
+            .cache
+            .set(
+                &cache_key,
+                &result,
+                Duration::from_secs(ARTICLE_LIST_CACHE_TTL_SECS),
+            )
+            .await;
+
+        Ok(result)
+    }
+
+    /// List articles with a concrete status filter.
+    pub async fn list_by_status(
+        &self,
+        status: ArticleStatus,
+        params: &ListParams,
+        sort_by: ArticleSortBy,
+    ) -> Result<PagedResult<Article>, ArticleServiceError> {
+        if status == ArticleStatus::Published {
+            return self.list_published(params, sort_by).await;
+        }
+
+        let offset = params.offset();
+        let limit = params.limit();
+        let cache_key = format!(
+            "{}:status:{}:{}:{}:{}",
+            CACHE_KEY_ARTICLE_LIST,
+            status.as_str(),
+            offset,
+            limit,
+            sort_by.cache_key()
+        );
+        if let Ok(Some(cached)) = self.cache.get::<PagedResult<Article>>(&cache_key).await {
+            return Ok(cached);
+        }
+
+        let articles = self
+            .repo
+            .list_by_status(status, offset, limit, sort_by)
+            .await
+            .context("Failed to list articles by status")?;
+
+        let total = self
+            .repo
+            .count_by_status(status)
+            .await
+            .context("Failed to count articles by status")?;
+
+        let result = PagedResult::new(articles, total, params);
         let _ = self
             .cache
             .set(

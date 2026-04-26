@@ -272,8 +272,12 @@ pub struct UpdateArticleInput {
     pub is_pinned: Option<bool>,
     /// Pin order (optional)
     pub pin_order: Option<i32>,
-    /// Scheduled publish timestamp (optional)
-    pub scheduled_at: Option<DateTime<Utc>>,
+    /// Scheduled publish timestamp patch.
+    ///
+    /// - None: keep the existing value
+    /// - Some(Some(dt)): set a scheduled publish time
+    /// - Some(None): clear the scheduled publish time
+    pub scheduled_at: Option<Option<DateTime<Utc>>>,
 }
 
 impl UpdateArticleInput {
@@ -318,6 +322,12 @@ impl UpdateArticleInput {
         self
     }
 
+    /// Set or clear the scheduled publish timestamp
+    pub fn with_scheduled_at(mut self, scheduled_at: Option<DateTime<Utc>>) -> Self {
+        self.scheduled_at = Some(scheduled_at);
+        self
+    }
+
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
         self.slug.is_some()
@@ -329,6 +339,7 @@ impl UpdateArticleInput {
             || self.thumbnail.is_some()
             || self.is_pinned.is_some()
             || self.pin_order.is_some()
+            || self.scheduled_at.is_some()
     }
 }
 

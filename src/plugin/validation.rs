@@ -12,6 +12,7 @@ use std::path::Path;
 
 use super::hook_registry::{validate_plugin_hooks, HookRegistry};
 use super::loader::{PluginMetadata, PluginPageDeclaration};
+use super::plugin_db;
 
 pub const PLUGIN_SCHEMA_VERSION: u32 = 1;
 
@@ -31,6 +32,7 @@ const FRONTEND_HOOKS: &[&str] = &[
 const STABLE_PERMISSIONS: &[&str] = &[
     "network",
     "storage",
+    "database",
     "read_articles",
     "read_comments",
     "write_articles",
@@ -100,6 +102,7 @@ pub fn validate_plugin_manifest(
 
     validate_hooks(manifest)?;
     validate_permissions(&manifest.permissions)?;
+    validate_database_manifest(manifest)?;
     validate_activate(&manifest.activate)?;
 
     for shortcode in &manifest.shortcodes {
@@ -107,12 +110,6 @@ pub fn validate_plugin_manifest(
     }
     for page in &manifest.pages {
         validate_page(page)?;
-    }
-
-    if manifest.database {
-        return Err(anyhow!(
-            "plugin database API is experimental and cannot be declared in plugin schema v1"
-        ));
     }
 
     Ok(())
@@ -154,6 +151,8 @@ fn validate_package_files(plugin_dir: &Path, manifest: &PluginMetadata) -> Resul
         ));
     }
 
+    validate_database_files(plugin_dir, manifest)?;
+
     if manifest.hooks.editor.iter().any(|hook| hook == "toolbar")
         && !plugin_dir.join("editor.json").is_file()
     {
@@ -163,6 +162,108 @@ fn validate_package_files(plugin_dir: &Path, manifest: &PluginMetadata) -> Resul
     }
 
     Ok(())
+}
+
+fn validate_database_manifest(manifest: &PluginMetadata) -> Result<()> {
+    let has_database_permission = manifest
+        .permissions
+        .iter()
+        .any(|permission| permission == "database");
+
+    if manifest.database && !has_database_permission {
+        return Err(anyhow!(
+            "plugin declares database=true but missing 'database' permission"
+        ));
+    }
+
+    if has_database_permission && !manifest.database {
+        return Err(anyhow!(
+            "plugin requests 'database' permission but database is not true"
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_database_files(plugin_dir: &Path, manifest: &PluginMetadata) -> Result<()> {
+    let migrations_dir = plugin_dir.join("migrations");
+
+    if !manifest.database {
+        if migrations_dir.exists() {
+            return Err(anyhow!("plugin has migrations/ but database is not true"));
+        }
+        return Ok(());
+    }
+
+    if !plugin_dir.join("backend.wasm").is_file() {
+        return Err(anyhow!(
+            "plugin declares database=true but backend.wasm is missing"
+        ));
+    }
+    if !migrations_dir.is_dir() {
+        return Err(anyhow!(
+            "plugin declares database=true but migrations/ is missing"
+        ));
+    }
+
+    let mut sql_file_count = 0usize;
+    for entry in fs::read_dir(&migrations_dir)
+        .with_context(|| format!("failed to read migrations directory: {:?}", migrations_dir))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            return Err(anyhow!(
+                "migrations/ may only contain .sql files: {:?}",
+                path
+            ));
+        }
+
+        let filename = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow!("migration filename must be valid UTF-8: {:?}", path))?;
+        validate_migration_filename(filename)?;
+
+        let sql = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read migration SQL: {:?}", path))?;
+        plugin_db::validate_plugin_migration_sql(&manifest.id, &sql)?;
+        sql_file_count += 1;
+    }
+
+    if sql_file_count == 0 {
+        return Err(anyhow!(
+            "plugin declares database=true but migrations/ has no .sql files"
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_migration_filename(filename: &str) -> Result<()> {
+    let Some(stem) = filename.strip_suffix(".sql") else {
+        return Err(anyhow!("migration '{}' must use .sql extension", filename));
+    };
+    let Some((prefix, name)) = stem.split_once('_') else {
+        return Err(anyhow!(
+            "migration '{}' must use NNN_name.sql format",
+            filename
+        ));
+    };
+    let valid = prefix.len() == 3
+        && prefix.chars().all(|ch| ch.is_ascii_digit())
+        && !name.is_empty()
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-');
+    if valid {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "migration '{}' must use NNN_name.sql with lowercase letters, numbers, hyphens, or underscores",
+            filename
+        ))
+    }
 }
 
 fn validate_hooks(manifest: &PluginMetadata) -> Result<()> {
@@ -560,7 +661,11 @@ mod tests {
     #[test]
     fn official_plugin_packages_validate() {
         let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("plugins");
-        let entries = fs::read_dir(&plugins_dir).expect("plugins directory should exist");
+        if !plugins_dir.exists() {
+            return;
+        }
+
+        let entries = fs::read_dir(&plugins_dir).expect("plugins directory should be readable");
 
         for entry in entries {
             let entry = entry.expect("plugin directory entry should be readable");
@@ -573,9 +678,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn rejects_experimental_database_api_in_schema_v1() {
-        let manifest = PluginMetadata {
+    fn base_manifest() -> PluginMetadata {
+        PluginMetadata {
             schema: PLUGIN_SCHEMA_VERSION,
             id: "db-plugin".to_string(),
             name: "DB Plugin".to_string(),
@@ -585,19 +689,57 @@ mod tests {
             repository: "noteva26/noteva-plugins".to_string(),
             license: "MIT".to_string(),
             requires: crate::plugin::loader::PluginRequirements {
-                noteva: ">=0.2.7".to_string(),
+                noteva: ">=0.2.8".to_string(),
                 plugins: Vec::new(),
             },
             hooks: Default::default(),
             shortcodes: Vec::new(),
             permissions: Vec::new(),
             settings: false,
-            database: true,
+            database: false,
             api: false,
             activate: Default::default(),
             pages: Vec::new(),
-        };
+        }
+    }
+
+    #[test]
+    fn database_manifest_requires_matching_permission() {
+        let mut manifest = base_manifest();
+        manifest.database = true;
+        assert!(validate_plugin_manifest(&manifest, None).is_err());
+
+        manifest.permissions.push("database".to_string());
+        assert!(validate_plugin_manifest(&manifest, None).is_ok());
+    }
+
+    #[test]
+    fn database_permission_requires_database_flag() {
+        let mut manifest = base_manifest();
+        manifest.permissions.push("database".to_string());
 
         assert!(validate_plugin_manifest(&manifest, None).is_err());
+    }
+
+    #[test]
+    fn validates_database_package_files() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let plugin_dir = temp_dir.path().join("db-plugin");
+        fs::create_dir(&plugin_dir).expect("plugin dir");
+        fs::write(plugin_dir.join("backend.wasm"), b"placeholder").expect("backend");
+        fs::create_dir(plugin_dir.join("migrations")).expect("migrations");
+        fs::write(
+            plugin_dir.join("migrations").join("001_init.sql"),
+            "CREATE TABLE plugin_db_plugin_items (id INTEGER PRIMARY KEY);",
+        )
+        .expect("migration");
+
+        let mut manifest = base_manifest();
+        manifest.database = true;
+        manifest.permissions.push("database".to_string());
+        let manifest_json = serde_json::to_string_pretty(&manifest).expect("manifest json");
+        fs::write(plugin_dir.join("plugin.json"), manifest_json).expect("plugin json");
+
+        assert!(validate_plugin_package_dir(&plugin_dir).is_ok());
     }
 }

@@ -67,6 +67,7 @@ pub struct CreateArticleRequest {
     pub status: Option<String>,
     #[serde(default)]
     pub tag_ids: Option<Vec<i64>>,
+    #[serde(default)]
     pub scheduled_at: Option<String>,
 }
 
@@ -83,7 +84,23 @@ pub struct UpdateArticleRequest {
     pub thumbnail: Option<String>,
     pub is_pinned: Option<bool>,
     pub pin_order: Option<i32>,
-    pub scheduled_at: Option<String>,
+    #[serde(default)]
+    pub scheduled_at: Option<Option<String>>,
+}
+
+fn parse_scheduled_at(value: &str) -> Result<chrono::DateTime<chrono::Utc>, ApiError> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .map_err(|_| ApiError::validation_error("Invalid scheduled_at timestamp"))
+}
+
+fn parse_article_status_filter(status: Option<&str>) -> Result<Option<ArticleStatus>, ApiError> {
+    match status {
+        None | Some("all") | Some("") => Ok(None),
+        Some(value) => ArticleStatus::from_str(value).map(Some).ok_or_else(|| {
+            ApiError::validation_error(format!("Invalid article status: {}", value))
+        }),
+    }
 }
 
 /// Build the public articles router (read-only)
@@ -127,8 +144,13 @@ pub async fn list_articles(
 ) -> Result<Json<PaginatedArticlesResponse>, ApiError> {
     let params = ListParams::new(query.page, query.page_size);
 
-    // Check if we should filter by published status
-    let filter_published = query.published_only || query.status.as_deref() == Some("published");
+    let status_filter = parse_article_status_filter(query.status.as_deref())?;
+    let status_filter = if query.published_only {
+        Some(ArticleStatus::Published)
+    } else {
+        status_filter
+    };
+    let filter_published = status_filter == Some(ArticleStatus::Published);
 
     // Resolve category: try as ID first, then as slug
     let category_id = if let Some(ref cat) = query.category {
@@ -194,6 +216,12 @@ pub async fn list_articles(
         state
             .article_service
             .list_published(&params, sort_by)
+            .await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?
+    } else if let Some(status) = status_filter {
+        state
+            .article_service
+            .list_by_status(status, &params, sort_by)
             .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?
     } else {
@@ -546,8 +574,9 @@ pub async fn create_article(
     let scheduled_at = body
         .scheduled_at
         .as_deref()
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| dt.with_timezone(&chrono::Utc));
+        .filter(|s| !s.trim().is_empty())
+        .map(parse_scheduled_at)
+        .transpose()?;
 
     let input = crate::models::CreateArticleInput {
         title: body.title,
@@ -610,11 +639,12 @@ pub async fn update_article(
         .as_ref()
         .and_then(|s| ArticleStatus::from_str(s));
 
-    let scheduled_at = body
-        .scheduled_at
-        .as_deref()
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| dt.with_timezone(&chrono::Utc));
+    let scheduled_at = match body.scheduled_at {
+        Some(Some(value)) if value.trim().is_empty() => Some(None),
+        Some(Some(value)) => Some(Some(parse_scheduled_at(&value)?)),
+        Some(None) => Some(None),
+        None => None,
+    };
 
     let input = crate::models::UpdateArticleInput {
         title: body.title,

@@ -72,15 +72,8 @@ struct MetaOp {
     data: String, // JSON string
 }
 
-/// A database operation recorded during WASM execution.
-/// Returned to the main process for actual database execution.
-#[derive(Clone)]
-enum DbOp {
-    /// SELECT query returning JSON rows
-    Query { sql: String, params: String },
-    /// INSERT/UPDATE/DELETE returning affected rows
-    Execute { sql: String, params: String },
-}
+type WorkerInput = Arc<Mutex<io::BufReader<io::Stdin>>>;
+type WorkerOutput = Arc<Mutex<io::BufWriter<io::Stdout>>>;
 
 /// Shared state between host functions and the main execution.
 struct WorkerState {
@@ -101,8 +94,12 @@ struct WorkerState {
     storage_ops: Arc<Mutex<Vec<StorageOp>>>,
     /// Collected meta update operations (returned to main process)
     meta_ops: Arc<Mutex<Vec<MetaOp>>>,
-    /// Collected database operations (returned to main process)
-    db_ops: Arc<Mutex<Vec<DbOp>>>,
+    /// Shared stdin reader used by host_db_* RPC calls.
+    rpc_input: WorkerInput,
+    /// Shared stdout writer used by host_db_* RPC calls.
+    rpc_output: WorkerOutput,
+    /// Number of database RPC calls made during this request.
+    db_rpc_count: usize,
     /// Per-store resource limits applied by Wasmtime.
     limits: wasmtime::StoreLimits,
     /// Number of host_log calls emitted during this request.
@@ -150,17 +147,15 @@ fn main() {
         }
     };
 
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let mut stdout_lock = stdout.lock();
+    let input = Arc::new(Mutex::new(io::BufReader::new(io::stdin())));
+    let output = Arc::new(Mutex::new(io::BufWriter::new(io::stdout())));
 
     // Persistent loop: read one JSON request per line, process, respond
-    for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => break, // stdin closed, exit gracefully
+    loop {
+        let line = match read_protocol_line(&input) {
+            Ok(Some(line)) => line,
+            Ok(None) | Err(_) => break,
         };
-
         let line = line.trim().to_string();
         if line.is_empty() {
             continue;
@@ -169,12 +164,10 @@ fn main() {
         let request: serde_json::Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(e) => {
-                let _ = writeln!(
-                    stdout_lock,
-                    "{}",
-                    serde_json::json!({ "success": false, "error": format!("Invalid JSON: {}", e) })
+                let _ = write_protocol_json(
+                    &output,
+                    &serde_json::json!({ "success": false, "error": format!("Invalid JSON: {}", e) }),
                 );
-                let _ = stdout_lock.flush();
                 continue;
             }
         };
@@ -184,13 +177,41 @@ fn main() {
             break;
         }
 
-        let result = handle_request(&request, &mut cache);
-        let _ = writeln!(stdout_lock, "{}", result);
-        let _ = stdout_lock.flush();
+        let result = handle_request(&request, &mut cache, input.clone(), output.clone());
+        let _ = write_protocol_json(&output, &result);
     }
 }
 
-fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde_json::Value {
+fn read_protocol_line(input: &WorkerInput) -> Result<Option<String>, String> {
+    let mut line = String::new();
+    let bytes = input
+        .lock()
+        .map_err(|_| "stdin lock poisoned".to_string())?
+        .read_line(&mut line)
+        .map_err(|e| format!("stdin read failed: {}", e))?;
+    if bytes == 0 {
+        Ok(None)
+    } else {
+        Ok(Some(line))
+    }
+}
+
+fn write_protocol_json(output: &WorkerOutput, value: &serde_json::Value) -> Result<(), String> {
+    let mut writer = output
+        .lock()
+        .map_err(|_| "stdout lock poisoned".to_string())?;
+    writeln!(writer, "{}", value).map_err(|e| format!("stdout write failed: {}", e))?;
+    writer
+        .flush()
+        .map_err(|e| format!("stdout flush failed: {}", e))
+}
+
+fn handle_request(
+    request: &serde_json::Value,
+    cache: &mut ModuleCache,
+    rpc_input: WorkerInput,
+    rpc_output: WorkerOutput,
+) -> serde_json::Value {
     let wasm_path = match request.get("wasm_path").and_then(|v| v.as_str()) {
         Some(p) => p,
         None => return serde_json::json!({ "success": false, "error": "Missing 'wasm_path'" }),
@@ -259,7 +280,6 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
 
     let storage_ops = Arc::new(Mutex::new(Vec::new()));
     let meta_ops = Arc::new(Mutex::new(Vec::new()));
-    let db_ops = Arc::new(Mutex::new(Vec::new()));
 
     let state = WorkerState {
         has_network,
@@ -274,7 +294,9 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
         comments_json,
         storage_ops: storage_ops.clone(),
         meta_ops: meta_ops.clone(),
-        db_ops: db_ops.clone(),
+        rpc_input,
+        rpc_output,
+        db_rpc_count: 0,
         limits: wasmtime::StoreLimitsBuilder::new()
             .memory_size(MAX_WASM_MEMORY_BYTES)
             .table_elements(10_000)
@@ -315,26 +337,11 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
                 })
                 .collect();
 
-            let dops: Vec<serde_json::Value> = db_ops
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|op| match op {
-                    DbOp::Query { sql, params } => serde_json::json!({
-                        "op": "query", "sql": sql, "params": params
-                    }),
-                    DbOp::Execute { sql, params } => serde_json::json!({
-                        "op": "execute", "sql": sql, "params": params
-                    }),
-                })
-                .collect();
-
             serde_json::json!({
                 "success": true,
                 "output": output_b64,
                 "storage_ops": ops,
                 "meta_ops": mops,
-                "db_ops": dops,
             })
         }
         Err(e) => {
@@ -363,6 +370,32 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
             serde_json::json!({ "success": false, "error": format!("WASM execution failed: {}", clean_err) })
         }
     }
+}
+
+fn request_db_rpc(
+    input: &WorkerInput,
+    output: &WorkerOutput,
+    op: &str,
+    sql: &str,
+    params: &str,
+) -> Option<serde_json::Value> {
+    let request = serde_json::json!({
+        "type": "db_rpc",
+        "op": op,
+        "sql": sql,
+        "params": params,
+    });
+    write_protocol_json(output, &request).ok()?;
+
+    let response_line = read_protocol_line(input).ok()??;
+    let response: serde_json::Value = serde_json::from_str(response_line.trim()).ok()?;
+    if response.get("type").and_then(|v| v.as_str()) != Some("db_rpc_response") {
+        return None;
+    }
+    if response.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        return None;
+    }
+    Some(response)
 }
 
 fn do_http_request(method: &str, url: &str, headers_json: &str, body: &[u8]) -> Vec<u8> {
@@ -975,7 +1008,7 @@ fn execute_wasm(
 
     // ---- host_db_query (database permission) ----
     // Plugin calls host_db_query(sql_ptr, sql_len, params_ptr, params_len) -> result_ptr
-    // Returns JSON string of rows, or empty on error/no permission.
+    // Returns JSON string of rows, or 0 on error/no permission.
     linker
         .func_wrap(
             "env",
@@ -1004,25 +1037,34 @@ fn execute_wasm(
                     read_wasm_string_limited(mem_data, params_ptr, params_len, MAX_DB_PARAMS_BYTES)
                         .unwrap_or_else(|| "[]".to_string());
 
-                // Collect the operation — actual execution happens in the bridge
-                if let Ok(mut ops) = caller.data().db_ops.lock() {
-                    if ops.len() >= MAX_DB_OPS {
+                {
+                    let state = caller.data_mut();
+                    if state.db_rpc_count >= MAX_DB_OPS {
                         return 0;
                     }
-                    ops.push(DbOp::Query { sql, params });
+                    state.db_rpc_count += 1;
                 }
 
-                // Return a placeholder — the bridge will replace with real results
-                // For now, return empty array as the WASM side gets results asynchronously
-                let placeholder = b"[]";
-                write_to_wasm_memory(&mut caller, placeholder)
+                let (input, output) = {
+                    let state = caller.data();
+                    (state.rpc_input.clone(), state.rpc_output.clone())
+                };
+                let response = match request_db_rpc(&input, &output, "query", &sql, &params) {
+                    Some(response) => response,
+                    None => return 0,
+                };
+                let rows_json = match response.get("rows_json").and_then(|v| v.as_str()) {
+                    Some(rows) if rows.len() <= MAX_HOST_RETURN_BYTES => rows,
+                    _ => return 0,
+                };
+                write_to_wasm_memory(&mut caller, rows_json.as_bytes())
             },
         )
         .map_err(|e| format!("Failed to register host_db_query: {}", e))?;
 
     // ---- host_db_execute (database permission) ----
     // Plugin calls host_db_execute(sql_ptr, sql_len, params_ptr, params_len) -> i32
-    // Returns 1 on success (op queued), 0 on no permission.
+    // Returns affected rows on success, -1 on execution error, 0 on no permission.
     linker
         .func_wrap(
             "env",
@@ -1051,13 +1093,28 @@ fn execute_wasm(
                     read_wasm_string_limited(mem_data, params_ptr, params_len, MAX_DB_PARAMS_BYTES)
                         .unwrap_or_else(|| "[]".to_string());
 
-                if let Ok(mut ops) = caller.data().db_ops.lock() {
-                    if ops.len() >= MAX_DB_OPS {
+                {
+                    let state = caller.data_mut();
+                    if state.db_rpc_count >= MAX_DB_OPS {
                         return 0;
                     }
-                    ops.push(DbOp::Execute { sql, params });
+                    state.db_rpc_count += 1;
                 }
-                1
+
+                let (input, output) = {
+                    let state = caller.data();
+                    (state.rpc_input.clone(), state.rpc_output.clone())
+                };
+                let response = match request_db_rpc(&input, &output, "execute", &sql, &params) {
+                    Some(response) => response,
+                    None => return -1,
+                };
+                let rows = response
+                    .get("rows_affected")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0)
+                    .min(i32::MAX as u64);
+                rows as i32
             },
         )
         .map_err(|e| format!("Failed to register host_db_execute: {}", e))?;

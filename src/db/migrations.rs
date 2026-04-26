@@ -945,18 +945,24 @@ async fn apply_migration_sqlite(pool: &SqlitePool, migration: &Migration) -> Res
     for statement in split_sql_statements(migration.up_sqlite) {
         let statement = statement.trim();
         if !statement.is_empty() {
-            sqlx::query(statement)
-                .execute(&mut *tx)
-                .await
-                .with_context(|| format!("Failed to execute: {}", truncate_sql(statement)))?;
+            if let Err(err) = sqlx::query(statement).execute(&mut *tx).await {
+                let _ = tx.rollback().await;
+                return Err(err)
+                    .with_context(|| format!("Failed to execute: {}", truncate_sql(statement)));
+            }
         }
     }
 
-    sqlx::query("INSERT INTO _migrations (version, name) VALUES (?, ?)")
+    if let Err(err) = sqlx::query("INSERT INTO _migrations (version, name) VALUES (?, ?)")
         .bind(migration.version)
         .bind(migration.name)
         .execute(&mut *tx)
-        .await?;
+        .await
+    {
+        let _ = tx.rollback().await;
+        return Err(err)
+            .with_context(|| format!("Failed to record SQLite migration {}", migration.version));
+    }
 
     tx.commit()
         .await
@@ -976,18 +982,24 @@ async fn apply_migration_mysql(pool: &MySqlPool, migration: &Migration) -> Resul
     for statement in split_sql_statements(migration.up_mysql) {
         let statement = statement.trim();
         if !statement.is_empty() {
-            sqlx::query(statement)
-                .execute(&mut *tx)
-                .await
-                .with_context(|| format!("Failed to execute: {}", truncate_sql(statement)))?;
+            if let Err(err) = sqlx::query(statement).execute(&mut *tx).await {
+                let _ = tx.rollback().await;
+                return Err(err)
+                    .with_context(|| format!("Failed to execute: {}", truncate_sql(statement)));
+            }
         }
     }
 
-    sqlx::query("INSERT INTO _migrations (version, name) VALUES (?, ?)")
+    if let Err(err) = sqlx::query("INSERT INTO _migrations (version, name) VALUES (?, ?)")
         .bind(migration.version)
         .bind(migration.name)
         .execute(&mut *tx)
-        .await?;
+        .await
+    {
+        let _ = tx.rollback().await;
+        return Err(err)
+            .with_context(|| format!("Failed to record MySQL migration {}", migration.version));
+    }
 
     tx.commit()
         .await

@@ -1,6 +1,6 @@
 # Noteva 插件开发文档
 
-> 版本：v0.2.7
+> 版本：v0.2.8
 
 ## 快速开始
 
@@ -21,7 +21,7 @@ plugins/
     backend.wasm       # WASM 后端模块（可选）
     settings.json      # 设置项定义（可选）
     editor.json        # 编辑器工具栏按钮（可选）
-    migrations/        # 数据库迁移 SQL（实验项，schema v1 暂不开放）
+    migrations/        # 插件私有数据库迁移 SQL（database=true 时必需）
       001_init.sql
     locales/           # 国际化翻译文件（可选）
       zh-CN.json
@@ -29,14 +29,14 @@ plugins/
     README.md          # 插件说明（可选）
 ```
 
-### v0.2.7 规范速览
+### v0.2.8 规范速览
 
 - `plugin.json` 必须声明 `"schema": 1`，插件目录名必须与 `id` 一致。
 - `settings: true` 时必须提供 `settings.json`；没有设置项时不要保留空的 `settings.json`。
 - `settings.json` 必须声明 `"schema": 1`，结构与主题设置一致：`sections -> fields`。
 - `homepage` 已替换为 `repository`，用于后续更新检查，支持 GitHub URL 或 `owner/repo`。
 - `hooks.backend`、`hooks.frontend`、`hooks.editor`、`permissions` 都会在安装/加载时校验，未知声明会直接拒绝。
-- `database` / 插件私有 SQL API 暂时不属于 schema v1 稳定能力，第五步再单独处理。
+- `database: true` 必须同时声明 `"database"` 权限、提供 `backend.wasm` 和 `migrations/*.sql`；运行时 SQL 只能访问插件自己的 `plugin_{id}_*` 表。
 
 JSON Schema 文件位于：
 - `docs/schemas/plugin.schema.json`
@@ -65,7 +65,7 @@ JSON Schema 文件位于：
   "repository": "https://github.com/your-name/my-plugin",
   "license": "MIT",
   "requires": {
-    "noteva": ">=0.2.7"
+    "noteva": ">=0.2.8"
   },
   "hooks": {
     "frontend": ["content_render"],
@@ -89,7 +89,7 @@ JSON Schema 文件位于：
 | `author` | 是 | 作者 |
 | `repository` | 是 | GitHub 仓库地址或 `owner/repo`，用于更新 |
 | `license` | 是 | 开源协议 |
-| `requires.noteva` | 是 | 最低版本要求，如 `>=0.2.7` |
+| `requires.noteva` | 是 | 最低版本要求，如 `>=0.2.8` |
 | `hooks.frontend` | | 前端钩子列表 |
 | `hooks.backend` | | 后端钩子列表（需要 backend.wasm） |
 | `hooks.editor` | | 编辑器扩展，如 `["toolbar"]`（需要 editor.json） |
@@ -97,7 +97,7 @@ JSON Schema 文件位于：
 | `shortcodes` | | 注册的短代码列表 |
 | `settings` | | 是否有设置项（true/false） |
 | `api` | | 是否暴露公开插件 API（需要 backend.wasm） |
-| `database` | | schema v1 暂不开放，声明 `true` 会被拒绝 |
+| `database` | | 是否启用插件私有数据库表；为 `true` 时必须声明 `"database"` 权限并提供 `migrations/*.sql` |
 | `pages` | | 自动创建的页面列表，每项含 `slug` 和 `title`。启用插件时自动创建缺失的 Page 记录（不覆盖已有页面） |
 
 ### 可用权限
@@ -106,6 +106,7 @@ JSON Schema 文件位于：
 |-----|------|
 | `network` | 发起 HTTP 请求（调用外部 API） |
 | `storage` | 插件数据存储（key-value，按插件 ID 隔离） |
+| `database` | 插件私有 SQL 表访问；仅允许访问 `plugin_{id}_*` 表，`id` 中的 `-` 会转为 `_` |
 | `read_articles` | 查询文章列表（用于批量处理等场景） |
 | `read_comments` | 读取评论数据 |
 | `write_articles` | 修改文章数据 |
@@ -564,7 +565,7 @@ extern "C" {
     // 文章元数据更新（需要 write_articles 权限）
     fn host_update_article_meta(article_id: i32, data_ptr: i32, data_len: i32) -> i32;
 
-    // 数据库操作（实验项，schema v1 暂不开放）
+    // 数据库操作（需要 database 权限）
     fn host_db_query(sql_ptr: i32, sql_len: i32, params_ptr: i32, params_len: i32) -> i32;
     fn host_db_execute(sql_ptr: i32, sql_len: i32, params_ptr: i32, params_len: i32) -> i32;
 }
@@ -742,9 +743,70 @@ update_article_meta(article_id, summary_data);
 
 #### host_db_query / host_db_execute
 
-插件数据库 API 仍在实验阶段，不属于 `plugin.json` schema v1 的稳定能力。
+插件可以声明 `database: true` 来启用私有 SQL 表。该能力适合关系型数据、小型索引表、插件自己的业务记录；简单配置或少量键值仍优先用 `host_storage_get/set/delete`。
 
-当前版本会拒绝 `"database": true` 和 `"database"` 权限声明。需要持久化数据时，优先使用 `host_storage_get/set/delete` 这组按插件 ID 隔离的 key-value 存储。插件私有 SQL、迁移规范和权限边界会在后续单独版本中收口。
+启用条件：
+
+- `plugin.json` 必须同时声明 `"database": true` 和 `"permissions": ["database"]`。
+- 必须提供 `backend.wasm`。
+- 必须提供 `migrations/` 目录，且至少包含一个 `NNN_name.sql` 文件，例如 `001_init.sql`。
+- 插件 ID 中的连字符会在 SQL 表名前缀里转成下划线：`ai-summary` 的表必须命名为 `plugin_ai_summary_*`。
+
+迁移规则：
+
+- 迁移文件按文件名排序执行，执行成功后记录到 `plugin_migrations`。
+- 迁移和迁移记录在同一事务里执行；失败时不会记录为已执行。
+- 迁移 SQL 只允许访问当前插件前缀的表或索引，不能创建、修改、引用核心表。
+- 推荐只在 migrations 中写 `CREATE TABLE`、`CREATE INDEX` 和必要的初始化 `INSERT/UPDATE/DELETE`。
+
+运行时规则：
+
+- `host_db_query` 只接受单条 `SELECT`，返回 JSON 数组字符串指针；失败或无权限返回 `0`。
+- `host_db_execute` 只接受单条 `INSERT`、`UPDATE`、`DELETE`，返回影响行数；执行错误返回 `-1`，无权限返回 `0`。
+- 运行时 SQL 不允许 `CREATE/ALTER/DROP/TRUNCATE/PRAGMA/ATTACH/DETACH/VACUUM`，结构变更必须走 migrations。
+- 所有 SQL 表引用都必须使用当前插件前缀，不能访问 `articles`、`comments`、`users` 等核心表。
+- 参数使用 JSON 数组传入，例如 `[123, "title"]`；宿主会按 JSON 类型绑定到 SQL 参数。
+
+示例：
+
+```json
+{
+  "schema": 1,
+  "id": "friendlinks",
+  "permissions": ["storage", "database"],
+  "database": true
+}
+```
+
+```sql
+-- plugins/friendlinks/migrations/001_init.sql
+CREATE TABLE plugin_friendlinks_links (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX plugin_friendlinks_links_created_at_idx
+  ON plugin_friendlinks_links(created_at);
+```
+
+```rust
+extern "C" {
+    fn host_db_query(sql_ptr: i32, sql_len: i32, params_ptr: i32, params_len: i32) -> i32;
+    fn host_db_execute(sql_ptr: i32, sql_len: i32, params_ptr: i32, params_len: i32) -> i32;
+}
+
+let sql = "SELECT id, name, url FROM plugin_friendlinks_links ORDER BY id DESC";
+let params = "[]";
+let ptr = unsafe {
+    host_db_query(
+        sql.as_ptr() as i32,
+        sql.len() as i32,
+        params.as_ptr() as i32,
+        params.len() as i32,
+    )
+};
+```
 
 ### 自定义 API 路由
 

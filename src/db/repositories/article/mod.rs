@@ -82,6 +82,18 @@ pub trait ArticleRepository: Send + Sync {
     /// Count published articles
     async fn count_published(&self) -> Result<i64>;
 
+    /// List articles by status with pagination
+    async fn list_by_status(
+        &self,
+        status: ArticleStatus,
+        offset: i64,
+        limit: i64,
+        sort_by: ArticleSortBy,
+    ) -> Result<Vec<Article>>;
+
+    /// Count articles by status
+    async fn count_by_status(&self, status: ArticleStatus) -> Result<i64>;
+
     /// Count articles in a category
     async fn count_by_category(&self, category_id: i64) -> Result<i64>;
 
@@ -226,6 +238,27 @@ impl ArticleRepository for SqlxArticleRepository {
 
     async fn count_published(&self) -> Result<i64> {
         dispatch!(self, count_published)
+    }
+
+    async fn list_by_status(
+        &self,
+        status: ArticleStatus,
+        offset: i64,
+        limit: i64,
+        sort_by: ArticleSortBy,
+    ) -> Result<Vec<Article>> {
+        dispatch!(
+            self,
+            list_articles_by_status,
+            status,
+            offset,
+            limit,
+            sort_by
+        )
+    }
+
+    async fn count_by_status(&self, status: ArticleStatus) -> Result<i64> {
+        dispatch!(self, count_articles_by_status, status)
     }
 
     async fn count_by_category(&self, category_id: i64) -> Result<i64> {
@@ -383,6 +416,17 @@ impl_dual_fn! {
             .fetch_one(pool)
             .await
             .context("Failed to count published articles")?;
+        Ok(row.get("count"))
+    }
+}
+
+impl_dual_fn! {
+    pub(super) async fn count_articles_by_status(pool, status: ArticleStatus) -> Result<i64> {
+        let row = sqlx::query("SELECT COUNT(*) as count FROM articles WHERE status = ?")
+            .bind(status.as_str())
+            .fetch_one(pool)
+            .await
+            .context("Failed to count articles by status")?;
         Ok(row.get("count"))
     }
 }

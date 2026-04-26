@@ -9,6 +9,7 @@
 //! each worker for fast subsequent invocations.
 
 use serde_json::Value;
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use tokio::sync::RwLock;
@@ -147,6 +148,12 @@ struct Worker {
     stdout: std::io::BufReader<std::process::ChildStdout>,
 }
 
+#[derive(Clone)]
+struct DbRpcContext {
+    pool: DynDatabasePool,
+    plugin_id: String,
+}
+
 impl Worker {
     fn spawn() -> Option<Self> {
         use std::io::{BufReader, BufWriter};
@@ -208,7 +215,11 @@ impl Worker {
         Self::kill_child(&self.child);
     }
 
-    fn send_request(&mut self, request: &serde_json::Value) -> Option<serde_json::Value> {
+    fn send_request(
+        &mut self,
+        request: &serde_json::Value,
+        db_context: Option<&DbRpcContext>,
+    ) -> Option<serde_json::Value> {
         use std::io::{BufRead, Write};
 
         let request_str = request.to_string();
@@ -223,26 +234,139 @@ impl Worker {
             return None;
         }
 
-        // Read one line of response
-        let mut response_line = String::new();
-        if self.stdout.read_line(&mut response_line).is_err() {
-            return None;
-        }
-        if response_line.is_empty() {
-            return None;
-        }
+        loop {
+            let mut response_line = String::new();
+            if self.stdout.read_line(&mut response_line).is_err() {
+                return None;
+            }
+            if response_line.is_empty() {
+                return None;
+            }
 
-        serde_json::from_str(response_line.trim()).ok()
+            let response: serde_json::Value = serde_json::from_str(response_line.trim()).ok()?;
+            if response.get("type").and_then(|v| v.as_str()) == Some("db_rpc") {
+                let rpc_response = handle_db_rpc_message(&response, db_context);
+                let response_str = rpc_response.to_string();
+                if self.stdin.write_all(response_str.as_bytes()).is_err() {
+                    return None;
+                }
+                if self.stdin.write_all(b"\n").is_err() {
+                    return None;
+                }
+                if self.stdin.flush().is_err() {
+                    return None;
+                }
+                continue;
+            }
+
+            return Some(response);
+        }
     }
 
     fn shutdown(mut self) {
-        let _ = self.send_request(&serde_json::json!({"cmd": "shutdown"}));
+        let _ = self.send_request(&serde_json::json!({"cmd": "shutdown"}), None);
         if let Ok(mut child) = self.child.lock() {
             if matches!(child.try_wait(), Ok(None)) {
                 let _ = child.kill();
             }
             let _ = child.wait();
         }
+    }
+}
+
+fn handle_db_rpc_message(
+    message: &serde_json::Value,
+    db_context: Option<&DbRpcContext>,
+) -> serde_json::Value {
+    let Some(context) = db_context else {
+        return serde_json::json!({
+            "type": "db_rpc_response",
+            "ok": false,
+            "error": "database permission is required"
+        });
+    };
+
+    let op = message.get("op").and_then(|v| v.as_str()).unwrap_or("");
+    let sql = message.get("sql").and_then(|v| v.as_str()).unwrap_or("");
+    let params = message
+        .get("params")
+        .and_then(|v| v.as_str())
+        .unwrap_or("[]");
+
+    match op {
+        "query" => match block_on_db(plugin_db::execute_plugin_query(
+            &context.pool,
+            &context.plugin_id,
+            sql,
+            params,
+        )) {
+            Ok(rows_json) => {
+                if rows_json.len() > MAX_DB_RPC_RESPONSE_BYTES {
+                    serde_json::json!({
+                        "type": "db_rpc_response",
+                        "ok": false,
+                        "error": "database query result is too large",
+                    })
+                } else {
+                    serde_json::json!({
+                        "type": "db_rpc_response",
+                        "ok": true,
+                        "rows_json": rows_json,
+                    })
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "Plugin '{}' database query rejected: {}",
+                    context.plugin_id,
+                    error
+                );
+                serde_json::json!({
+                    "type": "db_rpc_response",
+                    "ok": false,
+                    "error": error.to_string(),
+                })
+            }
+        },
+        "execute" => match block_on_db(plugin_db::execute_plugin_statement(
+            &context.pool,
+            &context.plugin_id,
+            sql,
+            params,
+        )) {
+            Ok(rows_affected) => serde_json::json!({
+                "type": "db_rpc_response",
+                "ok": true,
+                "rows_affected": rows_affected,
+            }),
+            Err(error) => {
+                tracing::warn!(
+                    "Plugin '{}' database statement rejected: {}",
+                    context.plugin_id,
+                    error
+                );
+                serde_json::json!({
+                    "type": "db_rpc_response",
+                    "ok": false,
+                    "error": error.to_string(),
+                })
+            }
+        },
+        _ => serde_json::json!({
+            "type": "db_rpc_response",
+            "ok": false,
+            "error": "unsupported database operation"
+        }),
+    }
+}
+
+fn block_on_db<F, T>(future: F) -> anyhow::Result<T>
+where
+    F: Future<Output = anyhow::Result<T>>,
+{
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(future)),
+        Err(_) => tokio::runtime::Runtime::new()?.block_on(future),
     }
 }
 
@@ -309,12 +433,12 @@ impl WorkerPool {
         &self,
         request: &serde_json::Value,
         timeout: std::time::Duration,
+        db_context: Option<DbRpcContext>,
     ) -> SubprocessResult {
         let empty = SubprocessResult {
             output: None,
             storage_ops: vec![],
             meta_ops: vec![],
-            db_ops: vec![],
         };
 
         let mut worker = match self.acquire() {
@@ -332,7 +456,7 @@ impl WorkerPool {
 
         // We need to move the worker into the thread and get it back
         let handle = std::thread::spawn(move || {
-            let response = worker.send_request(&request_clone);
+            let response = worker.send_request(&request_clone, db_context.as_ref());
             let _ = tx.send(());
             (worker, response)
         });
@@ -394,6 +518,7 @@ static PLUGIN_DATA_CACHE: once_cell::sync::Lazy<
 
 /// Plugin data cache TTL (5 minutes)
 const PLUGIN_DATA_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+const MAX_DB_RPC_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
 /// Result from wasm-worker subprocess execution.
 struct SubprocessResult {
@@ -403,8 +528,6 @@ struct SubprocessResult {
     storage_ops: Vec<(String, String, Option<String>)>, // (op, key, value)
     /// Meta update operations to execute on articles
     meta_ops: Vec<(i64, String)>, // (article_id, data_json)
-    /// Database operations to execute (query/execute)
-    db_ops: Vec<(String, String, String)>, // (op, sql, params_json)
 }
 
 /// Parse the JSON response from a wasm-worker into a SubprocessResult.
@@ -413,7 +536,6 @@ fn parse_subprocess_response(response: &serde_json::Value) -> SubprocessResult {
         output: None,
         storage_ops: vec![],
         meta_ops: vec![],
-        db_ops: vec![],
     };
 
     if response.get("success").and_then(|v| v.as_bool()) != Some(true) {
@@ -466,22 +588,6 @@ fn parse_subprocess_response(response: &serde_json::Value) -> SubprocessResult {
         })
         .unwrap_or_default();
 
-    // Parse db_ops
-    let db_ops: Vec<(String, String, String)> = response
-        .get("db_ops")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|op| {
-                    let op_type = op.get("op")?.as_str()?.to_string();
-                    let sql = op.get("sql")?.as_str()?.to_string();
-                    let params = op.get("params")?.as_str()?.to_string();
-                    Some((op_type, sql, params))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
     // Decode output
     let output_b64 = response
         .get("output")
@@ -496,7 +602,6 @@ fn parse_subprocess_response(response: &serde_json::Value) -> SubprocessResult {
         output,
         storage_ops,
         meta_ops,
-        db_ops,
     }
 }
 
@@ -510,6 +615,7 @@ fn execute_wasm_subprocess(
     plugin_data: &std::collections::HashMap<String, String>,
     articles: Option<&Vec<Value>>,
     comments: Option<&Value>,
+    pool: &DynDatabasePool,
 ) -> SubprocessResult {
     let input_b64 = base64_encode(input_bytes);
 
@@ -543,7 +649,15 @@ fn execute_wasm_subprocess(
         std::time::Duration::from_secs(5)
     };
 
-    WORKER_POOL.execute(&request, timeout)
+    let db_context = permissions
+        .iter()
+        .any(|permission| permission == "database")
+        .then(|| DbRpcContext {
+            pool: pool.clone(),
+            plugin_id: plugin_id.to_string(),
+        });
+
+    WORKER_POOL.execute(&request, timeout, db_context)
 }
 
 /// Execute pending storage operations from a wasm-worker result.
@@ -665,81 +779,6 @@ fn execute_meta_ops(pool: &DynDatabasePool, plugin_id: &str, ops: &[(i64, String
                     Err(_) => continue,
                 };
                 let _ = rt.block_on(repo.update_meta(*article_id, plugin_id, &data));
-            }
-        }
-    }
-}
-
-/// Execute database operations (query/execute) returned by the WASM subprocess.
-fn execute_db_ops(
-    pool: &DynDatabasePool,
-    plugin_id: &str,
-    ops: &[(String, String, String)], // (op, sql, params_json)
-) {
-    if ops.is_empty() {
-        return;
-    }
-
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => {
-            for (op, sql, params) in ops {
-                match op.as_str() {
-                    "query" => {
-                        match tokio::task::block_in_place(|| {
-                            handle.block_on(plugin_db::execute_plugin_query(
-                                pool, plugin_id, sql, params,
-                            ))
-                        }) {
-                            Ok(_) => tracing::debug!("DB query OK: plugin {}", plugin_id),
-                            Err(e) => {
-                                tracing::error!("DB query FAILED: plugin {} - {}", plugin_id, e)
-                            }
-                        }
-                    }
-                    "execute" => {
-                        match tokio::task::block_in_place(|| {
-                            handle.block_on(plugin_db::execute_plugin_statement(
-                                pool, plugin_id, sql, params,
-                            ))
-                        }) {
-                            Ok(rows) => tracing::debug!(
-                                "DB execute OK: plugin {}, {} rows affected",
-                                plugin_id,
-                                rows
-                            ),
-                            Err(e) => {
-                                tracing::error!("DB execute FAILED: plugin {} - {}", plugin_id, e)
-                            }
-                        }
-                    }
-                    _ => {
-                        tracing::warn!("Unknown db_op type '{}' from plugin {}", op, plugin_id);
-                    }
-                }
-            }
-        }
-        Err(_) => {
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt,
-                Err(e) => {
-                    tracing::error!("Failed to create runtime for db ops: {}", e);
-                    return;
-                }
-            };
-            for (op, sql, params) in ops {
-                match op.as_str() {
-                    "query" => {
-                        let _ = rt.block_on(plugin_db::execute_plugin_query(
-                            pool, plugin_id, sql, params,
-                        ));
-                    }
-                    "execute" => {
-                        let _ = rt.block_on(plugin_db::execute_plugin_statement(
-                            pool, plugin_id, sql, params,
-                        ));
-                    }
-                    _ => {}
-                }
             }
         }
     }
@@ -977,7 +1016,6 @@ pub async fn load_wasm_plugin(
         .collect();
 
     let db_pool = pool.clone();
-    let has_database = plugin_permissions.contains(&"database".to_string());
 
     for hook_name in &backend_hooks {
         let wasm_file = wasm_abs_path.clone();
@@ -989,7 +1027,6 @@ pub async fn load_wasm_plugin(
         let pool_clone = db_pool.clone();
         let has_read_articles = plugin_permissions.contains(&"read_articles".to_string());
         let has_read_comments = plugin_permissions.contains(&"read_comments".to_string());
-        let has_db = has_database;
 
         hook_manager.register(
             hook_name,
@@ -1043,6 +1080,7 @@ pub async fn load_wasm_plugin(
                     &plugin_data,
                     articles.as_ref(),
                     comments.as_ref(),
+                    &pool,
                 );
 
                 // Execute any storage operations the plugin requested
@@ -1064,12 +1102,6 @@ pub async fn load_wasm_plugin(
                         pid,
                         result.meta_ops.len()
                     );
-                }
-
-                // Execute any database operations the plugin requested
-                if has_db && !result.db_ops.is_empty() {
-                    execute_db_ops(&pool, &pid, &result.db_ops);
-                    tracing::debug!("Plugin '{}' executed {} db ops", pid, result.db_ops.len());
                 }
 
                 // Return hook output
@@ -1176,6 +1208,7 @@ pub fn execute_plugin_api_request(
         &plugin_data,
         None,
         None,
+        pool,
     );
 
     // Execute storage ops if any
@@ -1185,9 +1218,6 @@ pub fn execute_plugin_api_request(
     }
     if !result.meta_ops.is_empty() {
         execute_meta_ops(pool, plugin_id, &result.meta_ops);
-    }
-    if !result.db_ops.is_empty() {
-        execute_db_ops(pool, plugin_id, &result.db_ops);
     }
 
     // Parse response from WASM output

@@ -129,14 +129,6 @@ function insertText(view: EditorView, text: string) {
     view.focus();
 }
 
-function parseTwemoji(element: HTMLElement | null) {
-    if (!element) return;
-
-    void import("@twemoji/api").then((module) => {
-        module.default.parse(element, { folder: "svg", ext: ".svg" });
-    });
-}
-
 // ── Component ───────────────────────────────────────────────
 const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
     ({ initialValue = "", onChange, pluginButtons = [], placeholder, minHeight = 400 }, ref) => {
@@ -144,7 +136,6 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         const viewRef = useRef<EditorView | null>(null);
         const onChangeRef = useRef(onChange);
         const initialValueRef = useRef(initialValue);
-        const minHeightRef = useRef(minHeight);
         const placeholderRef = useRef(placeholder || "");
         const showPreviewRef = useRef(false);
         const mobileTabRef = useRef<"edit" | "preview">("edit");
@@ -283,7 +274,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                     cmPlaceholder(placeholderRef.current),
                     updateListener,
                     EditorView.theme({
-                        ".cm-editor": { minHeight: `${minHeightRef.current}px` },
+                        "&": { height: "100%" },
+                        ".cm-content": { minHeight: "100%" },
                         ".cm-scroller": { overflow: "auto" },
                     }),
                 ],
@@ -549,8 +541,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         // ── Preview panel ───────────────────────────────────────
         const PreviewPanel = () => (
             <div
-                className="prose prose-sm dark:prose-invert max-w-none p-4 overflow-auto [&_img]:max-w-full [&_img]:h-auto [&_img.emoji]:!w-[1.2em] [&_img.emoji]:!h-[1.2em] [&_img.emoji]:!inline-block [&_img.emoji]:!m-0 [&_img.emoji]:!align-[-0.1em] [&_img.twemoji]:!w-[1.2em] [&_img.twemoji]:!h-[1.2em] [&_img.twemoji]:!inline-block [&_img.twemoji]:!m-0 [&_img.twemoji]:!align-[-0.1em]"
-                style={{ minHeight: `${minHeight}px` }}
+                className="prose prose-sm dark:prose-invert h-full max-w-none overflow-auto p-4 [&_img]:max-w-full [&_img]:h-auto [&_img.emoji]:!w-[1.2em] [&_img.emoji]:!h-[1.2em] [&_img.emoji]:!inline-block [&_img.emoji]:!m-0 [&_img.emoji]:!align-[-0.1em] [&_img.twemoji]:!w-[1.2em] [&_img.twemoji]:!h-[1.2em] [&_img.twemoji]:!inline-block [&_img.twemoji]:!m-0 [&_img.twemoji]:!align-[-0.1em]"
             >
                 {previewLoading ? (
                     <div className="flex items-center justify-center py-8">
@@ -559,7 +550,6 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 ) : previewHtml ? (
                     <div
                         dangerouslySetInnerHTML={{ __html: previewHtml }}
-                        ref={parseTwemoji}
                     />
                 ) : (
                     <p className="text-muted-foreground">{i18nT("editor.previewEmpty")}</p>
@@ -581,6 +571,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 }}
             />
         );
+
+        const editorAreaStyle = isFullscreen ? undefined : { height: `${minHeight}px` };
+        const editorPaneStyle = { height: "100%" };
 
         return (
             <div
@@ -815,22 +808,25 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 </div>
 
                 {/* Editor + Preview area */}
-                <div className={`${isFullscreen ? "flex-1 overflow-hidden" : ""} ${showPreview ? "grid grid-cols-2 divide-x" : ""}`}>
+                <div
+                    className={`min-h-0 overflow-hidden ${isFullscreen ? "flex-1" : ""} ${showPreview ? "md:grid md:grid-cols-2 md:divide-x" : ""}`}
+                    style={editorAreaStyle}
+                >
                     {/* Editor (hidden on mobile when preview tab is active) */}
                     <div
                         ref={editorContainerRef}
-                        className={`${mobileTab === "preview" ? "hidden md:block" : ""} overflow-auto`}
-                        style={isFullscreen ? { height: "100%" } : { minHeight: `${minHeight}px` }}
+                        className={`${mobileTab === "preview" ? "hidden md:block" : ""} min-h-0 overflow-hidden`}
+                        style={editorPaneStyle}
                     />
                     {/* Desktop preview panel */}
                     {showPreview && (
-                        <div className="hidden md:block overflow-auto" style={isFullscreen ? { height: "100%" } : { minHeight: `${minHeight}px` }}>
+                        <div className="hidden min-h-0 overflow-hidden md:block" style={editorPaneStyle}>
                             <PreviewPanel />
                         </div>
                     )}
                     {/* Mobile preview */}
                     {mobileTab === "preview" && (
-                        <div className="md:hidden overflow-auto" style={{ minHeight: `${minHeight}px` }}>
+                        <div className="min-h-0 overflow-hidden md:hidden" style={editorPaneStyle}>
                             <PreviewPanel />
                         </div>
                     )}

@@ -221,8 +221,9 @@ impl MarkdownRenderer {
             .unwrap_or(&html_output)
             .to_string();
 
-        // Process emoji (shortcodes and Unicode)
-        emoji::process_all_emoji(&html_after_hook)
+        // Keep emoji native in article content; external emoji images are fragile
+        // and can render as broken images when their CDN is unavailable.
+        emoji::process_shortcodes_to_unicode(&html_after_hook)
     }
 
     /// Extract a table of contents from markdown content.
@@ -832,6 +833,18 @@ mod tests {
         assert!(html.contains("<th>"));
         assert!(html.contains("<td>"));
         assert!(html.contains("</table>"));
+    }
+
+    #[test]
+    fn test_render_keeps_unicode_emoji_native() {
+        let renderer = MarkdownRenderer::new();
+        let stars = "\u{2B50}\u{2B50}\u{2B50}\u{2B50}\u{2B50}";
+        let markdown = format!("| Rating |\n|---|\n| {} |", stars);
+        let html = renderer.render(&markdown);
+
+        assert!(html.contains(stars));
+        assert!(!html.contains("twemoji"));
+        assert!(!html.contains("cdn.jsdelivr"));
     }
 
     #[test]

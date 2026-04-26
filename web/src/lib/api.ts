@@ -155,6 +155,7 @@ export interface ArticleListResult {
 export interface ListParams {
   page?: number;
   per_page?: number;
+  page_size?: number;
   status?: string;
 }
 
@@ -197,8 +198,15 @@ export const authApi = {
 
 // Articles API
 export const articlesApi = {
-  list: (params?: ListParams) =>
-    api.get<ArticleListResult>("/articles", { params }),
+  list: (params?: ListParams) => {
+    const { per_page, page_size, ...rest } = params ?? {};
+    return api.get<ArticleListResult>("/articles", {
+      params: {
+        ...rest,
+        page_size: page_size ?? per_page,
+      },
+    });
+  },
 
   get: (slug: string) => api.get<Article>(`/articles/${slug}`),
 

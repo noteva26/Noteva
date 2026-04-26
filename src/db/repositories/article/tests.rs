@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::db::repositories::tag::{SqlxTagRepository, TagRepository};
 use crate::db::{create_test_pool, migrations};
@@ -448,6 +447,99 @@ async fn test_list_published_articles() {
     for article in &published {
         assert_eq!(article.status, ArticleStatus::Published);
     }
+}
+
+#[tokio::test]
+async fn test_list_articles_by_status() {
+    let (pool, repo) = setup_test_repo().await;
+    let sqlite_pool = pool.as_sqlite().unwrap();
+    let user_id = create_test_user(sqlite_pool).await;
+    let category_id = create_test_category(sqlite_pool, "test-cat").await;
+
+    let draft = create_test_input("draft-status", "Draft Status", user_id, category_id);
+    repo.create(&draft).await.expect("Failed to create draft");
+
+    let mut published =
+        create_test_input("published-status", "Published Status", user_id, category_id);
+    published.status = Some(ArticleStatus::Published);
+    repo.create(&published)
+        .await
+        .expect("Failed to create published article");
+
+    let mut archived =
+        create_test_input("archived-status", "Archived Status", user_id, category_id);
+    archived.status = Some(ArticleStatus::Archived);
+    repo.create(&archived)
+        .await
+        .expect("Failed to create archived article");
+
+    let drafts = repo
+        .list_by_status(ArticleStatus::Draft, 0, 10, ArticleSortBy::default())
+        .await
+        .expect("Failed to list drafts");
+    let archived = repo
+        .list_by_status(ArticleStatus::Archived, 0, 10, ArticleSortBy::default())
+        .await
+        .expect("Failed to list archived articles");
+
+    assert_eq!(drafts.len(), 1);
+    assert_eq!(drafts[0].status, ArticleStatus::Draft);
+    assert_eq!(archived.len(), 1);
+    assert_eq!(archived[0].status, ArticleStatus::Archived);
+    assert_eq!(
+        repo.count_by_status(ArticleStatus::Draft)
+            .await
+            .expect("Failed to count drafts"),
+        1
+    );
+    assert_eq!(
+        repo.count_by_status(ArticleStatus::Archived)
+            .await
+            .expect("Failed to count archived articles"),
+        1
+    );
+}
+
+#[tokio::test]
+async fn test_update_article_scheduled_at_set_clear_and_publish() {
+    let (pool, repo) = setup_test_repo().await;
+    let sqlite_pool = pool.as_sqlite().unwrap();
+    let user_id = create_test_user(sqlite_pool).await;
+    let category_id = create_test_category(sqlite_pool, "test-cat").await;
+    let scheduled_at = Utc::now() + chrono::Duration::hours(1);
+
+    let mut input = create_test_input("scheduled", "Scheduled", user_id, category_id);
+    input.scheduled_at = Some(scheduled_at);
+    let created = repo.create(&input).await.expect("Failed to create article");
+    assert_eq!(created.scheduled_at, Some(scheduled_at));
+
+    let cleared = repo
+        .update(
+            created.id,
+            &UpdateArticleInput::new().with_scheduled_at(None),
+        )
+        .await
+        .expect("Failed to clear scheduled_at");
+    assert!(cleared.scheduled_at.is_none());
+
+    let rescheduled = repo
+        .update(
+            created.id,
+            &UpdateArticleInput::new().with_scheduled_at(Some(scheduled_at)),
+        )
+        .await
+        .expect("Failed to reschedule article");
+    assert_eq!(rescheduled.scheduled_at, Some(scheduled_at));
+
+    let published = repo
+        .update(
+            created.id,
+            &UpdateArticleInput::new().with_status(ArticleStatus::Published),
+        )
+        .await
+        .expect("Failed to publish scheduled article");
+    assert_eq!(published.status, ArticleStatus::Published);
+    assert!(published.scheduled_at.is_none());
 }
 
 #[tokio::test]

@@ -16,6 +16,8 @@ import { AnimatedGrid } from "@/components/motion";
 import { EmptyState } from "@/components/ui/empty-state";
 import { preloadManageRoute } from "@/lib/manage-routes";
 
+const RECENT_ARTICLE_LIMIT = 5;
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
@@ -32,13 +34,13 @@ export default function DashboardPage() {
         const [statsRes, sysStatsRes, articlesRes] = await Promise.all([
           adminApi.dashboard(),
           adminApi.systemStats(),
-          articlesApi.list({ per_page: 5 }),
+          articlesApi.list({ per_page: RECENT_ARTICLE_LIMIT }),
         ]);
         if (!active) return;
 
         setStats(statsRes.data);
         setSystemStats(sysStatsRes.data);
-        setRecentArticles(articlesRes.data?.articles || []);
+        setRecentArticles((articlesRes.data?.articles || []).slice(0, RECENT_ARTICLE_LIMIT));
       } catch (error) {
         console.error(error);
       } finally {
@@ -273,13 +275,13 @@ export default function DashboardPage() {
           <CardContent>
             {loading ? (
               <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
+                {Array.from({ length: RECENT_ARTICLE_LIMIT }, (_, i) => (
                   <div key={i} className="h-12 skeleton-shimmer rounded" />
                 ))}
               </div>
             ) : recentArticles.length > 0 ? (
               <div className="space-y-3">
-                {recentArticles.map((article, index) => (
+                {recentArticles.slice(0, RECENT_ARTICLE_LIMIT).map((article, index) => (
                   <motion.a
                     key={article.id}
                     href={`/manage/articles/${article.id}`}

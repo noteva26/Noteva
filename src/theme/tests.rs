@@ -8,20 +8,10 @@ use tera::Context as TeraContext;
 /// Helper to create a test theme directory with templates
 fn create_test_theme(themes_dir: &Path, theme_name: &str) -> PathBuf {
     let theme_path = themes_dir.join(theme_name);
-    fs::create_dir_all(&theme_path).unwrap();
+    let dist_path = theme_path.join("dist");
+    fs::create_dir_all(&dist_path).unwrap();
 
-    // Create theme.toml with [theme] section (required by ThemeMetadata struct)
-    let theme_toml = format!(
-        r#"[theme]
-name = "{}"
-display_name = "{} Theme"
-description = "A test theme"
-version = "1.0.0"
-author = "Test Author"
-"#,
-        theme_name, theme_name
-    );
-    fs::write(theme_path.join("theme.toml"), theme_toml).unwrap();
+    write_test_theme_manifest(&theme_path, theme_name, &format!("{} Theme", theme_name));
 
     // Create base.html template
     let base_html = r#"<!DOCTYPE html>
@@ -29,7 +19,7 @@ author = "Test Author"
 <head><title>{{ site_name }}</title></head>
 <body>{% block content %}{% endblock %}</body>
 </html>"#;
-    fs::write(theme_path.join("base.html"), base_html).unwrap();
+    fs::write(dist_path.join("base.html"), base_html).unwrap();
 
     // Create index.html template
     let index_html = r#"{% extends "base.html" %}
@@ -37,7 +27,7 @@ author = "Test Author"
 <h1>Welcome to {{ site_name }}</h1>
 <p>{{ site_description }}</p>
 {% endblock %}"#;
-    fs::write(theme_path.join("index.html"), index_html).unwrap();
+    fs::write(dist_path.join("index.html"), index_html).unwrap();
 
     // Create post.html template
     let post_html = r#"{% extends "base.html" %}
@@ -47,9 +37,28 @@ author = "Test Author"
 <div>{{ post.content | safe }}</div>
 </article>
 {% endblock %}"#;
-    fs::write(theme_path.join("post.html"), post_html).unwrap();
+    fs::write(dist_path.join("post.html"), post_html).unwrap();
 
     theme_path
+}
+
+fn write_test_theme_manifest(theme_path: &Path, short: &str, name: &str) {
+    let manifest = format!(
+        r#"{{
+  "schema": 1,
+  "name": "{}",
+  "short": "{}",
+  "description": "A test theme",
+  "version": "1.0.0",
+  "author": "Test Author",
+  "repository": "https://github.com/noteva26/test-theme",
+  "requires": {{
+    "noteva": ">=0.0.8"
+  }}
+}}"#,
+        name, short
+    );
+    fs::write(theme_path.join("theme.json"), manifest).unwrap();
 }
 
 #[test]
@@ -196,7 +205,7 @@ fn test_reload_templates() {
 {% block content %}
 <h1>Updated: {{ site_name }}</h1>
 {% endblock %}"#;
-    fs::write(theme_path.join("index.html"), new_index).unwrap();
+    fs::write(theme_path.join("dist").join("index.html"), new_index).unwrap();
 
     // Reload templates
     engine.reload_templates().unwrap();
@@ -343,20 +352,22 @@ fn test_theme_switch_renders_correct_templates() {
 
     // Create custom theme with different content
     let custom_path = themes_path.join("custom");
-    fs::create_dir_all(&custom_path).unwrap();
+    let custom_dist_path = custom_path.join("dist");
+    fs::create_dir_all(&custom_dist_path).unwrap();
+    write_test_theme_manifest(&custom_path, "custom", "Custom Theme");
 
     let custom_base = r#"<!DOCTYPE html>
 <html>
 <head><title>Custom: {{ site_name }}</title></head>
 <body>{% block content %}{% endblock %}</body>
 </html>"#;
-    fs::write(custom_path.join("base.html"), custom_base).unwrap();
+    fs::write(custom_dist_path.join("base.html"), custom_base).unwrap();
 
     let custom_index = r#"{% extends "base.html" %}
 {% block content %}
 <h1>Custom Theme: {{ site_name }}</h1>
 {% endblock %}"#;
-    fs::write(custom_path.join("index.html"), custom_index).unwrap();
+    fs::write(custom_dist_path.join("index.html"), custom_index).unwrap();
 
     let mut engine = ThemeEngine::new(&themes_path, "default").unwrap();
 
@@ -716,19 +727,10 @@ mod property_tests {
     /// This allows us to verify which theme's templates are being used
     fn create_identifiable_theme(themes_dir: &Path, theme_name: &str, identifier: &str) -> PathBuf {
         let theme_path = themes_dir.join(theme_name);
-        fs::create_dir_all(&theme_path).unwrap();
+        let dist_path = theme_path.join("dist");
+        fs::create_dir_all(&dist_path).unwrap();
 
-        // Create theme.toml
-        let theme_toml = format!(
-            r#"name = "{}"
-display_name = "{} Theme"
-description = "A test theme with identifier {}"
-version = "1.0.0"
-author = "Test Author"
-"#,
-            theme_name, theme_name, identifier
-        );
-        fs::write(theme_path.join("theme.toml"), theme_toml).unwrap();
+        write_test_theme_manifest(&theme_path, theme_name, &format!("{} Theme", theme_name));
 
         // Create base.html template with theme identifier
         let base_html = format!(
@@ -743,7 +745,7 @@ author = "Test Author"
 </html>"#,
             identifier, theme_name
         );
-        fs::write(theme_path.join("base.html"), base_html).unwrap();
+        fs::write(dist_path.join("base.html"), base_html).unwrap();
 
         // Create index.html template
         let index_html = format!(
@@ -761,7 +763,7 @@ author = "Test Author"
 {{% endblock %}}"#,
             theme_name, identifier
         );
-        fs::write(theme_path.join("index.html"), index_html).unwrap();
+        fs::write(dist_path.join("index.html"), index_html).unwrap();
 
         theme_path
     }
@@ -833,8 +835,8 @@ author = "Test Author"
             let themes_path = temp_dir.path().join("themes");
 
             // Create unique theme names for this iteration
-            let theme1_name = format!("{}_{}_a", theme1_base, suffix);
-            let theme2_name = format!("{}_{}_b", theme2_base, suffix);
+            let theme1_name = format!("{}-{}-a", theme1_base, suffix);
+            let theme2_name = format!("{}-{}-b", theme2_base, suffix);
             let theme1_id = format!("ID1_{}", suffix);
             let theme2_id = format!("ID2_{}", suffix);
 
@@ -938,7 +940,7 @@ author = "Test Author"
             let themes_path = temp_dir.path().join("themes");
 
             // Create default theme
-            let default_theme_name = format!("default_{}", suffix);
+            let default_theme_name = format!("default-{}", suffix);
             let default_id = format!("DEFAULT_{}", suffix);
             create_identifiable_theme(&themes_path, &default_theme_name, &default_id);
 
@@ -1022,7 +1024,7 @@ author = "Test Author"
             let themes_path = temp_dir.path().join("themes");
 
             // Create default theme
-            let default_theme_name = format!("default_{}", suffix);
+            let default_theme_name = format!("default-{}", suffix);
             let default_id = format!("DEFAULT_{}", suffix);
             create_identifiable_theme(&themes_path, &default_theme_name, &default_id);
 
@@ -1032,7 +1034,7 @@ author = "Test Author"
 
             // Property: Multiple fallback attempts should all succeed
             for i in 0..attempt_count {
-                let invalid_theme = format!("nonexistent_theme_{}_{}", suffix, i);
+                let invalid_theme = format!("nonexistent-theme-{}-{}", suffix, i);
                 let result = engine.set_theme_with_fallback(&invalid_theme);
 
                 prop_assert!(
@@ -1106,19 +1108,11 @@ author = "Test Author"
             let themes_path = temp_dir.path().join("themes");
 
             // Create a theme with templates that output all standard variables
-            let theme_name = format!("vartest_{}", suffix);
+            let theme_name = format!("vartest-{}", suffix);
             let theme_path = themes_path.join(&theme_name);
-            fs::create_dir_all(&theme_path).unwrap();
-
-            // Create theme.toml
-            let theme_toml = format!(
-                r#"name = "{}"
-display_name = "Variable Test Theme"
-version = "1.0.0"
-"#,
-                theme_name
-            );
-            fs::write(theme_path.join("theme.toml"), theme_toml).unwrap();
+            let dist_path = theme_path.join("dist");
+            fs::create_dir_all(&dist_path).unwrap();
+            write_test_theme_manifest(&theme_path, &theme_name, "Variable Test Theme");
 
             // Create a template that outputs all standard variables for verification
             let test_template = r#"<!DOCTYPE html>
@@ -1136,7 +1130,7 @@ version = "1.0.0"
 {% endif %}
 </body>
 </html>"#;
-            fs::write(theme_path.join("test.html"), test_template).unwrap();
+            fs::write(dist_path.join("test.html"), test_template).unwrap();
 
             // Create engine
             let engine = ThemeEngine::new(&themes_path, &theme_name)
@@ -1251,12 +1245,11 @@ version = "1.0.0"
             let themes_path = temp_dir.path().join("themes");
 
             // Create theme
-            let theme_name = format!("emptyctx_{}", suffix);
+            let theme_name = format!("emptyctx-{}", suffix);
             let theme_path = themes_path.join(&theme_name);
-            fs::create_dir_all(&theme_path).unwrap();
-
-            let theme_toml = format!(r#"name = "{}""#, theme_name);
-            fs::write(theme_path.join("theme.toml"), theme_toml).unwrap();
+            let dist_path = theme_path.join("dist");
+            fs::create_dir_all(&dist_path).unwrap();
+            write_test_theme_manifest(&theme_path, &theme_name, "Empty Context Theme");
 
             // Template that uses all standard variables
             let template = r#"<html>
@@ -1268,7 +1261,7 @@ version = "1.0.0"
 <p>{{ year }}</p>
 </body>
 </html>"#;
-            fs::write(theme_path.join("page.html"), template).unwrap();
+            fs::write(dist_path.join("page.html"), template).unwrap();
 
             let engine = ThemeEngine::new(&themes_path, &theme_name)
                 .expect("Failed to create engine");
