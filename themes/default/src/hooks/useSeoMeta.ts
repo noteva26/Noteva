@@ -18,6 +18,7 @@ interface SeoMeta {
 export function useSeoMeta(meta: SeoMeta) {
     useEffect(() => {
         const tags: HTMLMetaElement[] = [];
+        let originalTitle: string | undefined;
 
         const setMeta = (property: string, content: string | undefined) => {
             if (!content) return;
@@ -42,11 +43,8 @@ export function useSeoMeta(meta: SeoMeta) {
 
         // Set document title
         if (meta.title) {
-            const originalTitle = document.title;
+            originalTitle = document.title;
             document.title = meta.siteName ? `${meta.title} - ${meta.siteName}` : meta.title;
-            // Restore on cleanup — we'll record it
-            tags.push(null as any); // placeholder to track title change
-            (tags as any).__originalTitle = originalTitle;
         }
 
         // Standard meta
@@ -80,8 +78,8 @@ export function useSeoMeta(meta: SeoMeta) {
                 }
             }
             // Restore original title
-            if ((tags as any).__originalTitle) {
-                document.title = (tags as any).__originalTitle;
+            if (originalTitle !== undefined) {
+                document.title = originalTitle;
             }
         };
     }, [meta.title, meta.description, meta.image, meta.url, meta.type, meta.siteName, meta.publishedTime, meta.author]);

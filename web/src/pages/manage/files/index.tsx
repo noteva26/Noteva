@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { filesApi, type FileInfo, type StorageStatsResponse } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -22,70 +23,119 @@ import {
     HardDrive,
     Copy,
     ExternalLink,
-    Filter,
     RefreshCw,
 } from "lucide-react";
+import { DataSyncBadge, DataSyncBar } from "@/components/admin/data-sync-bar";
+import { ConfirmDialog } from "@/components/admin/confirm-dialog";
+import { formatDateTime, formatFileSize } from "@/lib/format";
 
 export default function FilesPage() {
     const { t, locale } = useTranslation();
     const [files, setFiles] = useState<FileInfo[]>([]);
+    const [optimisticFiles, removeOptimisticFiles] = useOptimistic(
+        files,
+        (currentFiles, namesToRemove: Set<string>) =>
+            currentFiles.filter((file) => !namesToRemove.has(file.name))
+    );
     const [stats, setStats] = useState<StorageStatsResponse | null>(null);
     const [search, setSearch] = useState("");
+    const [appliedSearch, setAppliedSearch] = useState("");
     const [typeFilter, setTypeFilter] = useState<string>("");
     const [loading, setLoading] = useState(true);
+    const [hasLoaded, setHasLoaded] = useState(false);
+    const [refreshKey, setRefreshKey] = useState(0);
     const [deleteTarget, setDeleteTarget] = useState<FileInfo | null>(null);
+    const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
-
-    const fetchFiles = async () => {
-        try {
-            setLoading(true);
-            const [filesRes, statsRes] = await Promise.all([
-                filesApi.list({ search: search || undefined, file_type: typeFilter || undefined }),
-                filesApi.stats(),
-            ]);
-            setFiles(filesRes.data.files);
-            setStats(statsRes.data);
-        } catch {
-            toast.error(t("fileManage.loadFailed"));
-        } finally {
-            setLoading(false);
-        }
-    };
+    const [isRefreshing, startRefreshTransition] = useTransition();
+    const [isDeleting, startDeleteTransition] = useTransition();
 
     useEffect(() => {
+        let active = true;
+
+        const fetchFiles = async () => {
+            try {
+                setLoading(true);
+                const [filesRes, statsRes] = await Promise.all([
+                    filesApi.list({ search: appliedSearch || undefined, file_type: typeFilter || undefined }),
+                    filesApi.stats(),
+                ]);
+                if (!active) return;
+
+                setFiles(filesRes.data.files);
+                setStats(statsRes.data);
+                setSelectedFiles((current) => {
+                    const loadedNames = new Set(filesRes.data.files.map((file) => file.name));
+                    return new Set(Array.from(current).filter((name) => loadedNames.has(name)));
+                });
+            } catch {
+                if (active) toast.error(t("fileManage.loadFailed"));
+            } finally {
+                if (active) {
+                    setLoading(false);
+                    setHasLoaded(true);
+                }
+            }
+        };
+
         fetchFiles();
-    }, [typeFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+        return () => {
+            active = false;
+        };
+    }, [appliedSearch, refreshKey, t, typeFilter]);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        fetchFiles();
+        startRefreshTransition(() => {
+            setAppliedSearch(search.trim());
+            setRefreshKey((key) => key + 1);
+        });
     };
 
     const handleDelete = async (file: FileInfo) => {
-        try {
-            await filesApi.delete(file.name);
-            toast.success(t("fileManage.deleteSuccess", { name: file.name }));
-            fetchFiles();
+        startDeleteTransition(async () => {
+            removeOptimisticFiles(new Set([file.name]));
             setDeleteTarget(null);
-            selectedFiles.delete(file.name);
-            setSelectedFiles(new Set(selectedFiles));
-        } catch {
-            toast.error(t("fileManage.deleteFailed", { name: file.name }));
-        }
+            setSelectedFiles((current) => {
+                const next = new Set(current);
+                next.delete(file.name);
+                return next;
+            });
+
+            try {
+                await filesApi.delete(file.name);
+                toast.success(t("fileManage.deleteSuccess", { name: file.name }));
+                setRefreshKey((key) => key + 1);
+            } catch {
+                setRefreshKey((key) => key + 1);
+                toast.error(t("fileManage.deleteFailed", { name: file.name }));
+            }
+        });
     };
 
     const handleBatchDelete = async () => {
-        if (!confirm(t("fileManage.confirmBatchDelete", { count: selectedFiles.size.toString() }))) return;
-        let success = 0;
-        for (const name of selectedFiles) {
-            try {
-                await filesApi.delete(name);
-                success++;
-            } catch { /* continue */ }
-        }
-        toast.success(t("fileManage.batchDeleteSuccess", { count: success.toString() }));
-        setSelectedFiles(new Set());
-        fetchFiles();
+        if (selectedFiles.size === 0) return;
+        setBatchDeleteOpen(true);
+    };
+
+    const confirmBatchDelete = async () => {
+        const names = new Set(selectedFiles);
+
+        startDeleteTransition(async () => {
+            setBatchDeleteOpen(false);
+            removeOptimisticFiles(names);
+            setSelectedFiles(new Set());
+
+            let success = 0;
+            for (const name of names) {
+                try {
+                    await filesApi.delete(name);
+                    success++;
+                } catch { /* continue */ }
+            }
+            toast.success(t("fileManage.batchDeleteSuccess", { count: success.toString() }));
+            setRefreshKey((key) => key + 1);
+        });
     };
 
     const copyUrl = (url: string) => {
@@ -93,43 +143,44 @@ export default function FilesPage() {
         toast.success(t("fileManage.linkCopied"));
     };
 
-    const formatSize = (size: number) => {
-        if (size < 1024) return `${size} B`;
-        if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-        return `${(size / 1024 / 1024).toFixed(1)} MB`;
-    };
-
     const formatDate = (dateStr: string) => {
-        if (!dateStr) return "-";
-        const d = new Date(dateStr);
-        return d.toLocaleDateString(locale, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+        return formatDateTime(dateStr, locale, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
     };
 
     const toggleSelect = (name: string) => {
-        const next = new Set(selectedFiles);
-        if (next.has(name)) next.delete(name);
-        else next.add(name);
-        setSelectedFiles(next);
+        setSelectedFiles((current) => {
+            const next = new Set(current);
+            if (next.has(name)) next.delete(name);
+            else next.add(name);
+            return next;
+        });
     };
 
     const toggleSelectAll = () => {
-        if (selectedFiles.size === files.length) {
+        if (selectedFiles.size === optimisticFiles.length) {
             setSelectedFiles(new Set());
         } else {
-            setSelectedFiles(new Set(files.map(f => f.name)));
+            setSelectedFiles(new Set(optimisticFiles.map((file) => file.name)));
         }
     };
+
+    const showInitialLoading = loading && !hasLoaded;
+    const isSyncing = (loading && hasLoaded) || isRefreshing;
+    const isBusy = showInitialLoading || isRefreshing;
+    const hasFiles = optimisticFiles.length > 0;
+    const allSelected = selectedFiles.size === optimisticFiles.length && optimisticFiles.length > 0;
 
     return (
         <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-bold">{t("fileManage.title")}</h1>
-                <Button variant="outline" size="sm" onClick={fetchFiles} disabled={loading}>
-                    <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+                <Button variant="outline" size="sm" onClick={() => setRefreshKey((key) => key + 1)} disabled={isBusy}>
+                    <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? "animate-spin" : ""}`} />
                     {t("fileManage.refresh")}
                 </Button>
             </div>
+            <DataSyncBadge active={isSyncing} label={t("common.loading")} />
 
             {/* Stats Cards */}
             {stats && (
@@ -220,25 +271,25 @@ export default function FilesPage() {
             )}
 
             {/* File List */}
-            {loading ? (
+            <DataSyncBar active={isSyncing} label={t("common.loading")} />
+            {showInitialLoading ? (
                 <div className="flex justify-center py-12">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                 </div>
-            ) : files.length === 0 ? (
+            ) : !hasFiles ? (
                 <div className="text-center text-muted-foreground py-12 border rounded-lg bg-muted/20">
                     {t("fileManage.noFiles")}
                 </div>
             ) : (
-                <div className="border rounded-lg overflow-hidden">
+                <div className={`border rounded-lg overflow-hidden transition-opacity ${isSyncing ? "opacity-70" : ""}`}>
                     <table className="w-full">
                         <thead className="bg-muted/50">
                             <tr>
                                 <th className="w-10 p-3">
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedFiles.size === files.length && files.length > 0}
-                                        onChange={toggleSelectAll}
-                                        className="rounded"
+                                    <Checkbox
+                                        checked={allSelected}
+                                        onCheckedChange={toggleSelectAll}
+                                        aria-label={t("fileManage.selectedCount", { count: selectedFiles.size.toString() })}
                                     />
                                 </th>
                                 <th className="text-left p-3 text-sm font-medium text-muted-foreground">{t("fileManage.preview")}</th>
@@ -250,14 +301,13 @@ export default function FilesPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y">
-                            {files.map((file) => (
+                            {optimisticFiles.map((file) => (
                                 <tr key={file.name} className="hover:bg-muted/30 transition-colors">
                                     <td className="p-3">
-                                        <input
-                                            type="checkbox"
+                                        <Checkbox
                                             checked={selectedFiles.has(file.name)}
-                                            onChange={() => toggleSelect(file.name)}
-                                            className="rounded"
+                                            onCheckedChange={() => toggleSelect(file.name)}
+                                            aria-label={file.name}
                                         />
                                     </td>
                                     <td className="p-3 w-16">
@@ -280,7 +330,7 @@ export default function FilesPage() {
                                         </span>
                                     </td>
                                     <td className="p-3 text-sm text-muted-foreground hidden sm:table-cell">
-                                        {formatSize(file.size)}
+                                        {formatFileSize(file.size)}
                                     </td>
                                     <td className="p-3 hidden md:table-cell">
                                         <span className="text-xs px-2 py-0.5 rounded-full bg-muted">
@@ -344,6 +394,7 @@ export default function FilesPage() {
                         <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                         <AlertDialogAction
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            disabled={isDeleting}
                             onClick={() => deleteTarget && handleDelete(deleteTarget)}
                         >
                             {t("fileManage.delete")}
@@ -351,6 +402,17 @@ export default function FilesPage() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+            <ConfirmDialog
+                open={batchDeleteOpen}
+                title={t("fileManage.batchDelete")}
+                description={t("fileManage.confirmBatchDelete", { count: selectedFiles.size.toString() })}
+                confirmLabel={t("common.delete")}
+                cancelLabel={t("common.cancel")}
+                destructive
+                loading={isDeleting}
+                onOpenChange={setBatchDeleteOpen}
+                onConfirm={confirmBatchDelete}
+            />
         </div>
     );
 }

@@ -3,27 +3,28 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { TopLoader, TopLoaderFallback } from "@/components/ui/top-loader";
+import { managePageLoaders } from "@/lib/manage-routes";
 
 // Layout loaded eagerly (shared shell)
 import ManageLayout from "@/pages/manage/layout";
 
 // Lazy-loaded pages
-const DashboardPage = lazy(() => import("@/pages/manage/dashboard"));
-const ArticlesPage = lazy(() => import("@/pages/manage/articles"));
-const ArticleNewPage = lazy(() => import("@/pages/manage/articles/new"));
-const ArticleEditPage = lazy(() => import("@/pages/manage/articles/edit"));
-const CategoriesPage = lazy(() => import("@/pages/manage/categories"));
-const TagsPage = lazy(() => import("@/pages/manage/tags"));
-const PagesPage = lazy(() => import("@/pages/manage/pages"));
-const NavPage = lazy(() => import("@/pages/manage/nav"));
-const CommentsPage = lazy(() => import("@/pages/manage/comments"));
-const PluginsPage = lazy(() => import("@/pages/manage/plugins"));
-const ThemesPage = lazy(() => import("@/pages/manage/themes"));
-const SecurityPage = lazy(() => import("@/pages/manage/security"));
-const FilesPage = lazy(() => import("@/pages/manage/files"));
-const SettingsPage = lazy(() => import("@/pages/manage/settings"));
-const LoginPage = lazy(() => import("@/pages/manage/login"));
-const SetupPage = lazy(() => import("@/pages/manage/setup"));
+const DashboardPage = lazy(managePageLoaders.dashboard);
+const ArticlesPage = lazy(managePageLoaders.articles);
+const ArticleNewPage = lazy(managePageLoaders.articleNew);
+const ArticleEditPage = lazy(managePageLoaders.articleEdit);
+const CategoriesPage = lazy(managePageLoaders.categories);
+const TagsPage = lazy(managePageLoaders.tags);
+const PagesPage = lazy(managePageLoaders.pages);
+const NavPage = lazy(managePageLoaders.nav);
+const CommentsPage = lazy(managePageLoaders.comments);
+const PluginsPage = lazy(managePageLoaders.plugins);
+const ThemesPage = lazy(managePageLoaders.themes);
+const SecurityPage = lazy(managePageLoaders.security);
+const FilesPage = lazy(managePageLoaders.files);
+const SettingsPage = lazy(managePageLoaders.settings);
+const LoginPage = lazy(managePageLoaders.login);
+const SetupPage = lazy(managePageLoaders.setup);
 
 export default function App() {
   return (

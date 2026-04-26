@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { List } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getNoteva } from "@/hooks/useNoteva";
@@ -16,8 +16,10 @@ interface TocSidebarProps {
 export function TocSidebar({ toc }: TocSidebarProps) {
     const [activeId, setActiveId] = useState<string>("");
 
-    // Filter: only show h2 and h3
-    const visibleToc = toc.filter((item) => item.level >= 2 && item.level <= 3);
+    const visibleToc = useMemo(
+        () => toc.filter((item) => item.level >= 2 && item.level <= 3),
+        [toc]
+    );
 
     const handleClick = (id: string) => {
         const Noteva = getNoteva();
@@ -67,20 +69,20 @@ export function TocSidebar({ toc }: TocSidebarProps) {
     if (visibleToc.length < 2) return null;
 
     return (
-        <aside className="hidden xl:block w-56 shrink-0">
-            <nav className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto">
-                <h4 className="flex items-center gap-1.5 text-sm font-semibold mb-3 text-foreground">
+        <aside className="hidden min-w-0 xl:block">
+            <nav className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto rounded-lg border bg-card/70 p-4 shadow-sm shadow-black/[0.02] backdrop-blur">
+                <h4 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-foreground">
                     <List className="h-4 w-4" />
                     目录
                 </h4>
-                <ul className="space-y-0.5 text-sm border-l">
+                <ul className="space-y-0.5 border-l text-sm">
                     {visibleToc.map((item) => (
                         <li key={item.id}>
                             <button
                                 onClick={() => handleClick(item.id)}
                                 title={item.text}
                                 className={cn(
-                                    "block w-full text-left truncate py-1 transition-colors border-l-2 -ml-px",
+                                    "block w-full -ml-px truncate border-l-2 py-1.5 text-left transition-colors",
                                     item.level === 3 ? "pl-6 pr-2" : "pl-3 pr-2",
                                     activeId === item.id
                                         ? "border-primary text-primary font-medium"

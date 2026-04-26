@@ -1,6 +1,6 @@
 
 
-import { useTranslation, locales, Locale } from "@/lib/i18n";
+import { useTranslation, locales } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,

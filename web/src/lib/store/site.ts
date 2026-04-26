@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { siteApi, SiteSettings } from "@/lib/api";
 
+declare global {
+  interface Window {
+    __SITE_CONFIG__?: Partial<SiteSettings>;
+  }
+}
+
 // 默认设置
 // 使用 /manage/logo.png 确保管理后台能正确加载（走 AdminAssets 嵌入资源）
 const defaultSettings: SiteSettings = {
@@ -16,7 +22,7 @@ const defaultSettings: SiteSettings = {
 const getInjectedSettings = (): SiteSettings | null => {
   if (typeof window === "undefined") return null;
   try {
-    const injected = (window as any).__SITE_CONFIG__;
+    const injected = window.__SITE_CONFIG__;
     if (injected) {
       return {
         site_name: injected.site_name || defaultSettings.site_name,

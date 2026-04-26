@@ -1,8 +1,10 @@
-import { Link, useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "motion/react";
-import { useTranslation } from "@/lib/i18n";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "motion/react";
+import { ChevronDown, LogOut, Menu, Search, Settings, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,12 +12,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LanguageSwitcher } from "@/components/language-switcher";
-import { ThemeSwitcher } from "@/components/theme-switcher";
+import { Input } from "@/components/ui/input";
 import { TopLoader } from "@/components/ui/top-loader";
-import { Settings, LogOut, Menu, X, Search, ChevronDown } from "lucide-react";
-import { useEffect, useState, useMemo } from "react";
-import { getNoteva } from "@/hooks/useNoteva";
+import {
+  getInjectedSiteConfig,
+  waitForNoteva,
+  type NotevaSDKRef,
+  type NotevaUser,
+} from "@/hooks/useNoteva";
+import { useTranslation } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
 interface NavItem {
   id: number;
@@ -32,6 +38,23 @@ interface NavItem {
   children?: NavItem[];
 }
 
+type SDKNavItem = Awaited<ReturnType<NotevaSDKRef["site"]["getNav"]>>[number];
+
+interface NavResponseItem extends SDKNavItem {
+  parent_id?: number | null;
+  title?: string;
+  nav_type?: string;
+  open_new_tab?: boolean;
+  sort_order?: number;
+  visible?: boolean;
+  children?: NavResponseItem[];
+}
+
+interface HeaderSiteInfo {
+  name: string;
+  logo: string;
+}
+
 const BUILTIN_PATHS: Record<string, string> = {
   home: "/",
   archives: "/archives",
@@ -46,242 +69,407 @@ const BUILTIN_I18N: Record<string, string> = {
   tags: "nav.tags",
 };
 
+function getInitialSiteInfo(): HeaderSiteInfo {
+  const config = getInjectedSiteConfig();
+  return {
+    name: config?.site_name || "Noteva",
+    logo: config?.site_logo || "/logo.png",
+  };
+}
+
+function normalizeNavItem(item: NavResponseItem): NavItem {
+  const opensNewTab = item.open_new_tab ?? (item.target === "_blank");
+  const targetOrUrl = item.target === "_blank" ? item.url : item.target || item.url;
+
+  return {
+    id: item.id,
+    parent_id: item.parent_id ?? null,
+    title: item.title || item.name,
+    name: item.name || item.title,
+    nav_type: item.nav_type,
+    target: targetOrUrl,
+    url: item.url || targetOrUrl,
+    open_new_tab: opensNewTab,
+    sort_order: item.sort_order ?? item.order ?? 0,
+    order: item.order ?? item.sort_order,
+    visible: item.visible ?? true,
+    children: item.children?.map(normalizeNavItem),
+  };
+}
+
 export function SiteHeader() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [navItems, setNavItems] = useState<NavItem[]>([]);
-  const [siteInfo, setSiteInfo] = useState<{ name: string; logo: string } | null>(null);
-  const [user, setUser] = useState<any>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [siteInfo, setSiteInfo] = useState<HeaderSiteInfo>(() =>
+    getInitialSiteInfo()
+  );
+  const [user, setUser] = useState<NotevaUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    const config = (window as any).__SITE_CONFIG__;
-    if (config) {
-      setSiteInfo({ name: config.site_name || "Noteva", logo: config.site_logo || "/logo.png" });
-    } else {
-      setSiteInfo({ name: "Noteva", logo: "/logo.png" });
-    }
-  }, []);
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
+    let active = true;
+
     const loadData = async () => {
-      const Noteva = getNoteva();
-      if (!Noteva) { setTimeout(loadData, 50); return; }
+      const noteva = await waitForNoteva();
+      if (!active || !noteva) {
+        if (active) setAuthChecked(true);
+        return;
+      }
+
       try {
-        const info = await Noteva.site.getInfo();
-        setSiteInfo({ name: info.name || "Noteva", logo: info.logo || "/logo.png" });
+        const [info, nav, currentUser] = await Promise.all([
+          noteva.site.getInfo(),
+          noteva.site.getNav(),
+          noteva.user.check(),
+        ]);
 
-        const nav = await Noteva.site.getNav();
-        const convertNavItem = (item: any): NavItem => ({
-          id: item.id, parent_id: item.parent_id ?? null,
-          title: item.title || item.name, name: item.name || item.title,
-          nav_type: item.nav_type, target: item.target || item.url, url: item.url || item.target,
-          open_new_tab: item.open_new_tab ?? (item.target === "_blank"),
-          sort_order: item.sort_order ?? item.order ?? 0, order: item.order ?? item.sort_order,
-          visible: item.visible ?? true, children: item.children?.map(convertNavItem),
+        if (!active) return;
+
+        setSiteInfo({
+          name: info.name || info.site_name || "Noteva",
+          logo: info.logo || info.site_logo || "/logo.png",
         });
-        setNavItems((nav || []).map(convertNavItem));
-
-        const currentUser = await Noteva.user.check();
+        setNavItems((nav || []).map((item) => normalizeNavItem(item)));
         setUser(currentUser);
-        setIsAuthenticated(!!currentUser);
-        setAuthChecked(true);
-      } catch (err) { console.error(err); setAuthChecked(true); }
+      } catch {
+        if (active) setUser(null);
+      } finally {
+        if (active) setAuthChecked(true);
+      }
     };
-    loadData();
+
+    void loadData();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
+  const defaultNavItems = useMemo(
+    () => [
+      { href: "/", label: t("nav.home") },
+      { href: "/archives", label: t("nav.archive") },
+      { href: "/categories", label: t("nav.categories") },
+      { href: "/tags", label: t("nav.tags") },
+    ],
+    [t]
+  );
+
+  const rootNavItems = useMemo(
+    () =>
+      navItems
+        .filter((item) => !item.parent_id && item.visible !== false)
+        .sort((a, b) => (a.sort_order ?? a.order ?? 0) - (b.sort_order ?? b.order ?? 0)),
+    [navItems]
+  );
+
   const handleLogout = async () => {
-    const Noteva = getNoteva();
-    if (!Noteva) return;
-    try { await Noteva.user.logout(); setUser(null); setIsAuthenticated(false); } catch {}
+    const noteva = await waitForNoteva();
+    if (!noteva) return;
+
+    try {
+      await noteva.user.logout();
+    } finally {
+      setUser(null);
+    }
   };
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) navigate(`/?q=${encodeURIComponent(searchQuery.trim())}`);
+  const handleSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    const keyword = searchQuery.trim();
+    if (!keyword) return;
+
+    setMobileMenuOpen(false);
+    navigate(`/?q=${encodeURIComponent(keyword)}`);
   };
 
   const getNavTitle = (item: NavItem): string => {
-    // 用户自定义了标题则优先使用
     const customTitle = item.title || item.name || "";
+    const targetUrl = item.target || item.url || "";
+
     if (item.nav_type === "builtin") {
-      const url = item.target || item.url || "";
-      const i18nKey = BUILTIN_I18N[url];
-      // 只有标题和 builtin key 相同（未自定义）时才走 i18n
-      if (i18nKey && (!customTitle || customTitle === url)) return t(i18nKey);
+      const i18nKey = BUILTIN_I18N[targetUrl];
+      if (i18nKey && (!customTitle || customTitle === targetUrl)) {
+        return t(i18nKey);
+      }
     }
+
     return customTitle;
   };
 
   const getNavHref = (item: NavItem): string | null => {
     const targetUrl = item.target || item.url || "";
     if (item.nav_type === "builtin" && !targetUrl) return null;
+
     switch (item.nav_type) {
-      case "builtin": return BUILTIN_PATHS[targetUrl] || "/";
-      case "page": return `/${targetUrl}`;
-      case "external": return targetUrl;
-      default: return targetUrl || "/";
+      case "builtin":
+        return BUILTIN_PATHS[targetUrl] || "/";
+      case "page":
+        return `/${targetUrl.replace(/^\/+/, "")}`;
+      case "external":
+        return targetUrl;
+      default:
+        return targetUrl || "/";
     }
   };
 
-  const renderNavLink = (item: NavItem) => {
+  const isActiveHref = (href: string | null, type?: string) => {
+    if (!href || type === "external") return false;
+    if (href === "/") return location.pathname === "/";
+    return location.pathname === href || location.pathname.startsWith(`${href}/`);
+  };
+
+  const navLinkClass = (active: boolean) =>
+    cn(
+      "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+      active
+        ? "bg-foreground text-background shadow-sm"
+        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+    );
+
+  const renderNavLink = (item: NavItem, compact = false) => {
     const href = getNavHref(item);
-    if (!href) return <span key={item.id} className="transition-colors text-foreground/60">{getNavTitle(item)}</span>;
-    if (item.nav_type === "external") {
-      return <a key={item.id} href={href} target={item.open_new_tab ? "_blank" : "_self"} rel={item.open_new_tab ? "noopener noreferrer" : undefined} className="transition-colors hover:text-foreground/80 text-foreground/60">{getNavTitle(item)}</a>;
+    const title = getNavTitle(item);
+
+    if (!href) {
+      return (
+        <span key={item.id} className={navLinkClass(false)}>
+          {title}
+        </span>
+      );
     }
-    return <Link key={item.id} to={href} className="transition-colors hover:text-foreground/80 text-foreground/60">{getNavTitle(item)}</Link>;
+
+    const className = compact
+      ? cn(
+          "rounded-md px-3 py-2 text-sm transition-colors",
+          isActiveHref(href, item.nav_type)
+            ? "bg-muted text-foreground"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+        )
+      : navLinkClass(isActiveHref(href, item.nav_type));
+
+    if (item.nav_type === "external") {
+      return (
+        <a
+          key={item.id}
+          href={href}
+          target={item.open_new_tab ? "_blank" : "_self"}
+          rel={item.open_new_tab ? "noopener noreferrer" : undefined}
+          className={className}
+        >
+          {title}
+        </a>
+      );
+    }
+
+    return (
+      <Link key={item.id} to={href} className={className}>
+        {title}
+      </Link>
+    );
   };
 
   const renderNavItemWithChildren = (item: NavItem) => {
     if (!item.children || item.children.length === 0) return renderNavLink(item);
+
     const href = getNavHref(item);
-    const isGroup = !href;
+    const active =
+      isActiveHref(href, item.nav_type) ||
+      item.children.some((child) => isActiveHref(getNavHref(child), child.nav_type));
+
     return (
       <DropdownMenu key={item.id}>
-        <DropdownMenuTrigger className="flex items-center gap-1 transition-colors hover:text-foreground/80 text-foreground/60">
-          {getNavTitle(item)}<ChevronDown className="h-3 w-3" />
+        <DropdownMenuTrigger className={cn(navLinkClass(active), "flex items-center gap-1")}>
+          {getNavTitle(item)}
+          <ChevronDown className="h-3.5 w-3.5" />
         </DropdownMenuTrigger>
-        <DropdownMenuContent>
-          {!isGroup && href && (
+        <DropdownMenuContent align="start">
+          {href && (
             <>
-              <DropdownMenuItem asChild>
-                {item.nav_type === "external" ? <a href={href} target={item.open_new_tab ? "_blank" : "_self"} rel={item.open_new_tab ? "noopener noreferrer" : undefined}>{getNavTitle(item)}</a> : <Link to={href}>{getNavTitle(item)}</Link>}
-              </DropdownMenuItem>
+              <DropdownMenuItem asChild>{renderNavLink(item, true)}</DropdownMenuItem>
               <DropdownMenuSeparator />
             </>
           )}
-          {item.children.map((child) => {
-            const childHref = getNavHref(child);
-            if (!childHref) return null;
-            return (
-              <DropdownMenuItem key={child.id} asChild>
-                {child.nav_type === "external" ? <a href={childHref} target={child.open_new_tab ? "_blank" : "_self"} rel={child.open_new_tab ? "noopener noreferrer" : undefined}>{getNavTitle(child)}</a> : <Link to={childHref}>{getNavTitle(child)}</Link>}
-              </DropdownMenuItem>
-            );
-          })}
+          {item.children
+            .filter((child) => child.visible !== false)
+            .map((child) => {
+              const childHref = getNavHref(child);
+              if (!childHref) return null;
+              return (
+                <DropdownMenuItem key={child.id} asChild>
+                  {renderNavLink(child, true)}
+                </DropdownMenuItem>
+              );
+            })}
         </DropdownMenuContent>
       </DropdownMenu>
     );
   };
 
-  const defaultNavItems = useMemo(() => [
-    { href: "/", label: t("nav.home") },
-    { href: "/archives", label: t("nav.archive") },
-    { href: "/categories", label: t("nav.categories") },
-    { href: "/tags", label: t("nav.tags") },
-  ], [t]);
+  const isAdmin = authChecked && user?.role === "admin";
 
   return (
     <>
       <TopLoader />
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-14 items-center">
-          <div className="mr-4 flex">
-            <Link to="/" className="mr-6 flex items-center space-x-2">
-              {siteInfo ? (
-                <>
-                  {siteInfo.logo && <img src={siteInfo.logo} alt={siteInfo.name} width={28} height={28} className="rounded" />}
-                  <span className="font-bold text-xl">{siteInfo.name}</span>
-                </>
-              ) : (
-                <>
-                  <div className="w-7 h-7 rounded bg-muted animate-pulse" />
-                  <div className="w-24 h-6 rounded bg-muted animate-pulse" />
-                </>
-              )}
-            </Link>
-            <nav className="hidden md:flex items-center space-x-6 text-sm font-medium">
-              {navItems.length > 0
-                ? navItems.filter(item => !item.parent_id).map(renderNavItemWithChildren)
-                : defaultNavItems.map((item) => (
-                    <Link key={item.href} to={item.href} className="transition-colors hover:text-foreground/80 text-foreground/60">{item.label}</Link>
-                  ))}
-            </nav>
-          </div>
-          <div className="flex flex-1 items-center justify-end space-x-2">
-            <form onSubmit={handleSearch} className="hidden md:flex items-center">
+      <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/85 shadow-sm shadow-black/[0.02] backdrop-blur-xl supports-[backdrop-filter]:bg-background/70">
+        <div className="container flex h-16 items-center gap-4">
+          <Link
+            to="/"
+            className="group mr-2 flex min-w-0 items-center gap-2"
+            aria-label={siteInfo.name}
+          >
+            {siteInfo.logo && (
+              <img
+                src={siteInfo.logo}
+                alt=""
+                width={32}
+                height={32}
+                className="size-8 rounded-md border border-border/70 bg-card object-cover"
+              />
+            )}
+            <span className="max-w-[14rem] truncate text-lg font-semibold tracking-normal transition-colors group-hover:text-primary">
+              {siteInfo.name}
+            </span>
+          </Link>
+
+          <nav className="hidden flex-1 items-center gap-1 md:flex">
+            {rootNavItems.length > 0
+              ? rootNavItems.map(renderNavItemWithChildren)
+              : defaultNavItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    to={item.href}
+                    className={navLinkClass(isActiveHref(item.href))}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+          </nav>
+
+          <div className="ml-auto flex items-center gap-1.5">
+            <form onSubmit={handleSearch} className="hidden md:block">
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input type="search" placeholder={t("common.search") + "..."} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-8 w-[180px] h-8" />
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder={`${t("common.search")}...`}
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  className="h-9 w-[190px] rounded-full pl-8"
+                />
               </div>
             </form>
+
             <LanguageSwitcher />
             <ThemeSwitcher />
-            
-            {authChecked && isAuthenticated && user?.role === "admin" ? (
+
+            {isAdmin ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="gap-2">
-                    {user?.avatar ? (
-                      <img src={user.avatar} alt={user.display_name || user.username} width={24} height={24} className="rounded-full" />
+                  <Button variant="ghost" size="sm" className="gap-2 rounded-full">
+                    {user.avatar ? (
+                      <img
+                        src={user.avatar}
+                        alt={user.display_name || user.username}
+                        width={24}
+                        height={24}
+                        className="size-6 rounded-full object-cover"
+                      />
                     ) : (
-                      <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center">
-                        <span className="text-xs font-medium">{(user?.display_name || user?.username)?.[0]?.toUpperCase()}</span>
-                      </div>
+                      <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                        {(user.display_name || user.username)?.[0]?.toUpperCase()}
+                      </span>
                     )}
-                    <span className="hidden sm:inline">{user?.display_name || user?.username}</span>
+                    <span className="hidden max-w-[7rem] truncate sm:inline">
+                      {user.display_name || user.username}
+                    </span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem asChild>
-                    <a href="/manage" className="cursor-pointer"><Settings className="mr-2 h-4 w-4" />{t("nav.manage")}</a>
+                    <a href="/manage" className="cursor-pointer">
+                      <Settings className="mr-2 h-4 w-4" />
+                      {t("nav.manage")}
+                    </a>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleLogout} className="cursor-pointer"><LogOut className="mr-2 h-4 w-4" />{t("nav.logout")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    {t("nav.logout")}
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
-            
-            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              onClick={() => setMobileMenuOpen((open) => !open)}
+              aria-label={mobileMenuOpen ? t("common.hide") : t("common.show")}
+            >
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
           </div>
         </div>
-        
-        <AnimatePresence>
+
+        <AnimatePresence initial={false}>
           {mobileMenuOpen && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className="md:hidden border-t overflow-hidden"
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="overflow-hidden border-t border-border/70 md:hidden"
             >
-              <nav className="container py-4 flex flex-col gap-4">
-                <form onSubmit={handleSearch} className="flex items-center">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input type="search" placeholder={t("common.search") + "..."} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-8 w-full" />
+              <nav className="container flex flex-col gap-2 py-4">
+                <form onSubmit={handleSearch} className="mb-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      type="search"
+                      placeholder={`${t("common.search")}...`}
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      className="w-full pl-9"
+                    />
                   </div>
                 </form>
-                {navItems.length > 0
-                  ? navItems.filter(item => !item.parent_id).map((item) => {
-                      const href = getNavHref(item);
-                      if (!href) {
-                        if (item.children && item.children.length > 0) {
-                          return item.children.map((child) => {
-                            const childHref = getNavHref(child);
-                            if (!childHref) return null;
-                            if (child.nav_type === "external") {
-                              return <a key={child.id} href={childHref} target={child.open_new_tab ? "_blank" : "_self"} rel={child.open_new_tab ? "noopener noreferrer" : undefined} className="text-foreground/60 hover:text-foreground pl-4" onClick={() => setMobileMenuOpen(false)}>{getNavTitle(child)}</a>;
-                            }
-                            return <Link key={child.id} to={childHref} className="text-foreground/60 hover:text-foreground pl-4" onClick={() => setMobileMenuOpen(false)}>{getNavTitle(child)}</Link>;
-                          });
-                        }
-                        return null;
-                      }
-                      if (item.nav_type === "external") {
-                        return <a key={item.id} href={href} target={item.open_new_tab ? "_blank" : "_self"} rel={item.open_new_tab ? "noopener noreferrer" : undefined} className="text-foreground/60 hover:text-foreground" onClick={() => setMobileMenuOpen(false)}>{getNavTitle(item)}</a>;
-                      }
-                      return <Link key={item.id} to={href} className="text-foreground/60 hover:text-foreground" onClick={() => setMobileMenuOpen(false)}>{getNavTitle(item)}</Link>;
-                    })
+
+                {rootNavItems.length > 0
+                  ? rootNavItems.map((item) => (
+                      <div key={item.id} className="flex flex-col gap-1">
+                        {renderNavLink(item, true)}
+                        {item.children
+                          ?.filter((child) => child.visible !== false)
+                          .map((child) => (
+                            <div key={child.id} className="pl-4">
+                              {renderNavLink(child, true)}
+                            </div>
+                          ))}
+                      </div>
+                    ))
                   : defaultNavItems.map((item) => (
-                      <Link key={item.href} to={item.href} className="text-foreground/60 hover:text-foreground" onClick={() => setMobileMenuOpen(false)}>{item.label}</Link>
+                      <Link
+                        key={item.href}
+                        to={item.href}
+                        className={cn(
+                          "rounded-md px-3 py-2 text-sm transition-colors",
+                          isActiveHref(item.href)
+                            ? "bg-muted text-foreground"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                      >
+                        {item.label}
+                      </Link>
                     ))}
               </nav>
             </motion.div>

@@ -13,7 +13,6 @@ export interface LocaleInfo {
   nativeName: string;
   isCustom?: boolean;
 }
-
 // Built-in locales
 export const builtinLocales: LocaleInfo[] = [
   { code: "zh-CN", name: "Simplified Chinese", nativeName: "简体中文" },
@@ -202,8 +201,7 @@ function registerCustomLocale(code: string, name: string, translations: Record<s
 export function loadCustomLocales() {
   try {
     if (typeof window === "undefined") return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = (window as any).__CUSTOM_LOCALES__;
+    const data = window.__CUSTOM_LOCALES__;
     if (!Array.isArray(data)) return;
 
     for (const item of data) {
@@ -215,5 +213,3 @@ export function loadCustomLocales() {
     // Silent fail
   }
 }
-
-

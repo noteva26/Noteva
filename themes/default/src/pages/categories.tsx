@@ -1,114 +1,178 @@
 import { useEffect, useState } from "react";
-import { useSearchParams, Link } from "react-router-dom";
-import { useTranslation, useI18nStore } from "@/lib/i18n";
-import { SiteHeader } from "@/components/site-header";
+import { Link, useSearchParams } from "react-router-dom";
+import { motion } from "motion/react";
+import { ArrowLeft, FolderTree } from "lucide-react";
+import { ArticleSummaryCard } from "@/components/article-summary-card";
 import { SiteFooter } from "@/components/site-footer";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { FolderTree, Calendar, Eye, Heart, MessageSquare, Tag, Pin, ArrowLeft } from "lucide-react";
+import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/ui/button";
-import { getNoteva, getArticleUrl } from "@/hooks/useNoteva";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  waitForNoteva,
+  type NotevaArticle,
+  type NotevaCategory,
+} from "@/hooks/useNoteva";
+import { useI18nStore, useTranslation } from "@/lib/i18n";
 
-interface Category { id: number; name: string; slug: string; description?: string; }
-interface Article {
-  id: number; slug: string; title: string; content: string; thumbnail?: string;
-  category?: { id: number; name: string; slug: string };
-  tags?: { id: number; name: string; slug: string }[];
-  [key: string]: any;
+const CATEGORY_SKELETON_KEYS = [
+  "category-a",
+  "category-b",
+  "category-c",
+  "category-d",
+  "category-e",
+  "category-f",
+];
+
+function getDateLocale(locale: string) {
+  switch (locale) {
+    case "zh-TW":
+      return "zh-TW";
+    case "en":
+      return "en-US";
+    default:
+      return "zh-CN";
+  }
 }
 
 export default function CategoriesPage() {
   const { t } = useTranslation();
-  const locale = useI18nStore((s) => s.locale);
+  const locale = useI18nStore((state) => state.locale);
   const [searchParams] = useSearchParams();
   const selectedSlug = searchParams.get("c") || "";
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const isDetailView = selectedSlug.length > 0;
+  const [categories, setCategories] = useState<NotevaCategory[]>([]);
+  const [articles, setArticles] = useState<NotevaArticle[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<NotevaCategory | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
+  const dateLocale = getDateLocale(locale);
 
   useEffect(() => {
+    let active = true;
+
     const fetchData = async () => {
-      const Noteva = getNoteva();
-      if (!Noteva) { setTimeout(fetchData, 50); return; }
+      setLoading(true);
+      setArticles([]);
+      setSelectedCategory(null);
+
+      const noteva = await waitForNoteva();
+      if (!active) return;
+
+      if (!noteva) {
+        setCategories([]);
+        setLoading(false);
+        return;
+      }
+
       try {
-        const cats = await Noteva.categories.list();
-        setCategories(cats);
-        if (selectedSlug) {
-          const cat = cats.find((c: Category) => c.slug === selectedSlug);
-          setSelectedCategory(cat || null);
-          if (cat) {
-            const result = await Noteva.articles.list({ pageSize: 100, category: selectedSlug });
-            setArticles(result.articles || []);
-          }
+        const categoryList = await noteva.categories.list();
+        if (!active) return;
+
+        setCategories(categoryList);
+
+        if (!selectedSlug) {
+          setLoading(false);
+          return;
         }
-      } catch (err) { console.error(err); }
-      finally { setLoading(false); }
+
+        const category = categoryList.find((item) => item.slug === selectedSlug) || null;
+        setSelectedCategory(category);
+
+        if (category) {
+          const result = await noteva.articles.list({
+            pageSize: 100,
+            category: selectedSlug,
+          });
+          if (active) setArticles(result.articles || []);
+        }
+      } catch {
+        if (active) {
+          setCategories([]);
+          setArticles([]);
+          setSelectedCategory(null);
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
     };
-    fetchData();
+
+    void fetchData();
+
+    return () => {
+      active = false;
+    };
   }, [selectedSlug]);
 
-  const Noteva = getNoteva();
-  const getDateLocale = () => { switch (locale) { case "zh-TW": return "zh-TW"; case "en": return "en-US"; default: return "zh-CN"; } };
-
-  if (selectedSlug && selectedCategory) {
+  if (isDetailView) {
     return (
-      <div className="relative flex min-h-screen flex-col">
+      <div className="theme-page-shell relative flex min-h-screen flex-col">
         <SiteHeader />
         <main className="flex-1">
-          <div className="container py-8 max-w-4xl mx-auto">
+          <div className="container mx-auto max-w-4xl py-10">
             <div className="mb-8">
-              <Link to="/categories"><Button variant="ghost" size="sm" className="mb-4"><ArrowLeft className="h-4 w-4 mr-2" />{t("common.back")}</Button></Link>
-              <div className="flex items-center gap-3 mb-2"><FolderTree className="h-8 w-8 text-primary" /><h1 className="text-3xl font-bold">{selectedCategory.name}</h1></div>
-              {selectedCategory.description && <p className="text-muted-foreground">{selectedCategory.description}</p>}
-              <p className="text-muted-foreground mt-2">{t("article.totalArticles")}: {articles.length}</p>
+              <Button variant="ghost" size="sm" className="mb-5" asChild>
+                <Link to="/categories">
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  {t("common.back")}
+                </Link>
+              </Button>
+
+              <div className="flex items-center gap-3">
+                <span className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <FolderTree className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <h1 className="truncate text-3xl font-semibold">
+                    {selectedCategory?.name || t("nav.categories")}
+                  </h1>
+                  {selectedCategory?.description ? (
+                    <p className="mt-1 text-muted-foreground">
+                      {selectedCategory.description}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
+              <p className="mt-4 text-sm text-muted-foreground">
+                {t("article.totalArticles")}: {articles.length}
+              </p>
             </div>
+
             <div className="grid gap-6 article-list">
-              {loading ? Array.from({ length: 3 }).map((_, i) => (
-                <Card key={i}><CardHeader><Skeleton className="h-6 w-3/4" /></CardHeader><CardContent><Skeleton className="h-4 w-full mb-2" /></CardContent></Card>
-              )) : articles.length === 0 ? (
-                <Card><CardContent className="py-12 text-center text-muted-foreground">{t("article.noArticles")}</CardContent></Card>
-              ) : articles.map((article) => {
-                const thumbnail = Noteva?.articles.getThumbnail(article);
-                return (
-                  <Card key={article.id} className="hover:shadow-md transition-shadow overflow-hidden" data-article-id={article.id}>
-                    <div className="flex">
-                      <div className="flex-1">
-                        <CardHeader>
-                          <div className="flex items-center gap-2">
-                            {Noteva?.articles.isPinned(article) && <Badge variant="destructive" className="gap-1"><Pin className="h-3 w-3" />{t("article.pinned")}</Badge>}
-                            <CardTitle className="flex-1"><Link to={getArticleUrl(article)} className="hover:text-primary transition-colors">{article.title}</Link></CardTitle>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground article-meta">
-                            <span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(Noteva?.articles.getDate(article) || '').toLocaleDateString(getDateLocale())}</span>
-                            <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{Noteva?.articles.getStats(article).views ?? 0}</span>
-                            <span className="flex items-center gap-1"><Heart className="h-4 w-4" />{Noteva?.articles.getStats(article).likes ?? 0}</span>
-                            <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{Noteva?.articles.getStats(article).comments ?? 0}</span>
-                          </div>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-muted-foreground line-clamp-2 mb-4">{article.content.slice(0, 200)}...</p>
-                          {article.tags && article.tags.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-2">
-                              {article.tags.slice(0, 3).map((tag) => (
-                                <Link key={tag.id} to={`/tags?t=${tag.slug}`}><Badge variant="secondary" className="hover:bg-secondary/80"><Tag className="h-3 w-3 mr-1" />{tag.name}</Badge></Link>
-                              ))}
-                            </div>
-                          )}
-                        </CardContent>
-                      </div>
-                      {thumbnail && (
-                        <div className="hidden sm:block w-48 flex-shrink-0">
-                          <Link to={getArticleUrl(article)} className="block h-full">
-                            <div className="relative h-full min-h-[160px]"><img src={thumbnail} alt={article.title} className="absolute inset-0 w-full h-full object-cover" /></div>
-                          </Link>
-                        </div>
-                      )}
-                    </div>
+              {loading ? (
+                CATEGORY_SKELETON_KEYS.slice(0, 3).map((key) => (
+                  <Card key={key}>
+                    <CardContent className="p-6">
+                      <Skeleton className="mb-4 h-6 w-3/4" />
+                      <Skeleton className="h-4 w-full" />
+                    </CardContent>
                   </Card>
-                );
-              })}
+                ))
+              ) : !selectedCategory || articles.length === 0 ? (
+                <Card className="border-dashed">
+                  <CardContent className="py-14 text-center text-muted-foreground">
+                    {t("article.noArticles")}
+                  </CardContent>
+                </Card>
+              ) : (
+                articles.map((article, index) => (
+                  <motion.div
+                    key={article.id}
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.035 }}
+                  >
+                    <ArticleSummaryCard
+                      article={article}
+                      dateLocale={dateLocale}
+                      showCategory={false}
+                      priorityImage={index < 2}
+                    />
+                  </motion.div>
+                ))
+              )}
             </div>
           </div>
         </main>
@@ -118,34 +182,65 @@ export default function CategoriesPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen flex-col">
+    <div className="theme-page-shell relative flex min-h-screen flex-col">
       <SiteHeader />
       <main className="flex-1">
-        <div className="container py-8 max-w-4xl mx-auto">
+        <div className="container mx-auto max-w-4xl py-10">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2">{t("nav.categories")}</h1>
-            <p className="text-muted-foreground">{t("category.totalCategories")}: {categories.length}</p>
+            <p className="mb-2 text-sm font-medium text-muted-foreground">
+              {t("category.totalCategories")}: {categories.length}
+            </p>
+            <h1 className="text-3xl font-semibold">{t("nav.categories")}</h1>
           </div>
+
           {loading ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-24" />)}</div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {CATEGORY_SKELETON_KEYS.map((key) => (
+                <Skeleton key={key} className="h-28" />
+              ))}
+            </div>
           ) : categories.length === 0 ? (
-            <Card><CardContent className="py-12 text-center text-muted-foreground">{t("category.noCategories")}</CardContent></Card>
+            <Card className="border-dashed">
+              <CardContent className="py-14 text-center text-muted-foreground">
+                {t("category.noCategories")}
+              </CardContent>
+            </Card>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {categories.map((category) => (
-                <Link key={category.id} to={`/categories?c=${category.slug}`}>
-                  <Card className="h-full hover:border-primary transition-colors cursor-pointer">
-                    <CardContent className="p-6">
-                      <div className="flex items-start gap-4">
-                        <div className="p-2 bg-primary/10 rounded-lg"><FolderTree className="h-5 w-5 text-primary" /></div>
-                        <div className="flex-1 min-w-0">
-                          <h2 className="font-semibold truncate">{category.name}</h2>
-                          {category.description && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{category.description}</p>}
+              {categories.map((category, index) => (
+                <motion.div
+                  key={category.id}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.03 }}
+                >
+                  <Link to={`/categories?c=${category.slug}`} className="group block h-full">
+                    <Card className="h-full transition-colors hover:border-primary/60 hover:bg-muted/30">
+                      <CardContent className="p-5">
+                        <div className="flex items-start gap-4">
+                          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                            <FolderTree className="h-5 w-5" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <h2 className="truncate font-semibold">
+                              {category.name}
+                            </h2>
+                            {category.description ? (
+                              <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                                {category.description}
+                              </p>
+                            ) : null}
+                            {typeof category.articleCount === "number" ? (
+                              <p className="mt-3 text-xs text-muted-foreground">
+                                {category.articleCount} {t("article.totalArticles")}
+                              </p>
+                            ) : null}
+                          </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                </motion.div>
               ))}
             </div>
           )}

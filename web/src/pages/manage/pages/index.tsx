@@ -1,5 +1,4 @@
-﻿import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,9 +37,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { Card, CardContent } from "@/components/ui/card";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { DataSyncBadge, DataSyncBar } from "@/components/admin/data-sync-bar";
+import { getApiErrorMessage } from "@/lib/api-error";
+import { formatDateTime } from "@/lib/format";
 
 interface Page {
   id: number;
@@ -56,7 +60,16 @@ interface Page {
 export default function PagesManagePage() {
   const { t, locale } = useTranslation();
   const [pages, setPages] = useState<Page[]>([]);
+  const [optimisticPages, removeOptimisticPages] = useOptimistic(
+    pages,
+    (currentPages, pageIds: Set<number>) =>
+      currentPages.filter((page) => !pageIds.has(page.id))
+  );
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, startRefreshTransition] = useTransition();
+  const [isMutating, startMutationTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingPage, setEditingPage] = useState<Page | null>(null);
@@ -69,19 +82,30 @@ export default function PagesManagePage() {
   });
 
   useEffect(() => {
-    loadPages();
-  }, []);
+    let active = true;
 
-  const loadPages = async () => {
-    try {
-      const res = await api.get("/admin/pages");
-      setPages(res.data.pages || []);
-    } catch (err) {
-      toast.error(t("page.loadFailed"));
-    } finally {
-      setLoading(false);
-    }
-  };
+    const loadPages = async () => {
+      try {
+        setLoading(true);
+        const res = await api.get<{ pages: Page[] }>("/admin/pages");
+        if (!active) return;
+
+        setPages(res.data.pages || []);
+      } catch {
+        if (active) toast.error(t("page.loadFailed"));
+      } finally {
+        if (active) {
+          setLoading(false);
+          setHasLoaded(true);
+        }
+      }
+    };
+
+    loadPages();
+    return () => {
+      active = false;
+    };
+  }, [refreshKey, t]);
 
   const openCreateDialog = () => {
     setEditingPage(null);
@@ -100,102 +124,136 @@ export default function PagesManagePage() {
     setDialogOpen(true);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!formData.slug.trim() || !formData.title.trim()) {
       toast.error(t("page.fillRequired"));
       return;
     }
 
-    try {
-      if (editingPage) {
-        await api.put(`/admin/pages/${editingPage.id}`, formData);
-        toast.success(t("page.updateSuccess"));
-      } else {
-        await api.post("/admin/pages", formData);
-        toast.success(t("page.createSuccess"));
+    startMutationTransition(async () => {
+      try {
+        if (editingPage) {
+          const res = await api.put<{ page: Page }>(`/admin/pages/${editingPage.id}`, formData);
+          setPages((current) =>
+            current.map((page) => page.id === editingPage.id ? res.data.page : page)
+          );
+          toast.success(t("page.updateSuccess"));
+        } else {
+          const res = await api.post<{ page: Page }>("/admin/pages", formData);
+          setPages((current) => [...current, res.data.page]);
+          toast.success(t("page.createSuccess"));
+        }
+        setDialogOpen(false);
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, t("page.saveFailed")));
       }
-      setDialogOpen(false);
-      loadPages();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error?.message || t("page.saveFailed"));
-    }
+    });
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!deletingPage) return;
-    try {
-      await api.delete(`/admin/pages/${deletingPage.id}`);
-      toast.success(t("page.deleteSuccess"));
+
+    const page = deletingPage;
+    startMutationTransition(async () => {
+      removeOptimisticPages(new Set([page.id]));
       setDeleteDialogOpen(false);
-      loadPages();
-    } catch (err) {
-      toast.error(t("page.deleteFailed"));
-    }
+      setDeletingPage(null);
+
+      try {
+        await api.delete(`/admin/pages/${page.id}`);
+        setPages((current) => current.filter((item) => item.id !== page.id));
+        toast.success(t("page.deleteSuccess"));
+      } catch {
+        toast.error(t("page.deleteFailed"));
+        setRefreshKey((key) => key + 1);
+      }
+    });
   };
 
-  if (loading) {
-    return <div className="p-6">{t("common.loading")}</div>;
-  }
+  const refreshPages = () => {
+    startRefreshTransition(() => setRefreshKey((key) => key + 1));
+  };
+
+  const showInitialLoading = loading && !hasLoaded;
+  const isSyncing = (loading && hasLoaded) || isRefreshing;
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">{t("page.title")}</h1>
-        <Button onClick={openCreateDialog}>
-          <Plus className="h-4 w-4 mr-2" />
-          {t("page.newPage")}
-        </Button>
-      </div>
+    <div className="space-y-6">
+      <AdminPageHeader
+        title={t("page.title")}
+        actions={
+          <>
+            <Button variant="outline" onClick={refreshPages} disabled={isSyncing}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? "animate-spin" : ""}`} />
+              {t("common.refresh")}
+            </Button>
+            <Button onClick={openCreateDialog}>
+              <Plus className="h-4 w-4 mr-2" />
+              {t("page.newPage")}
+            </Button>
+          </>
+        }
+      />
+      <DataSyncBadge active={isSyncing} label={t("common.loading")} />
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("page.pageTitle")}</TableHead>
-            <TableHead>{t("page.slug")}</TableHead>
-            <TableHead>{t("page.status")}</TableHead>
-            <TableHead>{t("page.updatedAt")}</TableHead>
-            <TableHead className="text-right">{t("common.edit")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {pages.map((page) => (
-            <TableRow key={page.id}>
-              <TableCell className="font-medium">{page.title}</TableCell>
-              <TableCell>
-                <code className="text-sm bg-muted px-1 rounded">/{page.slug}</code>
-              </TableCell>
-              <TableCell>
-                <Badge variant={page.status === "published" ? "default" : "secondary"}>
-                  {page.status === "published" ? t("page.published") : t("page.draft")}
-                </Badge>
-              </TableCell>
-              <TableCell>{new Date(page.updated_at).toLocaleString(locale)}</TableCell>
-              <TableCell className="text-right">
-                <Button variant="ghost" size="icon" onClick={() => openEditDialog(page)}>
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    setDeletingPage(page);
-                    setDeleteDialogOpen(true);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-          {pages.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={5} className="text-center text-muted-foreground">
-                {t("page.noPages")}
-              </TableCell>
-            </TableRow>
+      <Card>
+        <CardContent className="p-0">
+          <DataSyncBar active={isSyncing} label={t("common.loading")} className="mx-4 mt-4" />
+          {showInitialLoading ? (
+            <div className="p-6 text-sm text-muted-foreground">{t("common.loading")}</div>
+          ) : (
+            <Table className={isSyncing ? "opacity-70 transition-opacity" : undefined}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("page.pageTitle")}</TableHead>
+                  <TableHead>{t("page.slug")}</TableHead>
+                  <TableHead>{t("page.status")}</TableHead>
+                  <TableHead>{t("page.updatedAt")}</TableHead>
+                  <TableHead className="text-right">{t("common.edit")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {optimisticPages.map((page) => (
+                  <TableRow key={page.id}>
+                    <TableCell className="font-medium">{page.title}</TableCell>
+                    <TableCell>
+                      <code className="text-sm bg-muted px-1 rounded">/{page.slug}</code>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={page.status === "published" ? "default" : "secondary"}>
+                        {page.status === "published" ? t("page.published") : t("page.draft")}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{formatDateTime(page.updated_at, locale)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon" onClick={() => openEditDialog(page)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setDeletingPage(page);
+                          setDeleteDialogOpen(true);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {optimisticPages.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                      {t("page.noPages")}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           )}
-        </TableBody>
-      </Table>
+        </CardContent>
+      </Card>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl">
@@ -250,7 +308,7 @@ export default function PagesManagePage() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={handleSubmit}>{t("common.save")}</Button>
+            <Button onClick={handleSubmit} disabled={isMutating}>{t("common.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -265,7 +323,7 @@ export default function PagesManagePage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>{t("common.delete")}</AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete} disabled={isMutating}>{t("common.delete")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

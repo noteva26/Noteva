@@ -13,6 +13,29 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom)[\\/]/.test(id)) {
+            return 'react-vendor'
+          }
+
+          if (id.includes('node_modules/motion')) {
+            return 'motion-vendor'
+          }
+
+          if (
+            /[\\/]node_modules[\\/](@radix-ui|lucide-react|sonner|next-themes)[\\/]/.test(id)
+          ) {
+            return 'ui-vendor'
+          }
+
+          return 'vendor'
+        },
+      },
+    },
   },
   server: {
     proxy: {

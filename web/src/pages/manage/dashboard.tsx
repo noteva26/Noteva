@@ -1,4 +1,5 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { adminApi, articlesApi, DashboardStats, Article, SystemStats } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,8 +13,8 @@ import {
 } from "recharts";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
 import { AnimatedGrid } from "@/components/motion";
-import { LoadingState } from "@/components/ui/loading-state";
 import { EmptyState } from "@/components/ui/empty-state";
+import { preloadManageRoute } from "@/lib/manage-routes";
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -24,39 +25,58 @@ export default function DashboardPage() {
   const locale = useI18nStore((s) => s.locale);
 
   useEffect(() => {
-    Promise.all([
-      adminApi.dashboard(),
-      adminApi.systemStats(),
-      articlesApi.list({ per_page: 5 }),
-    ])
-      .then(([statsRes, sysStatsRes, articlesRes]) => {
+    let active = true;
+
+    const loadDashboard = async () => {
+      try {
+        const [statsRes, sysStatsRes, articlesRes] = await Promise.all([
+          adminApi.dashboard(),
+          adminApi.systemStats(),
+          articlesApi.list({ per_page: 5 }),
+        ]);
+        if (!active) return;
+
         setStats(statsRes.data);
         setSystemStats(sysStatsRes.data);
         setRecentArticles(articlesRes.data?.articles || []);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      } catch (error) {
+        console.error(error);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadDashboard();
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Refresh system stats every 5 seconds
   useEffect(() => {
+    let active = true;
     const interval = setInterval(() => {
       adminApi.systemStats()
-        .then((res) => setSystemStats(res.data))
+        .then((res) => {
+          if (active) setSystemStats(res.data);
+        })
         .catch(() => {});
     }, 5000);
-    return () => clearInterval(interval);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, []);
 
-  const getDateLocale = () => {
+  const dateLocale = useMemo(() => {
     switch (locale) {
       case "zh-TW": return "zh-TW";
       case "en": return "en-US";
       default: return "zh-CN";
     }
-  };
+  }, [locale]);
 
-  const statCards = [
+  const statCards = useMemo(() => [
     {
       title: t("article.totalArticles"),
       value: stats?.total_articles ?? 0,
@@ -81,15 +101,15 @@ export default function DashboardPage() {
       icon: Tags,
       color: "text-orange-500",
     },
-  ];
+  ], [stats, t]);
 
-  // 鍙湁鍦ㄦ湁鐪熷疄鏁版嵁鏃舵墠鏄剧ず瓒嬪娍鍥?
+  // Only show trend data when there is real article data.
   const hasRealData = stats && stats.total_articles > 0;
 
-  const statusData = [
+  const statusData = useMemo(() => [
     { name: t("article.published"), value: stats?.published_articles ?? 0, color: "#22c55e" },
     { name: t("article.draft"), value: (stats?.total_articles ?? 0) - (stats?.published_articles ?? 0), color: "#94a3b8" },
-  ];
+  ], [stats, t]);
 
   return (
     <div className="space-y-6">
@@ -208,27 +228,33 @@ export default function DashboardPage() {
             <CardTitle>{t("manage.quickActions")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            <a
-              href="/manage/articles/new"
+            <Link
+              to="/manage/articles/new"
+              onMouseEnter={() => preloadManageRoute("/manage/articles/new")}
+              onFocus={() => preloadManageRoute("/manage/articles/new")}
               className="flex items-center gap-2 p-3 rounded-lg hover:bg-muted transition-colors"
             >
               <FileText className="h-4 w-4" />
               <span>{t("article.newArticle")}</span>
-            </a>
-            <a
-              href="/manage/categories"
+            </Link>
+            <Link
+              to="/manage/categories"
+              onMouseEnter={() => preloadManageRoute("/manage/categories")}
+              onFocus={() => preloadManageRoute("/manage/categories")}
               className="flex items-center gap-2 p-3 rounded-lg hover:bg-muted transition-colors"
             >
               <FolderTree className="h-4 w-4" />
               <span>{t("manage.categories")}</span>
-            </a>
-            <a
-              href="/manage/tags"
+            </Link>
+            <Link
+              to="/manage/tags"
+              onMouseEnter={() => preloadManageRoute("/manage/tags")}
+              onFocus={() => preloadManageRoute("/manage/tags")}
               className="flex items-center gap-2 p-3 rounded-lg hover:bg-muted transition-colors"
             >
               <Tags className="h-4 w-4" />
               <span>{t("manage.tags")}</span>
-            </a>
+            </Link>
           </CardContent>
         </Card>
       </motion.div>
@@ -266,7 +292,7 @@ export default function DashboardPage() {
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{article.title}</p>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(article.created_at).toLocaleDateString(getDateLocale())}
+                        {new Date(article.created_at).toLocaleDateString(dateLocale)}
                       </p>
                     </div>
                     <span

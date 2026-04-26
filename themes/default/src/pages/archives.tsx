@@ -1,97 +1,225 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useTranslation } from "@/lib/i18n";
-import { SiteHeader } from "@/components/site-header";
+import { motion } from "motion/react";
+import { Archive, CalendarDays } from "lucide-react";
 import { SiteFooter } from "@/components/site-footer";
+import { SiteHeader } from "@/components/site-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getNoteva, getArticleUrl } from "@/hooks/useNoteva";
-
-interface Article {
-  id: number; slug: string; title: string;
-  [key: string]: any;
-}
+import {
+  getArticleUrl,
+  waitForNoteva,
+  type NotevaArticle,
+  type NotevaSDKRef,
+} from "@/hooks/useNoteva";
+import { useI18nStore, useTranslation } from "@/lib/i18n";
 
 interface ArchiveGroup {
   year: number;
-  months: { month: number; articles: Article[] }[];
+  months: { month: number; articles: NotevaArticle[] }[];
+}
+
+const ARCHIVE_SKELETON_KEYS = ["archive-a", "archive-b", "archive-c"];
+
+function getDateLocale(locale: string) {
+  switch (locale) {
+    case "zh-TW":
+      return "zh-TW";
+    case "en":
+      return "en-US";
+    default:
+      return "zh-CN";
+  }
+}
+
+function getArticleDate(sdk: NotevaSDKRef, article: NotevaArticle) {
+  const value = sdk.articles.getDate(article);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function groupByYearMonth(
+  sdk: NotevaSDKRef,
+  articles: NotevaArticle[]
+): ArchiveGroup[] {
+  const map = new Map<number, Map<number, NotevaArticle[]>>();
+
+  articles.forEach((article) => {
+    const date = getArticleDate(sdk, article);
+    if (!date) return;
+
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+
+    if (!map.has(year)) map.set(year, new Map());
+    const yearGroup = map.get(year);
+    if (!yearGroup?.has(month)) yearGroup?.set(month, []);
+    yearGroup?.get(month)?.push(article);
+  });
+
+  return Array.from(map.keys())
+    .sort((a, b) => b - a)
+    .map((year) => {
+      const monthMap = map.get(year);
+      return {
+        year,
+        months: Array.from(monthMap?.keys() || [])
+          .sort((a, b) => b - a)
+          .map((month) => ({
+            month,
+            articles: monthMap?.get(month) || [],
+          })),
+      };
+    });
 }
 
 export default function ArchivesPage() {
   const { t } = useTranslation();
+  const locale = useI18nStore((state) => state.locale);
+  const dateLocale = getDateLocale(locale);
   const [archives, setArchives] = useState<ArchiveGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sdk, setSdk] = useState<NotevaSDKRef | null>(null);
 
   useEffect(() => {
+    let active = true;
+
     const fetchData = async () => {
-      const Noteva = getNoteva();
-      if (!Noteva) { setTimeout(fetchData, 50); return; }
+      setLoading(true);
+
+      const noteva = await waitForNoteva();
+      if (!active) return;
+
+      if (!noteva) {
+        setArchives([]);
+        setLoading(false);
+        return;
+      }
+
       try {
-        const result = await Noteva.articles.list({ pageSize: 100 });
-        setArchives(groupByYearMonth(result.articles || []));
-      } catch (err) { console.error(err); }
-      finally { setLoading(false); }
+        const result = await noteva.articles.list({ pageSize: 100 });
+        if (!active) return;
+
+        setSdk(noteva);
+        setArchives(groupByYearMonth(noteva, result.articles || []));
+      } catch {
+        if (active) setArchives([]);
+      } finally {
+        if (active) setLoading(false);
+      }
     };
-    fetchData();
+
+    void fetchData();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
+  const totalArticles = useMemo(
+    () =>
+      archives.reduce(
+        (sum, yearGroup) =>
+          sum +
+          yearGroup.months.reduce(
+            (monthSum, monthGroup) => monthSum + monthGroup.articles.length,
+            0
+          ),
+        0
+      ),
+    [archives]
+  );
 
+  const monthFormatter = useMemo(
+    () => new Intl.DateTimeFormat(dateLocale, { month: "long" }),
+    [dateLocale]
+  );
 
-  const groupByYearMonth = (articles: Article[]): ArchiveGroup[] => {
-    const Noteva = getNoteva();
-    const map = new Map<number, Map<number, Article[]>>();
-    articles.forEach((article) => {
-      const date = new Date(Noteva?.articles.getDate(article) || '');
-      const year = date.getFullYear(), month = date.getMonth() + 1;
-      if (!map.has(year)) map.set(year, new Map());
-      if (!map.get(year)!.has(month)) map.get(year)!.set(month, []);
-      map.get(year)!.get(month)!.push(article);
-    });
-    return Array.from(map.keys()).sort((a, b) => b - a).map(year => ({
-      year,
-      months: Array.from(map.get(year)!.keys()).sort((a, b) => b - a).map(month => ({
-        month, articles: map.get(year)!.get(month)!,
-      })),
-    }));
-  };
-
-  const totalArticles = archives.reduce((sum, y) => sum + y.months.reduce((s, m) => s + m.articles.length, 0), 0);
+  const dayFormatter = useMemo(
+    () => new Intl.DateTimeFormat(dateLocale, { day: "2-digit" }),
+    [dateLocale]
+  );
 
   return (
-    <div className="relative flex min-h-screen flex-col">
+    <div className="theme-page-shell relative flex min-h-screen flex-col">
       <SiteHeader />
       <main className="flex-1">
-        <div className="container py-8 max-w-4xl mx-auto">
+        <div className="container mx-auto max-w-4xl py-10">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2">{t("nav.archive")}</h1>
-            <p className="text-muted-foreground">{t("article.totalArticles")}: {totalArticles}</p>
+            <p className="mb-2 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <Archive className="h-4 w-4" />
+              {t("article.totalArticles")}: {totalArticles}
+            </p>
+            <h1 className="text-3xl font-semibold">{t("nav.archive")}</h1>
           </div>
+
           {loading ? (
-            <div className="space-y-6">{[1, 2, 3].map(i => <Skeleton key={i} className="h-32 w-full" />)}</div>
+            <div className="space-y-6">
+              {ARCHIVE_SKELETON_KEYS.map((key) => (
+                <Skeleton key={key} className="h-32 w-full" />
+              ))}
+            </div>
           ) : archives.length === 0 ? (
-            <Card><CardContent className="py-12 text-center text-muted-foreground">{t("article.noArticles")}</CardContent></Card>
+            <Card className="border-dashed">
+              <CardContent className="py-14 text-center text-muted-foreground">
+                {t("article.noArticles")}
+              </CardContent>
+            </Card>
           ) : (
-            <div className="space-y-8">
+            <div className="space-y-10">
               {archives.map((yearGroup) => (
-                <div key={yearGroup.year}>
-                  <h2 className="text-2xl font-bold mb-4 sticky top-20 bg-background py-2">{yearGroup.year}</h2>
-                  {yearGroup.months.map((monthGroup) => (
-                    <div key={monthGroup.month} className="mb-6">
-                      <h3 className="text-lg font-medium text-muted-foreground mb-3">{monthGroup.month}月</h3>
-                      <ul className="space-y-3 pl-4 border-l-2 border-muted">
-                        {monthGroup.articles.map((article) => (
-                          <li key={article.id} data-article-id={article.id} className="relative">
-                            <span className="absolute -left-[9px] top-2 w-4 h-4 bg-background border-2 border-muted rounded-full" />
-                            <Link to={getArticleUrl(article)} className="block pl-6 py-1 hover:text-primary transition-colors">
-                              <span className="text-sm text-muted-foreground mr-2">{new Date(getNoteva()?.articles.getDate(article) || '').getDate()}日</span>
-                              <span className="font-medium">{article.title}</span>
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
+                <section key={yearGroup.year}>
+                  <h2 className="sticky top-20 z-10 mb-5 flex items-center gap-2 border-b bg-background/90 py-3 text-2xl font-semibold backdrop-blur">
+                    <CalendarDays className="h-5 w-5 text-muted-foreground" />
+                    {yearGroup.year}
+                  </h2>
+
+                  <div className="space-y-7">
+                    {yearGroup.months.map((monthGroup) => (
+                      <div key={monthGroup.month} className="grid gap-4 sm:grid-cols-[8rem_1fr]">
+                        <div>
+                          <h3 className="font-medium text-muted-foreground">
+                            {monthFormatter.format(
+                              new Date(yearGroup.year, monthGroup.month - 1, 1)
+                            )}
+                          </h3>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {monthGroup.articles.length} {t("article.totalArticles")}
+                          </p>
+                        </div>
+
+                        <ul className="relative space-y-3 border-l border-border pl-5">
+                          {monthGroup.articles.map((article, index) => {
+                            const date = sdk ? getArticleDate(sdk, article) : null;
+                            return (
+                              <motion.li
+                                key={article.id}
+                                data-article-id={article.id}
+                                className="relative"
+                                initial={{ opacity: 0, x: -8 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: index * 0.025 }}
+                              >
+                                <span className="absolute -left-[1.82rem] top-3 h-3 w-3 rounded-full border-2 border-background bg-primary" />
+                                <Link
+                                  to={getArticleUrl(article)}
+                                  className="group block rounded-lg border bg-card px-4 py-3 transition-colors hover:border-primary/60 hover:bg-muted/30"
+                                >
+                                  <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                    {date ? dayFormatter.format(date) : "--"}
+                                  </span>
+                                  <span className="font-medium underline-offset-4 group-hover:text-primary group-hover:underline">
+                                    {article.title}
+                                  </span>
+                                </Link>
+                              </motion.li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           )}

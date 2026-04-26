@@ -1,10 +1,11 @@
-﻿import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useOptimistic, useState, useTransition } from "react";
 import { motion } from "motion/react";
 import { tagsApi, Tag, TagWithCount } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -28,80 +29,135 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 import { EmptyState } from "@/components/ui/empty-state";
+import { DataSyncBadge, DataSyncBar } from "@/components/admin/data-sync-bar";
 
 export default function TagsPage() {
   const { t } = useTranslation();
   const [tags, setTags] = useState<TagWithCount[]>([]);
+  const [optimisticTags, removeOptimisticTags] = useOptimistic(
+    tags,
+    (currentTags, tagIds: Set<number>) =>
+      currentTags.filter((tag) => !tagIds.has(tag.id))
+  );
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, startRefreshTransition] = useTransition();
+  const [isMutating, startMutationTransition] = useTransition();
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingTag, setDeletingTag] = useState<Tag | null>(null);
   const [newTagName, setNewTagName] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set());
 
-  const fetchTags = async () => {
-    try {
-      const response = await tagsApi.list();
-      // 鍚庣杩斿洖 { tags: [...] }
-      const tagsArray = response.data?.tags || [];
-      const tagsWithCount = (Array.isArray(tagsArray) ? tagsArray : []).map((tag: Tag & { article_count?: number }) => ({
-        ...tag,
-        count: tag.article_count || 0,
-      }));
-      setTags(tagsWithCount);
-    } catch (error) {
-      toast.error(t("error.loadFailed"));
-      setTags([]);
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    let active = true;
+
+    const fetchTags = async () => {
+      try {
+        setLoading(true);
+        const response = await tagsApi.list();
+        if (!active) return;
+
+        // 鍚庣杩斿洖 { tags: [...] }
+        const tagsArray = response.data?.tags || [];
+        const tagsWithCount = (Array.isArray(tagsArray) ? tagsArray : []).map((tag: Tag & { article_count?: number }) => ({
+          ...tag,
+          count: tag.article_count || 0,
+        }));
+        setTags(tagsWithCount);
+        setSelectedTags((current) => {
+          const loadedIds = new Set(tagsWithCount.map((tag) => tag.id));
+          return new Set(Array.from(current).filter((id) => loadedIds.has(id)));
+        });
+      } catch {
+        if (!active) return;
+        toast.error(t("error.loadFailed"));
+        setTags([]);
+      } finally {
+        if (active) {
+          setLoading(false);
+          setHasLoaded(true);
+        }
+      }
+    };
+
+    fetchTags();
+    return () => {
+      active = false;
+    };
+  }, [refreshKey, t]);
+
+  const refreshTags = () => {
+    startRefreshTransition(() => {
+      setRefreshKey((key) => key + 1);
+    });
   };
 
-  useEffect(() => {
-    fetchTags();
-  }, []);
-
-  const handleCreate = async () => {
+  const handleCreate = () => {
     if (!newTagName.trim()) {
       toast.error(t("tag.name"));
       return;
     }
 
-    try {
-      await tagsApi.create(newTagName);
-      toast.success(t("tag.createSuccess"));
-      setDialogOpen(false);
-      setNewTagName("");
-      fetchTags();
-    } catch (error) {
-      toast.error(t("common.error"));
-    }
+    const name = newTagName.trim();
+    startMutationTransition(async () => {
+      try {
+        const response = await tagsApi.create(name);
+        setTags((current) => [...current, { ...response.data, count: 0 }]);
+        toast.success(t("tag.createSuccess"));
+        setDialogOpen(false);
+        setNewTagName("");
+      } catch {
+        toast.error(t("common.error"));
+      }
+    });
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!deletingTag) return;
-    try {
-      await tagsApi.delete(deletingTag.id);
-      toast.success(t("tag.deleteSuccess"));
+
+    const tag = deletingTag;
+    startMutationTransition(async () => {
+      removeOptimisticTags(new Set([tag.id]));
       setDeleteDialogOpen(false);
       setDeletingTag(null);
-      fetchTags();
-    } catch (error) {
-      toast.error(t("tag.deleteFailed"));
-    }
+
+      try {
+        await tagsApi.delete(tag.id);
+        setTags((current) => current.filter((item) => item.id !== tag.id));
+        setSelectedTags((current) => {
+          const next = new Set(current);
+          next.delete(tag.id);
+          return next;
+        });
+        toast.success(t("tag.deleteSuccess"));
+      } catch {
+        toast.error(t("tag.deleteFailed"));
+        refreshTags();
+      }
+    });
   };
 
-  const handleBatchDelete = async () => {
+  const handleBatchDelete = () => {
     if (selectedTags.size === 0) return;
-    try {
-      await Promise.all(Array.from(selectedTags).map((id) => tagsApi.delete(id)));
-      toast.success(t("tag.batchDeleteSuccess", { count: selectedTags.size.toString() }));
+
+    const ids = new Set(selectedTags);
+    startMutationTransition(async () => {
+      removeOptimisticTags(ids);
       setSelectedTags(new Set());
-      fetchTags();
-    } catch (error) {
-      toast.error(t("tag.deleteFailed"));
-    }
+
+      try {
+        await Promise.all(Array.from(ids).map((id) => tagsApi.delete(id)));
+        setTags((current) => current.filter((tag) => !ids.has(tag.id)));
+        toast.success(t("tag.batchDeleteSuccess", { count: ids.size.toString() }));
+      } catch {
+        toast.error(t("tag.deleteFailed"));
+        refreshTags();
+      }
+    });
   };
 
   const toggleSelect = (id: number) => {
@@ -113,11 +169,13 @@ export default function TagsPage() {
     });
   };
 
-  const filteredTags = tags.filter((tag) =>
-    tag.name.toLowerCase().includes(search.toLowerCase())
+  const filteredTags = optimisticTags.filter((tag) =>
+    tag.name.toLowerCase().includes(deferredSearch.toLowerCase())
   );
 
-  const maxCount = Math.max(...tags.map((t) => t.count), 1);
+  const maxCount = Math.max(...optimisticTags.map((t) => t.count), 1);
+  const showInitialLoading = loading && !hasLoaded;
+  const isSyncing = (loading && hasLoaded) || isRefreshing;
 
   const getTagSize = (count: number) => {
     const ratio = count / maxCount;
@@ -147,20 +205,21 @@ export default function TagsPage() {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
             >
-              <Button variant="destructive" onClick={handleBatchDelete}>
+              <Button variant="destructive" onClick={handleBatchDelete} disabled={isMutating}>
                 <Trash2 className="h-4 w-4 mr-2" />
                 {t("tag.batchDelete")} ({selectedTags.size})
               </Button>
             </motion.div>
           )}
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-            <Button onClick={() => setDialogOpen(true)}>
+            <Button onClick={() => setDialogOpen(true)} disabled={isMutating}>
               <Plus className="h-4 w-4 mr-2" />
               {t("tag.newTag")}
             </Button>
           </motion.div>
         </div>
       </motion.div>
+      <DataSyncBadge active={isSyncing} label={t("common.loading")} />
 
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-sm">
@@ -173,7 +232,7 @@ export default function TagsPage() {
           />
         </div>
         <span className="text-sm text-muted-foreground">
-          {tags.length} {t("manage.tags")}
+          {optimisticTags.length} {t("manage.tags")}
         </span>
       </div>
 
@@ -188,7 +247,8 @@ export default function TagsPage() {
             <CardTitle className="text-base">{t("tag.tagCloud")}</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading ? (
+            <DataSyncBar active={isSyncing} label={t("common.loading")} className="mb-3" />
+            {showInitialLoading ? (
               <div className="flex flex-wrap gap-2">
                 {Array.from({ length: 12 }).map((_, i) => (
                   <div key={i} className="h-8 w-20 skeleton-shimmer rounded" />
@@ -201,7 +261,7 @@ export default function TagsPage() {
                 description={t("tag.noTags")}
               />
             ) : (
-              <div className="flex flex-wrap gap-3 items-center">
+              <div className={`flex flex-wrap gap-3 items-center transition-opacity ${isSyncing ? "opacity-70" : ""}`}>
                 {filteredTags.map((tag, index) => (
                   <motion.span
                     key={tag.id}
@@ -232,7 +292,8 @@ export default function TagsPage() {
             <CardTitle className="text-base">{t("tag.tagList")}</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading ? (
+            <DataSyncBar active={isSyncing} label={t("common.loading")} className="mb-3" />
+            {showInitialLoading ? (
               <div className="space-y-2">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="h-10 w-full skeleton-shimmer rounded" />
@@ -241,7 +302,7 @@ export default function TagsPage() {
             ) : filteredTags.length === 0 ? (
               <EmptyState size="sm" description={t("tag.noTags")} />
             ) : (
-              <div className="space-y-2 max-h-[400px] overflow-auto">
+              <div className={`space-y-2 max-h-[400px] overflow-auto transition-opacity ${isSyncing ? "opacity-70" : ""}`}>
                 {filteredTags.map((tag, index) => (
                   <motion.div
                     key={tag.id}
@@ -255,11 +316,10 @@ export default function TagsPage() {
                     )}
                   >
                     <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={selectedTags.has(tag.id)}
-                        onChange={() => toggleSelect(tag.id)}
-                        className="rounded"
+                        onCheckedChange={() => toggleSelect(tag.id)}
+                        aria-label={tag.name}
                       />
                       <Badge variant="outline">{tag.name}</Badge>
                       <span className="text-sm text-muted-foreground">
@@ -305,7 +365,7 @@ export default function TagsPage() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={handleCreate}>{t("common.create")}</Button>
+            <Button onClick={handleCreate} disabled={isMutating}>{t("common.create")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -320,7 +380,7 @@ export default function TagsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>{t("common.delete")}</AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete} disabled={isMutating}>{t("common.delete")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

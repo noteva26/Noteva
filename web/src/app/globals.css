@@ -145,6 +145,16 @@ img.twemoji {
 }
 
 /* 隐藏滚动条但保持滚动功能 */
+@keyframes sync-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(320%);
+  }
+}
+
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }

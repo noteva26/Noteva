@@ -18,9 +18,10 @@ export function TopLoader() {
     const timer1 = setTimeout(() => setProgress(30), 100)
     const timer2 = setTimeout(() => setProgress(60), 200)
     const timer3 = setTimeout(() => setProgress(80), 400)
+    let hideTimer: ReturnType<typeof setTimeout> | undefined
     const timer4 = setTimeout(() => {
       setProgress(100)
-      setTimeout(() => setLoading(false), 200)
+      hideTimer = setTimeout(() => setLoading(false), 200)
     }, 500)
 
     return () => {
@@ -28,6 +29,7 @@ export function TopLoader() {
       clearTimeout(timer2)
       clearTimeout(timer3)
       clearTimeout(timer4)
+      if (hideTimer) clearTimeout(hideTimer)
     }
   }, [location.pathname, location.search])
 

@@ -8,7 +8,7 @@ Noteva is a lightweight, modern blog system built with Rust. It features a WASM-
 
 - Repository: https://github.com/noteva26/Noteva
 - License: GPL-3.0
-- Version: v0.2.5
+- Version: v0.2.6
 
 ## Tech Stack
 

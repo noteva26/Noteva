@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { motion } from "motion/react";
 import { adminApi, UpdateCheckResponse, authApi, localesApi, CustomLocaleItem } from "@/lib/api";
 import { useAuthStore } from "@/lib/store/auth";
@@ -29,8 +29,10 @@ import {
 } from "@/components/ui/select";
 import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2, Link, RotateCw, Code, Database, Upload, FileText, Type, Shield, ShieldCheck, ShieldOff, Globe, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { useTranslation, registerCustomLocale, unregisterCustomLocale, loadCustomLocales as reloadCustomLocales } from "@/lib/i18n";
+import { useTranslation, registerCustomLocale, unregisterCustomLocale } from "@/lib/i18n";
 import ReactMarkdown from "react-markdown";
+import { ConfirmDialog } from "@/components/admin/confirm-dialog";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 // Permalink format options
 const PERMALINK_OPTIONS = [
@@ -56,17 +58,28 @@ const FONT_OPTIONS = [
   { value: "JetBrains Mono", label: "JetBrains Mono" },
 ];
 
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 // Custom Locale Management Card
 function CustomLocaleCard() {
   const { t } = useTranslation();
   const [localeList, setLocaleList] = useState<CustomLocaleItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [saving, startSavingTransition] = useTransition();
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [jsonText, setJsonText] = useState("");
   const [urlInput, setUrlInput] = useState("");
-  const [loadingUrl, setLoadingUrl] = useState(false);
+  const [loadingUrl, startLoadingUrlTransition] = useTransition();
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleting, startDeletingTransition] = useTransition();
 
   const fetchList = async () => {
     try {
@@ -79,26 +92,42 @@ function CustomLocaleCard() {
     }
   };
 
-  useEffect(() => { fetchList(); }, []);
+  useEffect(() => {
+    let active = true;
 
-  const handleLoadFromUrl = async () => {
+    const loadLocales = async () => {
+      try {
+        const res = await localesApi.list();
+        if (active) setLocaleList(res.data.locales);
+      } catch {
+        // silent
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void loadLocales();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleLoadFromUrl = () => {
     if (!urlInput.trim()) return;
-    setLoadingUrl(true);
-    try {
-      const res = await fetch(urlInput.trim());
-      const text = await res.text();
-      // Validate JSON
-      JSON.parse(text);
-      setJsonText(text);
-      toast.success("JSON loaded from URL");
-    } catch {
-      toast.error(t("manage.localeJsonInvalid"));
-    } finally {
-      setLoadingUrl(false);
-    }
+    startLoadingUrlTransition(async () => {
+      try {
+        const res = await fetch(urlInput.trim());
+        const text = await res.text();
+        JSON.parse(text);
+        setJsonText(text);
+        toast.success("JSON loaded from URL");
+      } catch {
+        toast.error(t("manage.localeJsonInvalid"));
+      }
+    });
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!code.trim() || !name.trim() || !jsonText.trim()) return;
     let parsed: Record<string, unknown>;
     try {
@@ -108,30 +137,38 @@ function CustomLocaleCard() {
       toast.error(t("manage.localeJsonInvalid"));
       return;
     }
-    setSaving(true);
-    try {
-      await localesApi.upsert(code.trim(), name.trim(), parsed);
-      registerCustomLocale(code.trim(), name.trim(), parsed);
-      toast.success(t("manage.localeUploadSuccess"));
-      setCode(""); setName(""); setJsonText(""); setUrlInput("");
-      fetchList();
-    } catch {
-      toast.error(t("manage.localeUploadError"));
-    } finally {
-      setSaving(false);
-    }
+    startSavingTransition(async () => {
+      try {
+        await localesApi.upsert(code.trim(), name.trim(), parsed);
+        registerCustomLocale(code.trim(), name.trim(), parsed);
+        toast.success(t("manage.localeUploadSuccess"));
+        setCode(""); setName(""); setJsonText(""); setUrlInput("");
+        await fetchList();
+      } catch {
+        toast.error(t("manage.localeUploadError"));
+      }
+    });
   };
 
-  const handleDelete = async (localeCode: string) => {
-    if (!confirm(t("manage.localeDeleteConfirm"))) return;
-    try {
-      await localesApi.delete(localeCode);
-      unregisterCustomLocale(localeCode);
-      toast.success(t("manage.localeDeleteSuccess"));
-      fetchList();
-    } catch {
-      toast.error(t("manage.localeDeleteError"));
-    }
+  const handleDelete = (localeCode: string) => {
+    setDeleteTarget(localeCode);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+
+    const localeCode = deleteTarget;
+    setDeleteTarget(null);
+    startDeletingTransition(async () => {
+      try {
+        await localesApi.delete(localeCode);
+        unregisterCustomLocale(localeCode);
+        toast.success(t("manage.localeDeleteSuccess"));
+        await fetchList();
+      } catch {
+        toast.error(t("manage.localeDeleteError"));
+      }
+    });
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -154,6 +191,7 @@ function CustomLocaleCard() {
   };
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
@@ -246,6 +284,18 @@ function CustomLocaleCard() {
         </div>
       </CardContent>
     </Card>
+    <ConfirmDialog
+      open={deleteTarget !== null}
+      title={t("common.confirm")}
+      description={t("manage.localeDeleteConfirm")}
+      confirmLabel={t("common.delete")}
+      cancelLabel={t("common.cancel")}
+      destructive
+      loading={deleting}
+      onOpenChange={(open) => !open && setDeleteTarget(null)}
+      onConfirm={confirmDelete}
+    />
+    </>
   );
 }
 
@@ -258,71 +308,73 @@ function TwoFactorCard() {
   const [verifyCode, setVerifyCode] = useState("");
   const [disablePassword, setDisablePassword] = useState("");
   const [disableCode, setDisableCode] = useState("");
-  const [processing, setProcessing] = useState(false);
+  const [processing, startProcessingTransition] = useTransition();
   const [showSetup, setShowSetup] = useState(false);
   const [showDisable, setShowDisable] = useState(false);
 
   useEffect(() => {
+    let active = true;
     authApi.get2FAStatus()
-      .then(({ data }) => setEnabled(data.enabled))
+      .then(({ data }) => {
+        if (active) setEnabled(data.enabled);
+      })
       .catch(() => {})
-      .finally(() => setLoading2FA(false));
+      .finally(() => {
+        if (active) setLoading2FA(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const handleSetup = async () => {
-    setProcessing(true);
-    try {
-      const { data } = await authApi.setup2FA();
-      setSetupData(data);
-      setShowSetup(true);
-    } catch (error: any) {
-      const msg = error?.response?.data?.error?.message || t("settings.saveFailed");
-      toast.error(msg);
-    } finally {
-      setProcessing(false);
-    }
+  const handleSetup = () => {
+    startProcessingTransition(async () => {
+      try {
+        const { data } = await authApi.setup2FA();
+        setSetupData(data);
+        setShowSetup(true);
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, t("settings.saveFailed")));
+      }
+    });
   };
 
-  const handleEnable = async () => {
+  const handleEnable = () => {
     if (!verifyCode.trim()) {
       toast.error(t("settings.2faCodeRequired") || "Please enter the verification code");
       return;
     }
-    setProcessing(true);
-    try {
-      await authApi.enable2FA(verifyCode.trim());
-      setEnabled(true);
-      setShowSetup(false);
-      setSetupData(null);
-      setVerifyCode("");
-      toast.success(t("settings.2faEnabled") || "Two-factor authentication enabled");
-    } catch (error: any) {
-      const msg = error?.response?.data?.error?.message || t("settings.saveFailed");
-      toast.error(msg);
-    } finally {
-      setProcessing(false);
-    }
+    startProcessingTransition(async () => {
+      try {
+        await authApi.enable2FA(verifyCode.trim());
+        setEnabled(true);
+        setShowSetup(false);
+        setSetupData(null);
+        setVerifyCode("");
+        toast.success(t("settings.2faEnabled") || "Two-factor authentication enabled");
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, t("settings.saveFailed")));
+      }
+    });
   };
 
-  const handleDisable = async () => {
+  const handleDisable = () => {
     if (!disablePassword || !disableCode.trim()) {
       toast.error(t("settings.2faDisableRequired") || "Password and verification code are required");
       return;
     }
-    setProcessing(true);
-    try {
-      await authApi.disable2FA(disablePassword, disableCode.trim());
-      setEnabled(false);
-      setShowDisable(false);
-      setDisablePassword("");
-      setDisableCode("");
-      toast.success(t("settings.2faDisabled") || "Two-factor authentication disabled");
-    } catch (error: any) {
-      const msg = error?.response?.data?.error?.message || t("settings.saveFailed");
-      toast.error(msg);
-    } finally {
-      setProcessing(false);
-    }
+    startProcessingTransition(async () => {
+      try {
+        await authApi.disable2FA(disablePassword, disableCode.trim());
+        setEnabled(false);
+        setShowDisable(false);
+        setDisablePassword("");
+        setDisableCode("");
+        toast.success(t("settings.2faDisabled") || "Two-factor authentication disabled");
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, t("settings.saveFailed")));
+      }
+    });
   };
 
   return (
@@ -448,10 +500,10 @@ export default function SettingsPage() {
   const { updateSettings } = useSiteStore();
   const { t, locale } = useTranslation();
   const [loading, setLoading] = useState(true);
-  const [savingSite, setSavingSite] = useState(false);
-  const [savingComment, setSavingComment] = useState(false);
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [savingCustomCode, setSavingCustomCode] = useState(false);
+  const [savingSite, startSavingSiteTransition] = useTransition();
+  const [savingComment, startSavingCommentTransition] = useTransition();
+  const [savingProfile, startSavingProfileTransition] = useTransition();
+  const [savingCustomCode, startSavingCustomCodeTransition] = useTransition();
 
   const [siteForm, setSiteForm] = useState({
     siteName: "",
@@ -489,21 +541,27 @@ export default function SettingsPage() {
 
   // Update check state
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null);
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [performingUpdate, setPerformingUpdate] = useState(false);
+  const [checkingUpdate, startCheckingUpdateTransition] = useTransition();
+  const [performingUpdate, startPerformingUpdateTransition] = useTransition();
   const [updateRestarting, setUpdateRestarting] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
 
   // Backup state
-  const [backingUp, setBackingUp] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const [exportingMd, setExportingMd] = useState(false);
+  const [backingUp, startBackupTransition] = useTransition();
+  const [restoring, startRestoreTransition] = useTransition();
+  const [exportingMd, startExportMarkdownTransition] = useTransition();
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const restoreFileRef = useRef<File | null>(null);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    adminApi.getSettings()
-      .then(({ data }) => {
+    let active = true;
+
+    const loadSettings = async () => {
+      try {
+        const { data } = await adminApi.getSettings();
+        if (!active) return;
+
         setSiteForm({
           siteName: data.site_name || "",
           siteDescription: data.site_description || "",
@@ -530,8 +588,8 @@ export default function SettingsPage() {
             avatar: user.avatar || "",
           });
         }
-      })
-      .catch((err) => {
+      } catch (err) {
+        if (!active) return;
         console.error("Failed to load settings:", err);
         setSiteForm({
           siteName: "Noteva",
@@ -544,9 +602,16 @@ export default function SettingsPage() {
           fontFamily: "",
         });
         toast.error(t("error.loadFailed"));
-      })
-      .finally(() => setLoading(false));
-  }, [user]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadSettings();
+    return () => {
+      active = false;
+    };
+  }, [t, user]);
 
   // Preload Google Font for preview when saved font is loaded
   useEffect(() => {
@@ -559,7 +624,7 @@ export default function SettingsPage() {
     }
   }, [siteForm.fontFamily]);
 
-  const handleSaveSiteSettings = async () => {
+  const handleSaveSiteSettings = () => {
     if (!siteForm.siteName.trim()) {
       toast.error(t("settings.siteNameRequired"));
       return;
@@ -568,27 +633,25 @@ export default function SettingsPage() {
       toast.error(t("settings.siteUrlInvalid"));
       return;
     }
-    setSavingSite(true);
-    try {
-      const newSettings = {
-        site_name: siteForm.siteName,
-        site_description: siteForm.siteDescription,
-        site_subtitle: siteForm.siteSubtitle,
-        site_logo: siteForm.siteLogo,
-        site_footer: siteForm.siteFooter,
-        site_url: siteForm.siteUrl,
-        permalink_structure: siteForm.permalinkStructure,
-        font_family: siteForm.fontFamily,
-      };
-      await adminApi.updateSettings(newSettings);
-      // 鏇存柊鍏ㄥ眬 store
-      updateSettings(newSettings);
-      toast.success(t("settings.saveSuccess"));
-    } catch (error) {
-      toast.error(t("settings.saveFailed"));
-    } finally {
-      setSavingSite(false);
-    }
+    startSavingSiteTransition(async () => {
+      try {
+        const newSettings = {
+          site_name: siteForm.siteName,
+          site_description: siteForm.siteDescription,
+          site_subtitle: siteForm.siteSubtitle,
+          site_logo: siteForm.siteLogo,
+          site_footer: siteForm.siteFooter,
+          site_url: siteForm.siteUrl,
+          permalink_structure: siteForm.permalinkStructure,
+          font_family: siteForm.fontFamily,
+        };
+        await adminApi.updateSettings(newSettings);
+        updateSettings(newSettings);
+        toast.success(t("settings.saveSuccess"));
+      } catch {
+        toast.error(t("settings.saveFailed"));
+      }
+    });
   };
 
   const handleChangePassword = async () => {
@@ -609,74 +672,69 @@ export default function SettingsPage() {
       await authApi.changePassword(passwordForm.currentPassword, passwordForm.newPassword);
       toast.success(t("settings.passwordUpdated"));
       setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-    } catch (error: any) {
-      const msg = error?.response?.data?.error?.message || t("settings.saveFailed");
-      toast.error(msg);
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, t("settings.saveFailed")));
     }
   };
 
-  const handleSaveCommentSettings = async () => {
-    setSavingComment(true);
-    try {
-      await adminApi.updateSettings({
-        comment_moderation: commentForm.commentModeration ? "true" : "false",
-        moderation_keywords: commentForm.moderationKeywords,
-      });
-      toast.success(t("settings.saveSuccess"));
-    } catch (error) {
-      toast.error(t("settings.saveFailed"));
-    } finally {
-      setSavingComment(false);
-    }
-  };
-
-  const handleSaveCustomCode = async () => {
-    setSavingCustomCode(true);
-    try {
-      await adminApi.updateSettings({
-        custom_css: customCodeForm.customCss,
-        custom_js: customCodeForm.customJs,
-      });
-      toast.success(t("settings.saveSuccess"));
-    } catch (error) {
-      toast.error(t("settings.saveFailed"));
-    } finally {
-      setSavingCustomCode(false);
-    }
-  };
-
-  const handleSaveProfile = async () => {
-    setSavingProfile(true);
-    try {
-      await authApi.updateProfile({
-        display_name: profileForm.displayName || null,
-        avatar: profileForm.avatar || null,
-      });
-      toast.success(t("settings.saveSuccess"));
-    } catch (error) {
-      toast.error(t("settings.saveFailed"));
-    } finally {
-      setSavingProfile(false);
-    }
-  };
-
-  const handleCheckUpdate = async () => {
-    setCheckingUpdate(true);
-    try {
-      const { data } = await adminApi.checkUpdate();
-      setUpdateInfo(data);
-      if (data.error) {
-        toast.error(data.error);
-      } else if (data.update_available) {
-        toast.success(t("settings.updateAvailable"));
-      } else {
-        toast.info(t("settings.noUpdate"));
+  const handleSaveCommentSettings = () => {
+    startSavingCommentTransition(async () => {
+      try {
+        await adminApi.updateSettings({
+          comment_moderation: commentForm.commentModeration ? "true" : "false",
+          moderation_keywords: commentForm.moderationKeywords,
+        });
+        toast.success(t("settings.saveSuccess"));
+      } catch {
+        toast.error(t("settings.saveFailed"));
       }
-    } catch (error) {
-      toast.error(t("settings.checkUpdateFailed"));
-    } finally {
-      setCheckingUpdate(false);
-    }
+    });
+  };
+
+  const handleSaveCustomCode = () => {
+    startSavingCustomCodeTransition(async () => {
+      try {
+        await adminApi.updateSettings({
+          custom_css: customCodeForm.customCss,
+          custom_js: customCodeForm.customJs,
+        });
+        toast.success(t("settings.saveSuccess"));
+      } catch {
+        toast.error(t("settings.saveFailed"));
+      }
+    });
+  };
+
+  const handleSaveProfile = () => {
+    startSavingProfileTransition(async () => {
+      try {
+        await authApi.updateProfile({
+          display_name: profileForm.displayName || null,
+          avatar: profileForm.avatar || null,
+        });
+        toast.success(t("settings.saveSuccess"));
+      } catch {
+        toast.error(t("settings.saveFailed"));
+      }
+    });
+  };
+
+  const handleCheckUpdate = () => {
+    startCheckingUpdateTransition(async () => {
+      try {
+        const { data } = await adminApi.checkUpdate();
+        setUpdateInfo(data);
+        if (data.error) {
+          toast.error(data.error);
+        } else if (data.update_available) {
+          toast.success(t("settings.updateAvailable"));
+        } else {
+          toast.info(t("settings.noUpdate"));
+        }
+      } catch {
+        toast.error(t("settings.checkUpdateFailed"));
+      }
+    });
   };
 
   const handlePerformUpdate = () => {
@@ -684,20 +742,19 @@ export default function SettingsPage() {
     setUpdateDialogOpen(true);
   };
 
-  const doPerformUpdate = async () => {
+  const doPerformUpdate = () => {
     if (!updateInfo?.latest_version) return;
+    const latestVersion = updateInfo.latest_version;
     setUpdateDialogOpen(false);
-    setPerformingUpdate(true);
-    try {
-      await adminApi.performUpdate(updateInfo.latest_version);
-      toast.success(t("settings.updateSuccess"));
-      setUpdateRestarting(true);
-    } catch (error: any) {
-      const msg = error?.response?.data?.error?.message || t("settings.updateFailed");
-      toast.error(msg);
-    } finally {
-      setPerformingUpdate(false);
-    }
+    startPerformingUpdateTransition(async () => {
+      try {
+        await adminApi.performUpdate(latestVersion);
+        toast.success(t("settings.updateSuccess"));
+        setUpdateRestarting(true);
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, t("settings.updateFailed")));
+      }
+    });
   };
 
   // Auto-refresh: poll server after update restart
@@ -726,6 +783,61 @@ export default function SettingsPage() {
     poll();
     return () => { cancelled = true; };
   }, [updateRestarting]);
+
+  const handleDownloadBackup = () => {
+    startBackupTransition(async () => {
+      try {
+        const res = await adminApi.downloadBackup();
+        downloadBlob(
+          new Blob([res.data], { type: "application/zip" }),
+          `noteva-backup-${new Date().toISOString().slice(0, 10)}.zip`
+        );
+        toast.success(t("settings.backupSuccess"));
+      } catch {
+        toast.error(t("settings.backupFailed"));
+      }
+    });
+  };
+
+  const handleSelectRestoreFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    restoreFileRef.current = file;
+    setRestoreDialogOpen(true);
+  };
+
+  const handleRestoreBackup = () => {
+    const file = restoreFileRef.current;
+    if (!file) return;
+
+    setRestoreDialogOpen(false);
+    startRestoreTransition(async () => {
+      try {
+        await adminApi.restoreBackup(file);
+        toast.success(t("settings.restoreSuccess"));
+        window.setTimeout(() => window.location.reload(), 2000);
+      } catch {
+        toast.error(t("settings.restoreFailed"));
+      }
+    });
+  };
+
+  const handleExportMarkdown = () => {
+    startExportMarkdownTransition(async () => {
+      try {
+        const res = await adminApi.exportMarkdown();
+        downloadBlob(
+          new Blob([res.data], { type: "application/zip" }),
+          `noteva-articles-${new Date().toISOString().slice(0, 10)}.zip`
+        );
+        toast.success(t("settings.exportSuccess"));
+      } catch {
+        toast.error(t("settings.exportFailed"));
+      }
+    });
+  };
 
 
   return (
@@ -1288,6 +1400,13 @@ export default function SettingsPage() {
                 <CardDescription>{t("settings.backupDescription")}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <input
+                  ref={restoreInputRef}
+                  type="file"
+                  accept=".zip"
+                  className="hidden"
+                  onChange={handleSelectRestoreFile}
+                />
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between p-4 rounded-lg border">
                     <div>
@@ -1295,21 +1414,7 @@ export default function SettingsPage() {
                       <p className="text-sm text-muted-foreground">{t("settings.downloadBackupDesc")}</p>
                     </div>
                     <Button
-                      onClick={async () => {
-                        setBackingUp(true);
-                        try {
-                          const res = await adminApi.downloadBackup();
-                          const blob = new Blob([res.data], { type: "application/zip" });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement("a");
-                          a.href = url;
-                          a.download = `noteva-backup-${new Date().toISOString().slice(0, 10)}.zip`;
-                          a.click();
-                          URL.revokeObjectURL(url);
-                          toast.success(t("settings.backupSuccess"));
-                        } catch { toast.error(t("settings.backupFailed")); }
-                        finally { setBackingUp(false); }
-                      }}
+                      onClick={handleDownloadBackup}
                       disabled={backingUp}
                     >
                       {backingUp ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
@@ -1324,18 +1429,7 @@ export default function SettingsPage() {
                     </div>
                     <Button
                       variant="destructive"
-                      onClick={() => {
-                        const input = document.createElement("input");
-                        input.type = "file";
-                        input.accept = ".zip";
-                        input.onchange = (e) => {
-                          const file = (e.target as HTMLInputElement).files?.[0];
-                          if (!file) return;
-                          restoreFileRef.current = file;
-                          setRestoreDialogOpen(true);
-                        };
-                        input.click();
-                      }}
+                      onClick={() => restoreInputRef.current?.click()}
                       disabled={restoring}
                     >
                       {restoring ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
@@ -1350,21 +1444,7 @@ export default function SettingsPage() {
                     </div>
                     <Button
                       variant="outline"
-                      onClick={async () => {
-                        setExportingMd(true);
-                        try {
-                          const res = await adminApi.exportMarkdown();
-                          const blob = new Blob([res.data], { type: "application/zip" });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement("a");
-                          a.href = url;
-                          a.download = `noteva-articles-${new Date().toISOString().slice(0, 10)}.zip`;
-                          a.click();
-                          URL.revokeObjectURL(url);
-                          toast.success(t("settings.exportSuccess"));
-                        } catch { toast.error(t("settings.exportFailed")); }
-                        finally { setExportingMd(false); }
-                      }}
+                      onClick={handleExportMarkdown}
                       disabled={exportingMd}
                     >
                       {exportingMd ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
@@ -1429,18 +1509,7 @@ export default function SettingsPage() {
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={async () => {
-                const file = restoreFileRef.current;
-                if (!file) return;
-                setRestoring(true);
-                setRestoreDialogOpen(false);
-                try {
-                  await adminApi.restoreBackup(file);
-                  toast.success(t("settings.restoreSuccess"));
-                  setTimeout(() => window.location.reload(), 2000);
-                } catch { toast.error(t("settings.restoreFailed")); }
-                finally { setRestoring(false); }
-              }}
+              onClick={handleRestoreBackup}
             >
               <Upload className="h-4 w-4 mr-2" />
               {t("settings.restoreBackup")}

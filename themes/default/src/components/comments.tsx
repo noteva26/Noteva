@@ -1,17 +1,25 @@
-
-
-import { useState, useEffect } from "react";
+import {
+  useCallback,
+  useEffect,
+  useOptimistic,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import PluginSlot from "@/components/plugin-slot";
-import { Heart, MessageSquare, Send, Loader2 } from "lucide-react";
+import { Heart, Loader2, MessageSquare, Send } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
-import { getNoteva } from "@/hooks/useNoteva";
+import { waitForNoteva } from "@/hooks/useNoteva";
 import { EmojiPicker } from "@/components/emoji-picker";
 import Markdown from "react-markdown";
+
+const FALLBACK_AVATAR = "https://www.gravatar.com/avatar/?d=mp&s=80";
+const MAX_NESTING_DEPTH = 4;
 
 interface Comment {
   id: number;
@@ -28,7 +36,7 @@ interface Comment {
   is_author?: boolean;
   user_id?: number | null;
   replies?: Comment[];
-  [key: string]: any;
+  pending?: boolean;
 }
 
 interface CommentsProps {
@@ -36,230 +44,416 @@ interface CommentsProps {
   authorId?: number;
 }
 
+interface CommentFormState {
+  nickname: string;
+  email: string;
+  content: string;
+}
+
+interface OptimisticCommentAction {
+  parentId?: number;
+  comment: Comment;
+}
+
+type CurrentUser = Awaited<
+  ReturnType<NonNullable<typeof window.Noteva>["user"]["check"]>
+>;
+
+const EMPTY_FORM: CommentFormState = {
+  nickname: "",
+  email: "",
+  content: "",
+};
+
+function addCommentToTree(
+  comments: Comment[],
+  { parentId, comment }: OptimisticCommentAction
+): Comment[] {
+  if (!parentId) {
+    return [...comments, comment];
+  }
+
+  return comments.map((item) => {
+    if (item.id === parentId) {
+      return { ...item, replies: [...(item.replies || []), comment] };
+    }
+
+    if (item.replies?.length) {
+      return {
+        ...item,
+        replies: addCommentToTree(item.replies, { parentId, comment }),
+      };
+    }
+
+    return item;
+  });
+}
+
+function getCommentDate(comment: Comment) {
+  const value = comment.created_at || comment.createdAt;
+  return value ? new Date(value).toLocaleDateString() : "";
+}
+
+function getCommentIndentClass(depth: number) {
+  if (depth > MAX_NESTING_DEPTH) {
+    return "mt-3 pl-4 border-l-2 border-muted";
+  }
+
+  if (depth > 0) {
+    return "ml-6 mt-3 pl-4 border-l-2 border-muted";
+  }
+
+  return "mt-4";
+}
+
+function getSubmitErrorMessage(error: unknown, fallback: string) {
+  if (typeof error !== "object" || error === null || !("data" in error)) {
+    return fallback;
+  }
+
+  const data = (error as { data?: { error?: unknown } }).data;
+  return typeof data?.error === "string" ? data.error : fallback;
+}
+
 export function Comments({ articleId, authorId }: CommentsProps) {
   const { t } = useTranslation();
-  const [user, setUser] = useState<any>(null);
+  const mountedRef = useRef(false);
+  const [user, setUser] = useState<CurrentUser>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [replyTo, setReplyTo] = useState<number | null>(null);
+  const [isSubmitting, startSubmitTransition] = useTransition();
+  const [optimisticComments, addOptimisticComment] = useOptimistic(
+    comments,
+    addCommentToTree
+  );
 
-  const [form, setForm] = useState({
-    nickname: "",
-    email: "",
-    content: "",
-  });
+  const [form, setForm] = useState<CommentFormState>(EMPTY_FORM);
 
   useEffect(() => {
-    // 检查用户登录状态
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
     const checkUser = async () => {
-      const Noteva = getNoteva();
+      const Noteva = await waitForNoteva();
+      if (!active || !mountedRef.current) return;
+
       if (!Noteva) {
-        setTimeout(checkUser, 50);
+        setUser(null);
+        setIsAdmin(false);
         return;
       }
+
       try {
         const currentUser = await Noteva.user.check();
+        if (!active || !mountedRef.current) return;
+
         setUser(currentUser);
         setIsAdmin(currentUser?.role === "admin");
       } catch {
+        if (!active || !mountedRef.current) return;
+
         setUser(null);
         setIsAdmin(false);
       }
     };
-    checkUser();
+
+    void checkUser();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
-  useEffect(() => {
-    loadComments();
-  }, [articleId]);
-
-  const loadComments = async () => {
-    const Noteva = getNoteva();
+  const loadComments = useCallback(async () => {
+    const Noteva = await waitForNoteva();
     if (!Noteva) {
-      setTimeout(loadComments, 50);
+      if (mountedRef.current) {
+        setComments([]);
+        setLoading(false);
+      }
       return;
     }
 
     try {
       const result = await Noteva.comments.list(articleId);
-      setComments(result || []);
-    } catch (err) {
-      console.error("Failed to load comments:", err);
+      if (mountedRef.current) {
+        setComments(result || []);
+      }
+    } catch {
+      if (mountedRef.current) {
+        setComments([]);
+      }
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, [articleId]);
+
+  useEffect(() => {
+    if (mountedRef.current) {
+      setLoading(true);
+    }
+
+    void loadComments();
+  }, [loadComments]);
 
   const handleSubmit = async (parentId?: number) => {
-    if (!form.content.trim()) {
+    const submitted = {
+      nickname: form.nickname.trim(),
+      email: form.email.trim(),
+      content: form.content,
+    };
+
+    if (!submitted.content.trim()) {
       toast.error(t("comment.contentRequired"));
       return;
     }
 
-    // 游客需要填写昵称，管理员不需要
-    if (!isAdmin && !form.nickname.trim()) {
+    if (!isAdmin && !submitted.nickname) {
       toast.error(t("comment.nicknameRequired"));
       return;
     }
 
-    const Noteva = getNoteva();
+    const Noteva = await waitForNoteva();
     if (!Noteva) return;
 
-    setSubmitting(true);
-    try {
-      await Noteva.comments.create({
-        articleId,
-        content: form.content,
-        parentId: parentId,
-        nickname: !isAdmin ? form.nickname : undefined,
-        email: !isAdmin ? form.email : undefined,
+    startSubmitTransition(async () => {
+      addOptimisticComment({
+        parentId,
+        comment: {
+          id: -Date.now(),
+          content: submitted.content,
+          created_at: new Date().toISOString(),
+          nickname: isAdmin
+            ? user?.display_name || user?.username || "Admin"
+            : submitted.nickname,
+          avatar_url: user?.avatar,
+          like_count: 0,
+          is_liked: false,
+          is_author: isAdmin,
+          user_id: user?.id ?? null,
+          replies: [],
+          pending: true,
+        },
       });
-      toast.success(t("comment.submitSuccess"));
-      setForm({ nickname: "", email: "", content: "" });
-      setReplyTo(null);
-      loadComments();
 
-      // 触发评论创建后钩子（用于插件如"回复可见"）
-      Noteva.hooks.trigger("comment_after_create", { articleId, parentId });
-      Noteva.events.emit("comment:create", { articleId, parentId });
-    } catch (err: any) {
-      toast.error(err.data?.error || t("comment.submitFailed"));
-    } finally {
-      setSubmitting(false);
-    }
+      try {
+        await Noteva.comments.create({
+          articleId,
+          content: submitted.content,
+          parentId,
+          nickname: !isAdmin ? submitted.nickname : undefined,
+          email: !isAdmin ? submitted.email || undefined : undefined,
+        });
+        toast.success(t("comment.submitSuccess"));
+        setForm(EMPTY_FORM);
+        setReplyTo(null);
+        await loadComments();
+
+        Noteva.hooks.trigger("comment_after_create", { articleId, parentId });
+        Noteva.events.emit("comment:create", { articleId, parentId });
+      } catch (error) {
+        setComments((current) => [...current]);
+        toast.error(getSubmitErrorMessage(error, t("comment.submitFailed")));
+      }
+    });
   };
 
-  const handleLike = async (targetType: "article" | "comment", targetId: number) => {
-    const Noteva = getNoteva();
+  const handleLike = async (
+    targetType: "article" | "comment",
+    targetId: number
+  ) => {
+    const Noteva = await waitForNoteva();
     if (!Noteva) return;
 
     try {
       const result = await Noteva.interactions.like(targetType, targetId);
       if (targetType === "comment") {
-        loadComments();
+        await loadComments();
       }
       toast.success(result.liked ? t("comment.liked") : t("comment.unliked"));
-    } catch (err) {
+    } catch {
       toast.error(t("comment.likeFailed"));
     }
   };
 
-  // 判断是否为作者评论
   const isAuthorComment = (comment: Comment) => {
-    // 后端返回的 is_author 标识
     if (comment.is_author) return true;
-    // 或者 user_id 匹配文章作者
     if (comment.user_id && authorId && comment.user_id === authorId) return true;
     return false;
   };
 
-  const MAX_NESTING_DEPTH = 4;
-  const renderComment = (comment: Comment, depth = 0) => (
-    <div key={comment.id} data-comment-id={comment.id} className={`${depth > 0 && depth <= MAX_NESTING_DEPTH ? "ml-6 mt-3 pl-4 border-l-2 border-muted" : depth > MAX_NESTING_DEPTH ? "mt-3 pl-4 border-l-2 border-muted" : "mt-4"}`}>
-      <div className="flex gap-3">
-        <img
-          src={comment.avatar_url || "https://www.gravatar.com/avatar/?d=mp&s=80"}
-          alt={comment.nickname || "User"}
-          className="w-10 h-10 rounded-full"
-          onError={(e) => { (e.target as HTMLImageElement).src = "https://www.gravatar.com/avatar/?d=mp&s=80"; }}
-        />
-        <div className="flex-1">
-          <div className="flex items-center gap-2 comment-meta">
-            <span className="font-medium">{comment.nickname || "Anonymous"}</span>
-            {isAuthorComment(comment) && (
-              <span className="px-1.5 py-0.5 text-xs font-medium bg-primary text-primary-foreground rounded">
-                {t("comment.authorTag")}
+  const renderComment = (comment: Comment, depth = 0) => {
+    const isLiked = comment.is_liked ?? comment.isLiked ?? false;
+    const likeCount = comment.like_count ?? comment.likeCount ?? 0;
+
+    return (
+      <div
+        key={comment.id}
+        data-comment-id={comment.id}
+        className={getCommentIndentClass(depth)}
+      >
+        <div className="flex gap-3">
+          <img
+            src={comment.avatar_url || comment.avatarUrl || FALLBACK_AVATAR}
+            alt={comment.nickname || "User"}
+            className="h-10 w-10 rounded-full"
+            onError={(event) => {
+              event.currentTarget.src = FALLBACK_AVATAR;
+            }}
+          />
+          <div className="flex-1">
+            <div className="flex items-center gap-2 comment-meta">
+              <span className="font-medium">
+                {comment.nickname || "Anonymous"}
               </span>
-            )}
-            <span className="text-sm text-muted-foreground">
-              {new Date(comment.created_at || comment.createdAt || '').toLocaleDateString()}
-            </span>
-          </div>
-          <div className="mt-1 text-sm prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1 comment-content">
-            <Markdown>{comment.content}</Markdown>
-          </div>
-          <div className="flex items-center gap-4 mt-2 comment-actions">
-            <button
-              onClick={() => handleLike("comment", comment.id)}
-              className={`flex items-center gap-1 text-sm ${comment.is_liked ? "text-red-500" : "text-muted-foreground"} hover:text-red-500`}
-            >
-              <Heart className={`h-4 w-4 ${comment.is_liked ? "fill-current" : ""}`} />
-              {comment.like_count}
-            </button>
-            <button
-              onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary"
-            >
-              <MessageSquare className="h-4 w-4" />
-              {t("comment.reply")}
-            </button>
-          </div>
-
-          {replyTo === comment.id && (
-            <div className="mt-3 space-y-2">
-              <Textarea
-                placeholder={t("comment.replyPlaceholder")}
-                value={form.content}
-                onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
-                rows={2}
-              />
-              {!isAdmin && (
-                <div className="flex gap-2">
-                  <Input
-                    placeholder={t("comment.nickname")}
-                    value={form.nickname}
-                    onChange={(e) => setForm((f) => ({ ...f, nickname: e.target.value }))}
-                  />
-                  <Input
-                    placeholder={t("comment.email")}
-                    value={form.email}
-                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  />
-                </div>
+              {isAuthorComment(comment) && (
+                <span className="rounded bg-primary px-1.5 py-0.5 text-xs font-medium text-primary-foreground">
+                  {t("comment.authorTag")}
+                </span>
               )}
-              <div className="flex gap-2">
-                <Button size="sm" onClick={() => handleSubmit(comment.id)} disabled={submitting}>
-                  {submitting && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-                  {t("comment.submit")}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setReplyTo(null)}>
-                  {t("common.cancel")}
-                </Button>
-              </div>
+              {comment.pending && (
+                <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+              )}
+              <span className="text-sm text-muted-foreground">
+                {getCommentDate(comment)}
+              </span>
             </div>
-          )}
-        </div>
-      </div>
+            <div className="mt-1 max-w-none text-sm prose prose-sm dark:prose-invert prose-p:my-1 prose-pre:my-1 comment-content">
+              <Markdown>{comment.content}</Markdown>
+            </div>
+            <div className="mt-2 flex items-center gap-4 comment-actions">
+              <button
+                onClick={() => handleLike("comment", comment.id)}
+                disabled={comment.pending}
+                className={`flex items-center gap-1 text-sm ${
+                  isLiked ? "text-red-500" : "text-muted-foreground"
+                } hover:text-red-500 disabled:pointer-events-none disabled:opacity-50`}
+              >
+                <Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
+                {likeCount}
+              </button>
+              <button
+                onClick={() =>
+                  setReplyTo(replyTo === comment.id ? null : comment.id)
+                }
+                disabled={comment.pending}
+                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary disabled:pointer-events-none disabled:opacity-50"
+              >
+                <MessageSquare className="h-4 w-4" />
+                {t("comment.reply")}
+              </button>
+            </div>
 
-      {comment.replies?.map((reply) => renderComment(reply, depth + 1))}
-    </div>
-  );
+            {replyTo === comment.id && (
+              <div className="mt-3 space-y-2">
+                <Textarea
+                  placeholder={t("comment.replyPlaceholder")}
+                  value={form.content}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      content: event.target.value,
+                    }))
+                  }
+                  rows={2}
+                />
+                {!isAdmin && (
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder={t("comment.nickname")}
+                      value={form.nickname}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          nickname: event.target.value,
+                        }))
+                      }
+                    />
+                    <Input
+                      placeholder={t("comment.email")}
+                      value={form.email}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          email: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => handleSubmit(comment.id)}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting && (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    )}
+                    {t("comment.submit")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setReplyTo(null)}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {comment.replies?.map((reply) => renderComment(reply, depth + 1))}
+      </div>
+    );
+  };
 
   return (
     <Card className="mt-8" data-article-id={articleId}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <MessageSquare className="h-5 w-5" />
-          {t("comment.title")} ({comments.length})
+          {t("comment.title")} ({optimisticComments.length})
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {/* comment_form_before 插槽 - 登录提示、规则说明 */}
         <PluginSlot name="comment_form_before" />
 
-        {/* Comment form */}
         <div className="space-y-3">
           <div className="relative">
             <Textarea
               placeholder={t("comment.placeholder")}
               value={form.content}
-              onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  content: event.target.value,
+                }))
+              }
               rows={3}
             />
             <div className="absolute bottom-2 right-2">
-              <EmojiPicker onSelect={(emoji) => setForm((f) => ({ ...f, content: f.content + emoji }))} />
+              <EmojiPicker
+                onSelect={(emoji) =>
+                  setForm((current) => ({
+                    ...current,
+                    content: current.content + emoji,
+                  }))
+                }
+              />
             </div>
           </div>
           {!isAdmin && (
@@ -267,41 +461,53 @@ export function Comments({ articleId, authorId }: CommentsProps) {
               <Input
                 placeholder={t("comment.nickname")}
                 value={form.nickname}
-                onChange={(e) => setForm((f) => ({ ...f, nickname: e.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    nickname: event.target.value,
+                  }))
+                }
               />
               <Input
                 placeholder={t("comment.emailOptional")}
                 value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    email: event.target.value,
+                  }))
+                }
               />
             </div>
           )}
           {isAdmin && (
             <p className="text-sm text-muted-foreground">
-              {t("comment.postingAsAdmin", { name: user?.display_name || user?.username })}
+              {t("comment.postingAsAdmin", {
+                name: user?.display_name || user?.username || "Admin",
+              })}
             </p>
           )}
-          <Button onClick={() => handleSubmit()} disabled={submitting}>
-            {submitting ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          <Button onClick={() => handleSubmit()} disabled={isSubmitting}>
+            {isSubmitting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
-              <Send className="h-4 w-4 mr-2" />
+              <Send className="mr-2 h-4 w-4" />
             )}
             {t("comment.submit")}
           </Button>
         </div>
 
-        {/* comment_form_after 插槽 - 表情选择器、快捷回复 */}
         <PluginSlot name="comment_form_after" />
 
-        {/* Comments list */}
         <div className="mt-6 divide-y">
           {loading ? (
-            <p className="text-muted-foreground py-4">{t("common.loading")}</p>
-          ) : comments.length === 0 ? (
-            <p className="text-muted-foreground py-4">{t("comment.noComments")}</p>
+            <p className="py-4 text-muted-foreground">{t("common.loading")}</p>
+          ) : optimisticComments.length === 0 ? (
+            <p className="py-4 text-muted-foreground">
+              {t("comment.noComments")}
+            </p>
           ) : (
-            comments.map((comment) => renderComment(comment))
+            optimisticComments.map((comment) => renderComment(comment))
           )}
         </div>
       </CardContent>

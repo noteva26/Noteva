@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { authApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -9,11 +9,18 @@ import { toast } from "sonner";
 import { Loader2, Sparkles } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
 
+function getApiError(error: unknown) {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    const response = (error as { response?: { data?: { error?: { code?: string; message?: string } } } }).response;
+    return response?.data?.error || null;
+  }
+  return null;
+}
+
 export default function SetupPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [mounted, setMounted] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     username: "",
     email: "",
@@ -25,56 +32,53 @@ export default function SetupPage() {
     setMounted(true);
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const [, submitSetup, isSubmitting] = useActionState<null, FormData>(
+    async () => {
+      const username = formData.username.trim();
+      const email = formData.email.trim();
 
-    if (!formData.username.trim()) {
-      toast.error(t("auth.username") + " " + t("common.error"));
-      return;
-    }
-    if (!formData.email.trim() || !formData.email.includes("@")) {
-      toast.error(t("auth.email") + " " + t("common.error"));
-      return;
-    }
-    if (formData.password.length < 8) {
-      toast.error(t("auth.passwordTooShort"));
-      return;
-    }
-    if (formData.password !== formData.confirmPassword) {
-      toast.error(t("auth.passwordMismatch"));
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await authApi.register(
-        formData.username.trim(),
-        formData.email.trim(),
-        formData.password
-      );
-      toast.success(t("setup.success"));
-      navigate("/manage");
-    } catch (error: any) {
-      const errorCode = error.response?.data?.error?.code;
-      let message = error.response?.data?.error?.message || t("setup.error");
-
-      // Handle admin already exists error
-      if (errorCode === "FORBIDDEN") {
-        toast.error(message);
-        // Redirect to login after 2 seconds
-        setTimeout(() => {
-          navigate("/manage/login");
-        }, 2000);
-        return;
+      if (!username) {
+        toast.error(t("auth.username") + " " + t("common.error"));
+        return null;
+      }
+      if (!email || !email.includes("@")) {
+        toast.error(t("auth.email") + " " + t("common.error"));
+        return null;
+      }
+      if (formData.password.length < 8) {
+        toast.error(t("auth.passwordTooShort"));
+        return null;
+      }
+      if (formData.password !== formData.confirmPassword) {
+        toast.error(t("auth.passwordMismatch"));
+        return null;
       }
 
-      toast.error(message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+      try {
+        await authApi.register(username, email, formData.password);
+        toast.success(t("setup.success"));
+        navigate("/manage");
+      } catch (error) {
+        const apiError = getApiError(error);
+        const errorCode = apiError?.code;
+        const message = apiError?.message || t("setup.error");
 
-  // 等待客户端 mounted 后再渲染，避免 hydration mismatch
+        if (errorCode === "FORBIDDEN") {
+          toast.error(message);
+          window.setTimeout(() => {
+            navigate("/manage/login");
+          }, 2000);
+          return null;
+        }
+
+        toast.error(message);
+      }
+
+      return null;
+    },
+    null
+  );
+
   if (!mounted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted">
@@ -94,15 +98,16 @@ export default function SetupPage() {
           <CardDescription>{t("setup.description")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form action={submitSetup} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="username">{t("setup.username")}</Label>
               <Input
                 id="username"
+                name="username"
                 placeholder={t("setup.usernamePlaceholder")}
                 value={formData.username}
                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                disabled={submitting}
+                disabled={isSubmitting}
                 autoComplete="username"
               />
             </div>
@@ -111,11 +116,12 @@ export default function SetupPage() {
               <Label htmlFor="email">{t("auth.email")}</Label>
               <Input
                 id="email"
+                name="email"
                 type="email"
                 placeholder="admin@example.com"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                disabled={submitting}
+                disabled={isSubmitting}
                 autoComplete="email"
               />
             </div>
@@ -124,11 +130,12 @@ export default function SetupPage() {
               <Label htmlFor="password">{t("setup.password")}</Label>
               <Input
                 id="password"
+                name="password"
                 type="password"
                 placeholder={t("setup.passwordPlaceholder")}
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                disabled={submitting}
+                disabled={isSubmitting}
                 autoComplete="new-password"
               />
             </div>
@@ -137,17 +144,18 @@ export default function SetupPage() {
               <Label htmlFor="confirmPassword">{t("setup.confirmPassword")}</Label>
               <Input
                 id="confirmPassword"
+                name="confirmPassword"
                 type="password"
                 placeholder={t("setup.confirmPasswordPlaceholder")}
                 value={formData.confirmPassword}
                 onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                disabled={submitting}
+                disabled={isSubmitting}
                 autoComplete="new-password"
               />
             </div>
 
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? (
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   {t("setup.creating")}

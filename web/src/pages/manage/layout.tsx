@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation, Link, Outlet } from "react-router-dom";
 import { motion } from "motion/react";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
 import { useTranslation, loadCustomLocales } from "@/lib/i18n";
+import { preloadManageRoute } from "@/lib/manage-routes";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { authApi } from "@/lib/api";
+import { toast } from "sonner";
 import {
   LayoutDashboard,
   FileText,
@@ -37,7 +39,7 @@ export default function ManageLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
 
-  const navItems = [
+  const navItems = useMemo(() => [
     { href: "/manage", label: t("manage.dashboard"), icon: LayoutDashboard },
     { href: "/manage/articles", label: t("manage.articles"), icon: FileText },
     { href: "/manage/categories", label: t("manage.categories"), icon: FolderTree },
@@ -50,7 +52,7 @@ export default function ManageLayout() {
     { href: "/manage/themes", label: t("manage.themes"), icon: Palette },
     { href: "/manage/security", label: t("manage.security"), icon: Shield },
     { href: "/manage/settings", label: t("manage.settings"), icon: Settings },
-  ];
+  ], [t]);
 
   useEffect(() => {
     fetchSettings();
@@ -59,24 +61,35 @@ export default function ManageLayout() {
 
   useEffect(() => {
     document.title = `${settings.site_name} - ${t("manage.adminPanel")}`;
-  }, [settings.site_name]);
+  }, [settings.site_name, t]);
 
   useEffect(() => {
+    let active = true;
+
     const init = async () => {
       try {
         const { data } = await authApi.hasAdmin();
+        if (!active) return;
+
         if (!data.has_admin) {
           navigate("/manage/setup", { replace: true });
           return;
         }
         await checkAuth();
-        setAuthChecked(true);
       } catch (error) {
         console.error("Auth check failed:", error);
-        setAuthChecked(true);
+      } finally {
+        if (active) {
+          setAuthChecked(true);
+        }
       }
     };
-    init();
+
+    void init();
+
+    return () => {
+      active = false;
+    };
   }, [checkAuth, navigate]);
 
   useEffect(() => {
@@ -86,15 +99,19 @@ export default function ManageLayout() {
       return;
     }
     if (user && user.role !== "admin") {
-      alert(t("manage.noPermission"));
+      toast.error(t("manage.noPermission"));
       window.location.href = "/";
     }
-  }, [isAuthenticated, authChecked, user, navigate]);
+  }, [isAuthenticated, authChecked, user, navigate, t]);
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     await logout();
     navigate("/manage/login");
-  };
+  }, [logout, navigate]);
+
+  const handleNavIntent = useCallback((href: string) => {
+    preloadManageRoute(href);
+  }, []);
 
   if (!authChecked) {
     return (
@@ -154,6 +171,7 @@ export default function ManageLayout() {
             <button
               className="lg:hidden"
               onClick={() => setSidebarOpen(false)}
+              aria-label={t("common.close")}
             >
               <X className="h-5 w-5" />
             </button>
@@ -178,6 +196,9 @@ export default function ManageLayout() {
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                     onClick={() => setSidebarOpen(false)}
+                    onFocus={() => handleNavIntent(item.href)}
+                    onMouseEnter={() => handleNavIntent(item.href)}
+                    aria-current={isActive ? "page" : undefined}
                   >
                     <item.icon className="h-4 w-4" />
                     {item.label}
@@ -217,7 +238,11 @@ export default function ManageLayout() {
       <div className="flex-1 flex flex-col min-w-0">
         <header className="flex h-16 items-center justify-between gap-4 border-b bg-card px-6">
           <div className="flex items-center gap-4">
-            <button className="lg:hidden" onClick={() => setSidebarOpen(true)}>
+            <button
+              className="lg:hidden"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Menu"
+            >
               <Menu className="h-5 w-5" />
             </button>
             <span className="font-semibold lg:hidden">Noteva</span>

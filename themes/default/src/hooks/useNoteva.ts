@@ -1,57 +1,126 @@
-/**
- * Noteva SDK React Hook
- * 提供类型安全的 SDK 访问
- */
+import { useCallback, useEffect, useState } from "react";
 
-import { useState, useEffect, useCallback } from "react";
+export type NotevaSDKRef = NonNullable<typeof window.Noteva>;
+export type NotevaArticle = Awaited<ReturnType<NotevaSDKRef["articles"]["get"]>>;
+export type NotevaCategory = Awaited<
+  ReturnType<NotevaSDKRef["categories"]["list"]>
+>[number];
+export type NotevaTag = Awaited<ReturnType<NotevaSDKRef["tags"]["list"]>>[number];
+export type NotevaUser = NonNullable<
+  Awaited<ReturnType<NotevaSDKRef["user"]["check"]>>
+>;
 
-type NotevaSDKRef = NonNullable<typeof window.Noteva>;
-type NotevaArticle = Awaited<ReturnType<NotevaSDKRef["articles"]["get"]>>;
-type NotevaCategory = Awaited<ReturnType<NotevaSDKRef["categories"]["list"]>>[number];
-type NotevaTag = Awaited<ReturnType<NotevaSDKRef["tags"]["list"]>>[number];
-type NotevaUser = NonNullable<Awaited<ReturnType<NotevaSDKRef["user"]["check"]>>>;
+export interface InjectedSiteConfig {
+  site_name?: string;
+  site_description?: string;
+  site_subtitle?: string;
+  site_logo?: string;
+  site_footer?: string;
+  [key: string]: unknown;
+}
 
-/**
- * 获取 Noteva SDK 实例
- * 在客户端环境下返回 window.Noteva，否则返回 null
- */
-export function getNoteva() {
+interface WaitForNotevaOptions {
+  interval?: number;
+  timeout?: number;
+}
+
+export function getNoteva(): NotevaSDKRef | null {
   if (typeof window !== "undefined" && window.Noteva) {
     return window.Noteva;
   }
   return null;
 }
 
-/**
- * 等待 SDK 就绪的 Hook
- * @returns { ready: boolean, Noteva: SDK | null }
- */
-export function useNoteva() {
-  const [ready, setReady] = useState(false);
-  const [sdk, setSdk] = useState<typeof window.Noteva | null>(null);
+export function getInjectedSiteConfig(): InjectedSiteConfig | null {
+  if (typeof window === "undefined") return null;
+  return window.__SITE_CONFIG__ ?? null;
+}
 
-  useEffect(() => {
-    const checkReady = () => {
-      const noteva = getNoteva();
-      if (noteva) {
-        noteva.ready().then(() => {
-          setSdk(noteva);
-          setReady(true);
-        });
-      } else {
-        // SDK 还没加载，等待一下
-        setTimeout(checkReady, 50);
+export async function waitForNoteva(
+  options: WaitForNotevaOptions = {}
+): Promise<NotevaSDKRef | null> {
+  if (typeof window === "undefined") return null;
+
+  const existing = getNoteva();
+  if (existing) {
+    try {
+      await existing.ready();
+    } catch {
+      // The SDK object is present; callers can still attempt graceful fallback.
+    }
+    return existing;
+  }
+
+  const interval = options.interval ?? 50;
+  const timeout = options.timeout ?? 10_000;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let intervalId: number | undefined;
+    let timeoutId: number | undefined;
+
+    const finish = async (sdk: NotevaSDKRef | null) => {
+      if (settled) return;
+      settled = true;
+
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+
+      if (sdk) {
+        try {
+          await sdk.ready();
+        } catch {
+          // Keep the SDK reference so callers can decide whether to fallback.
+        }
+      }
+
+      resolve(sdk);
+    };
+
+    const check = () => {
+      const sdk = getNoteva();
+      if (sdk) {
+        void finish(sdk);
       }
     };
-    checkReady();
+
+    intervalId = window.setInterval(check, interval);
+    timeoutId = window.setTimeout(() => {
+      void finish(getNoteva());
+    }, timeout);
+    check();
+  });
+}
+
+export function getArticleUrl(article: { id: number | string; slug?: string }): string {
+  const noteva = getNoteva();
+  if (noteva?.site?.getArticleUrl) {
+    return noteva.site.getArticleUrl(article);
+  }
+  return `/posts/${article.slug || article.id}`;
+}
+
+export function useNoteva() {
+  const [ready, setReady] = useState(false);
+  const [sdk, setSdk] = useState<NotevaSDKRef | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    void waitForNoteva().then((noteva) => {
+      if (!active) return;
+      setSdk(noteva);
+      setReady(Boolean(noteva));
+    });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   return { ready, Noteva: sdk };
 }
 
-/**
- * 获取站点信息的 Hook
- */
 export function useSiteInfo() {
   const [info, setInfo] = useState<{
     name: string;
@@ -64,48 +133,37 @@ export function useSiteInfo() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const noteva = getNoteva();
-    if (noteva) {
-      noteva.site.getInfo()
-        .then(setInfo)
-        .catch(console.error)
-        .finally(() => setLoading(false));
-    } else {
-      // 等待 SDK
-      const timer = setInterval(() => {
-        const n = getNoteva();
-        if (n) {
-          clearInterval(timer);
-          n.site.getInfo()
-            .then(setInfo)
-            .catch(console.error)
-            .finally(() => setLoading(false));
-        }
-      }, 50);
-      return () => clearInterval(timer);
-    }
+    let active = true;
+
+    const load = async () => {
+      const noteva = await waitForNoteva();
+      if (!active) return;
+
+      if (!noteva) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const siteInfo = await noteva.site.getInfo();
+        if (active) setInfo(siteInfo);
+      } catch {
+        if (active) setInfo(null);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void load();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   return { info, loading };
 }
 
-/**
- * 生成文章 URL
- * @param article - 文章对象，需要包含 id 和 slug
- * @returns 文章 URL 路径
- */
-export function getArticleUrl(article: { id: number | string; slug?: string }): string {
-  const noteva = getNoteva();
-  if (noteva?.site?.getArticleUrl) {
-    return noteva.site.getArticleUrl(article);
-  }
-  // 默认使用 slug
-  return `/posts/${article.slug || article.id}`;
-}
-
-/**
- * 获取文章列表的 Hook
- */
 export function useArticles(params?: {
   page?: number;
   pageSize?: number;
@@ -119,208 +177,206 @@ export function useArticles(params?: {
   const [error, setError] = useState<Error | null>(null);
 
   const fetchArticles = useCallback(async () => {
-    const noteva = getNoteva();
-    if (!noteva) return;
-    
     setLoading(true);
     setError(null);
+
+    const noteva = await waitForNoteva();
+    if (!noteva) {
+      setArticles([]);
+      setTotal(0);
+      setLoading(false);
+      return;
+    }
+
     try {
       const result = await noteva.articles.list(params);
       setArticles(result.articles);
       setTotal(result.total);
     } catch (err) {
-      setError(err as Error);
+      setError(err instanceof Error ? err : new Error("Failed to load articles"));
+      setArticles([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [params?.page, params?.pageSize, params?.category, params?.tag, params?.keyword]);
+  }, [
+    params?.page,
+    params?.pageSize,
+    params?.category,
+    params?.tag,
+    params?.keyword,
+  ]);
 
   useEffect(() => {
-    const noteva = getNoteva();
-    if (noteva) {
-      fetchArticles();
-    } else {
-      const timer = setInterval(() => {
-        if (getNoteva()) {
-          clearInterval(timer);
-          fetchArticles();
-        }
-      }, 50);
-      return () => clearInterval(timer);
-    }
+    void fetchArticles();
   }, [fetchArticles]);
 
   return { articles, total, loading, error, refetch: fetchArticles };
 }
 
-/**
- * 获取单篇文章的 Hook
- */
 export function useArticle(slug: string) {
   const [article, setArticle] = useState<NotevaArticle | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    if (!slug) {
-      setLoading(false);
-      return;
-    }
+    let active = true;
 
-    const fetchArticle = async () => {
-      const noteva = getNoteva();
-      if (!noteva) return;
-      
+    const load = async () => {
+      if (!slug) {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError(null);
+
+      const noteva = await waitForNoteva();
+      if (!active) return;
+
+      if (!noteva) {
+        setArticle(null);
+        setLoading(false);
+        return;
+      }
+
       try {
         const data = await noteva.articles.get(slug);
-        setArticle(data);
+        if (active) setArticle(data);
       } catch (err) {
-        setError(err as Error);
+        if (active) {
+          setError(err instanceof Error ? err : new Error("Failed to load article"));
+          setArticle(null);
+        }
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
-    const noteva = getNoteva();
-    if (noteva) {
-      fetchArticle();
-    } else {
-      const timer = setInterval(() => {
-        if (getNoteva()) {
-          clearInterval(timer);
-          fetchArticle();
-        }
-      }, 50);
-      return () => clearInterval(timer);
-    }
+    void load();
+
+    return () => {
+      active = false;
+    };
   }, [slug]);
 
   return { article, loading, error };
 }
 
-/**
- * 获取分类列表的 Hook
- */
 export function useCategories() {
   const [categories, setCategories] = useState<NotevaCategory[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetch = async () => {
-      const noteva = getNoteva();
-      if (!noteva) return;
-      
+    let active = true;
+
+    const load = async () => {
+      const noteva = await waitForNoteva();
+      if (!active) return;
+
+      if (!noteva) {
+        setLoading(false);
+        return;
+      }
+
       try {
         const data = await noteva.categories.list();
-        setCategories(data);
-      } catch (err) {
-        console.error(err);
+        if (active) setCategories(data);
+      } catch {
+        if (active) setCategories([]);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
-    const noteva = getNoteva();
-    if (noteva) {
-      fetch();
-    } else {
-      const timer = setInterval(() => {
-        if (getNoteva()) {
-          clearInterval(timer);
-          fetch();
-        }
-      }, 50);
-      return () => clearInterval(timer);
-    }
+    void load();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   return { categories, loading };
 }
 
-/**
- * 获取标签列表的 Hook
- */
 export function useTags() {
   const [tags, setTags] = useState<NotevaTag[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetch = async () => {
-      const noteva = getNoteva();
-      if (!noteva) return;
-      
+    let active = true;
+
+    const load = async () => {
+      const noteva = await waitForNoteva();
+      if (!active) return;
+
+      if (!noteva) {
+        setLoading(false);
+        return;
+      }
+
       try {
         const data = await noteva.tags.list();
-        setTags(data);
-      } catch (err) {
-        console.error(err);
+        if (active) setTags(data);
+      } catch {
+        if (active) setTags([]);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
-    const noteva = getNoteva();
-    if (noteva) {
-      fetch();
-    } else {
-      const timer = setInterval(() => {
-        if (getNoteva()) {
-          clearInterval(timer);
-          fetch();
-        }
-      }, 50);
-      return () => clearInterval(timer);
-    }
+    void load();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   return { tags, loading };
 }
 
-/**
- * 用户认证状态 Hook
- */
 export function useAuth() {
   const [user, setUser] = useState<NotevaUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let active = true;
+
     const checkAuth = async () => {
-      const noteva = getNoteva();
-      if (!noteva) return;
-      
+      const noteva = await waitForNoteva();
+      if (!active) return;
+
+      if (!noteva) {
+        setLoading(false);
+        return;
+      }
+
       try {
         const currentUser = await noteva.user.check();
+        if (!active) return;
         setUser(currentUser);
-        setIsAuthenticated(!!currentUser);
+        setIsAuthenticated(Boolean(currentUser));
       } catch {
+        if (!active) return;
         setUser(null);
         setIsAuthenticated(false);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
-    const noteva = getNoteva();
-    if (noteva) {
-      checkAuth();
-    } else {
-      const timer = setInterval(() => {
-        if (getNoteva()) {
-          clearInterval(timer);
-          checkAuth();
-        }
-      }, 50);
-      return () => clearInterval(timer);
-    }
+    void checkAuth();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
-    const noteva = getNoteva();
+    const noteva = await waitForNoteva();
     if (!noteva) throw new Error("SDK not ready");
-    
+
     const result = await noteva.user.login({ username, password });
     setUser(result.user);
     setIsAuthenticated(true);
@@ -328,9 +384,9 @@ export function useAuth() {
   }, []);
 
   const logout = useCallback(async () => {
-    const noteva = getNoteva();
+    const noteva = await waitForNoteva();
     if (!noteva) return;
-    
+
     await noteva.user.logout();
     setUser(null);
     setIsAuthenticated(false);

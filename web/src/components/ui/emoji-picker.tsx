@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useDeferredValue, useMemo } from "react";
 import twemoji from "@twemoji/api";
 import { EMOJI_CATEGORIES } from "@/lib/emoji-data";
 import { useI18nStore, t as i18nT } from "@/lib/i18n";
@@ -11,55 +11,68 @@ interface EmojiPickerProps {
 export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
   const [activeCategory, setActiveCategory] = useState(0);
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const containerRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const locale = useI18nStore((s) => s.locale);
+  const locale = useI18nStore((state) => state.locale);
 
-  const getCatLabel = (cat: typeof EMOJI_CATEGORIES[0]) => cat.label[locale] || cat.label["en"] || cat.label["zh-CN"];
+  const getCatLabel = useCallback(
+    (category: typeof EMOJI_CATEGORIES[0]) =>
+      category.label[locale] || category.label.en || category.label["zh-CN"],
+    [locale]
+  );
 
-  // Click outside to close
   useEffect(() => {
-    const handle = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         onClose();
       }
     };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [onClose]);
 
-  // Parse Twemoji after render — with size override
   useEffect(() => {
-    if (gridRef.current) {
-      twemoji.parse(gridRef.current, {
+    const node = gridRef.current;
+    if (!node) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      twemoji.parse(node, {
         folder: "svg",
         ext: ".svg",
         attributes: () => ({ style: "width:22px;height:22px" }),
       });
-    }
-  }, [activeCategory, search]);
+    });
 
-  // Parse Twemoji in sidebar icons
-  const sidebarRef = useRef<HTMLDivElement>(null);
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeCategory, deferredSearch]);
+
   useEffect(() => {
-    if (sidebarRef.current) {
-      twemoji.parse(sidebarRef.current, {
+    const node = sidebarRef.current;
+    if (!node) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      twemoji.parse(node, {
         folder: "svg",
         ext: ".svg",
         attributes: () => ({ style: "width:20px;height:20px" }),
       });
-    }
+    });
+
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
-  // Search results
   const searchResults = useMemo(() => {
-    if (!search.trim()) return null;
-    const q = search.toLowerCase();
+    const query = deferredSearch.trim().toLowerCase();
+    if (!query) return null;
+
     const results: { code: string; emoji: string }[] = [];
-    for (const cat of EMOJI_CATEGORIES) {
-      for (const [code, emoji] of Object.entries(cat.emojis)) {
-        if (code.includes(q) || emoji === q) {
+    for (const category of EMOJI_CATEGORIES) {
+      for (const [code, emoji] of Object.entries(category.emojis)) {
+        if (code.includes(query) || emoji === query) {
           results.push({ code, emoji });
         }
         if (results.length >= 80) break;
@@ -67,66 +80,60 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
       if (results.length >= 80) break;
     }
     return results;
-  }, [search]);
+  }, [deferredSearch]);
 
-  const handleCategoryClick = useCallback((idx: number) => {
+  const handleCategoryClick = useCallback((index: number) => {
     setSearch("");
-    setActiveCategory(idx);
-    sectionRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveCategory(index);
+    sectionRefs.current[index]?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  // Track scroll to update active category
   const handleScroll = useCallback(() => {
     if (search || !gridRef.current) return;
+
     const top = gridRef.current.scrollTop;
-    for (let i = sectionRefs.current.length - 1; i >= 0; i--) {
-      const el = sectionRefs.current[i];
-      if (el && el.offsetTop - gridRef.current.offsetTop <= top + 8) {
-        setActiveCategory(i);
+    for (let index = sectionRefs.current.length - 1; index >= 0; index--) {
+      const section = sectionRefs.current[index];
+      if (section && section.offsetTop - gridRef.current.offsetTop <= top + 8) {
+        setActiveCategory((current) => current === index ? current : index);
         break;
       }
     }
   }, [search]);
-
-  const handleSelect = (emoji: string) => {
-    onSelect(emoji);
-  };
 
   return (
     <div
       ref={containerRef}
       className="flex flex-col w-[360px] h-[300px] bg-popover border rounded-lg shadow-xl overflow-hidden"
     >
-      {/* Search bar */}
       <div className="px-2 pt-2 pb-1">
         <input
           type="text"
           placeholder={i18nT("editor.searchEmoji")}
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(event) => setSearch(event.target.value)}
           className="w-full px-3 py-1.5 text-sm border rounded-md bg-background outline-none focus:ring-1 focus:ring-ring"
           autoFocus
         />
       </div>
 
       <div className="flex flex-1 min-h-0">
-        {/* Category sidebar */}
         <div ref={sidebarRef} className="emoji-picker-sidebar flex flex-col w-11 border-r py-1 gap-1 items-center overflow-y-auto hide-scrollbar">
-          {EMOJI_CATEGORIES.map((cat, idx) => (
+          {EMOJI_CATEGORIES.map((category, index) => (
             <button
-              key={cat.id}
-              onClick={() => handleCategoryClick(idx)}
-              title={getCatLabel(cat)}
+              key={category.id}
+              type="button"
+              onClick={() => handleCategoryClick(index)}
+              title={getCatLabel(category)}
               className={`w-9 h-9 flex items-center justify-center rounded-md text-lg hover:bg-muted transition-colors ${
-                activeCategory === idx && !search ? "bg-muted ring-1 ring-ring/30" : ""
+                activeCategory === index && !search ? "bg-muted ring-1 ring-ring/30" : ""
               }`}
             >
-              {cat.icon}
+              {category.icon}
             </button>
           ))}
         </div>
 
-        {/* Emoji grid */}
         <div
           ref={gridRef}
           className="emoji-picker-grid flex-1 overflow-y-auto px-2 py-1"
@@ -141,7 +148,8 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
                 {searchResults.map(({ code, emoji }) => (
                   <button
                     key={code}
-                    onClick={() => handleSelect(emoji)}
+                    type="button"
+                    onClick={() => onSelect(emoji)}
                     title={`:${code}:`}
                     className="w-9 h-9 flex items-center justify-center text-base hover:bg-muted rounded-md cursor-pointer transition-colors"
                   >
@@ -156,19 +164,20 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
               )}
             </>
           ) : (
-            EMOJI_CATEGORIES.map((cat, idx) => (
+            EMOJI_CATEGORIES.map((category, index) => (
               <div
-                key={cat.id}
-                ref={(el) => { sectionRefs.current[idx] = el; }}
+                key={category.id}
+                ref={(element) => { sectionRefs.current[index] = element; }}
               >
                 <div className="text-xs text-muted-foreground sticky top-0 bg-popover py-1 px-1 font-medium">
-                  {getCatLabel(cat)}
+                  {getCatLabel(category)}
                 </div>
                 <div className="grid grid-cols-8 gap-1">
-                  {Object.entries(cat.emojis).map(([code, emoji]) => (
+                  {Object.entries(category.emojis).map(([code, emoji]) => (
                     <button
                       key={code}
-                      onClick={() => handleSelect(emoji)}
+                      type="button"
+                      onClick={() => onSelect(emoji)}
                       title={`:${code}:`}
                       className="w-9 h-9 flex items-center justify-center text-base hover:bg-muted rounded-md cursor-pointer transition-colors"
                     >

@@ -87,6 +87,21 @@ interface NotevaSiteInfo {
   [key: string]: any; // 透传全部后端字段
 }
 
+interface NotevaInjectedSiteConfig {
+  site_name?: string;
+  site_description?: string;
+  site_subtitle?: string;
+  site_logo?: string;
+  site_footer?: string;
+  [key: string]: unknown;
+}
+
+interface NotevaCustomLocale {
+  code: string;
+  name: string;
+  translations: Record<string, unknown>;
+}
+
 interface NotevaNavItem {
   id: number;
   name: string;
@@ -358,6 +373,8 @@ interface NotevaSDK {
 declare global {
   interface Window {
     Noteva: NotevaSDK;
+    __SITE_CONFIG__?: NotevaInjectedSiteConfig;
+    __CUSTOM_LOCALES__?: NotevaCustomLocale[];
   }
 }
 

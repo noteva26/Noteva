@@ -4,6 +4,36 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.2.6] - 2026-04-26
+
+### Highlights
+- **Admin dashboard and default theme upgraded to React 19** - Both frontends now use React 19 / React DOM 19, with TypeScript, build, and component compatibility updates.
+- **Admin dashboard UX improvements** - Improved loading states and interaction details across articles, categories, tags, pages, navigation, comments, files, plugins, themes, and security logs, reducing skeleton flicker and repeated full-page loading.
+- **Default theme reading experience redesigned** - The post page now behaves more like a reading page than a detail view, with the top back button removed and improvements to content width, table of contents placement, line height, paragraph spacing, and information density.
+
+### Admin Dashboard
+- **List-page loading states refined** - Multiple management list pages now use first-load skeletons plus lightweight sync indicators for later refreshes, avoiding full-page flicker while filtering or reloading data.
+- **Shared admin primitives added** - Added reusable page header, data sync bar, and confirmation dialog components to reduce duplicated UI logic.
+- **Confirmation flows improved** - Replaced selected native `confirm` / `alert` usage with consistent in-app confirmation flows for delete and batch operations.
+- **Shared helpers extracted** - Added common helpers for API error parsing, formatting, and GitHub-related utilities to reduce page-level duplication.
+- **React Compiler experiment gate** - Added a gated React Compiler build path for the admin dashboard via `REACT_COMPILER=1`; it remains disabled by default.
+
+### Default Theme
+- **Post reading layout improved** - The article column is wider and more comfortable for reading; posts with a table of contents use a right-side sticky rail, while posts without a TOC fall back to a centered single-column layout.
+- **Reading density tuned** - Tightened body line height, paragraph spacing, heading spacing, and content-card padding to reduce unused whitespace and improve long-form reading flow, especially for Chinese content.
+- **Article summary cards unified** - Added a shared article summary card used by the home page, category detail page, and tag detail page for consistent title, excerpt, thumbnail, category, tag, and interaction metadata display.
+- **Category, tag, and archive pages refined** - Category/tag index and detail pages now work better as content indexes; the archive page now uses a more compact timeline-style article index.
+- **SDK readiness logic unified** - Consolidated scattered SDK polling into `waitForNoteva()`, reducing repeated `setTimeout` loops, state updates after unmount, and page flicker risks.
+- **Comments and emoji loading refined** - Comments and the emoji picker now use the shared SDK readiness flow while keeping the React 19 `useOptimistic` comment submission experience.
+- **Header and footer polished** - The header now has active navigation states, closes the mobile menu on route changes, and reads injected site config more consistently; the default footer copyright no longer depends on HTML injection.
+
+### Build & CI
+- **CI build order fixed** - CI now builds `web/dist` and `themes/default/dist` before running Rust `cargo check` / `cargo test`, fixing `rust-embed` failures when dist directories are missing.
+- **Frontend chunk splitting improved** - Admin dashboard and default theme Vite builds split React, UI, Motion, and other dependencies into stable vendor chunks, reducing the main entry size and improving browser cache behavior.
+- **Version unified to 0.2.6** - Updated `Cargo.toml`, `Cargo.lock`, root `package.json`, `web/package.json`, `themes/default/package.json`, the default theme `theme.json`, and the SDK built-in version.
+
+---
+
 ## [v0.2.5] - 2026-04-25
 
 ### Security

@@ -6,24 +6,28 @@ import {
     useImperativeHandle,
     useState,
     useMemo,
+    lazy,
+    Suspense,
 } from "react";
 import { createPortal } from "react-dom";
 import { EditorView, keymap, placeholder as cmPlaceholder, ViewUpdate } from "@codemirror/view";
 import { EditorState, Compartment } from "@codemirror/state";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { languages } from "@codemirror/language-data";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { defaultKeymap, history, historyKeymap, undo, redo } from "@codemirror/commands";
 import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
 import { uploadApi, filesApi, type FileInfo } from "@/lib/api";
-import { EMOJI_MAP } from "@/lib/emoji-data";
-import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2 } from "lucide-react";
 import { useI18nStore, type Locale, t as i18nT } from "@/lib/i18n";
-import twemoji from "@twemoji/api";
 import { toast } from "sonner";
+
+const EmojiPicker = lazy(() =>
+    import("@/components/ui/emoji-picker").then((module) => ({
+        default: module.EmojiPicker,
+    }))
+);
 
 // Resolve plugin label: supports string or { "zh-CN": "...", "en": "..." } object
 function resolveLabel(label: string | Record<string, string>, locale: Locale): string {
@@ -125,6 +129,14 @@ function insertText(view: EditorView, text: string) {
     view.focus();
 }
 
+function parseTwemoji(element: HTMLElement | null) {
+    if (!element) return;
+
+    void import("@twemoji/api").then((module) => {
+        module.default.parse(element, { folder: "svg", ext: ".svg" });
+    });
+}
+
 // ── Component ───────────────────────────────────────────────
 const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
     ({ initialValue = "", onChange, pluginButtons = [], placeholder, minHeight = 400 }, ref) => {
@@ -132,9 +144,12 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         const viewRef = useRef<EditorView | null>(null);
         const onChangeRef = useRef(onChange);
         const initialValueRef = useRef(initialValue);
+        const minHeightRef = useRef(minHeight);
+        const placeholderRef = useRef(placeholder || "");
         const showPreviewRef = useRef(false);
         const mobileTabRef = useRef<"edit" | "preview">("edit");
         const fetchPreviewRef = useRef<(content: string) => void>(() => { });
+        const handleFileUploadRef = useRef<(file: File) => Promise<void>>(async () => { });
         const locale = useI18nStore((s) => s.locale);
 
         const [showPreview, setShowPreview] = useState(false);
@@ -152,6 +167,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         const [pluginMenuOpen, setPluginMenuOpen] = useState(false);
         const pluginMenuRef = useRef<HTMLDivElement>(null);
         const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+        const previewAbortRef = useRef<AbortController | null>(null);
+        const previewRequestIdRef = useRef(0);
         const wrapperRef = useRef<HTMLDivElement>(null);
         const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
         const [isDragOver, setIsDragOver] = useState(false);
@@ -189,24 +206,49 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
 
         // ── Preview fetch (debounced) ───────────────────────────
         const fetchPreview = useCallback((content: string) => {
+            const requestId = ++previewRequestIdRef.current;
+            previewAbortRef.current?.abort();
             if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
             previewTimerRef.current = setTimeout(async () => {
-                if (!content.trim()) { setPreviewHtml(""); return; }
+                if (!content.trim()) {
+                    setPreviewHtml("");
+                    setPreviewLoading(false);
+                    return;
+                }
+                const controller = new AbortController();
+                previewAbortRef.current = controller;
                 setPreviewLoading(true);
                 try {
                     const res = await fetch("/api/v1/site/render", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ content }),
+                        signal: controller.signal,
                     });
                     const data = await res.json();
+                    if (requestId !== previewRequestIdRef.current) return;
                     setPreviewHtml(data.html || "");
                 } catch {
+                    if (controller.signal.aborted || requestId !== previewRequestIdRef.current) return;
                     setPreviewHtml("<p style='color:red'>Preview failed</p>");
                 } finally {
-                    setPreviewLoading(false);
+                    if (requestId === previewRequestIdRef.current) {
+                        setPreviewLoading(false);
+                        if (previewAbortRef.current === controller) {
+                            previewAbortRef.current = null;
+                        }
+                    }
                 }
             }, 400);
+        }, []);
+
+        useEffect(() => {
+            return () => {
+                previewAbortRef.current?.abort();
+                if (previewTimerRef.current) {
+                    clearTimeout(previewTimerRef.current);
+                }
+            };
         }, []);
 
         // Keep fetchPreview ref in sync
@@ -234,14 +276,14 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 extensions: [
                     history(),
                     keymap.of([...defaultKeymap, ...historyKeymap]),
-                    markdown({ base: markdownLanguage, codeLanguages: languages }),
+                    markdown({ base: markdownLanguage }),
                     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
                     themeCompartment.of(isDark ? oneDark : lightTheme()),
                     EditorView.lineWrapping,
-                    cmPlaceholder(placeholder || ""),
+                    cmPlaceholder(placeholderRef.current),
                     updateListener,
                     EditorView.theme({
-                        ".cm-editor": { minHeight: `${minHeight}px` },
+                        ".cm-editor": { minHeight: `${minHeightRef.current}px` },
                         ".cm-scroller": { overflow: "auto" },
                     }),
                 ],
@@ -262,7 +304,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                     if (item.kind === "file") {
                         e.preventDefault();
                         const file = item.getAsFile();
-                        if (file) await handleFileUpload(file);
+                        if (file) await handleFileUploadRef.current(file);
                         break;
                     }
                 }
@@ -273,7 +315,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 if (!files || files.length === 0) return;
                 e.preventDefault();
                 for (const file of Array.from(files)) {
-                    await handleFileUpload(file);
+                    await handleFileUploadRef.current(file);
                 }
             };
 
@@ -287,7 +329,6 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 view.destroy();
                 viewRef.current = null;
             };
-            // eslint-disable-next-line react-hooks/exhaustive-deps
         }, []);
 
         // ── Dark mode sync ──────────────────────────────────────
@@ -384,12 +425,13 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                     insertText(view, `[file name="${file.name}" size="${sizeStr}" url="${data.url}" /]`);
                     setUploadPanelOpen(false);
                 }
-            } catch (e: any) {
-                console.error("Upload failed:", e);
+            } catch (error) {
+                console.error("Upload failed:", error);
             } finally {
                 setUploading(false);
             }
         };
+        handleFileUploadRef.current = handleFileUpload;
 
         // Insert image with optional resize
         const insertImageWithSize = (name: string, url: string, size: string) => {
@@ -517,7 +559,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 ) : previewHtml ? (
                     <div
                         dangerouslySetInnerHTML={{ __html: previewHtml }}
-                        ref={(el) => { if (el) twemoji.parse(el, { folder: "svg", ext: ".svg" }); }}
+                        ref={parseTwemoji}
                     />
                 ) : (
                     <p className="text-muted-foreground">{i18nT("editor.previewEmpty")}</p>
@@ -804,7 +846,15 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                                 style={{ position: "fixed", top: emojiPickerPos.top, left: emojiPickerPos.left, zIndex: 61 }}
                                 onClick={(e) => e.stopPropagation()}
                             >
-                                <EmojiPicker onSelect={handleEmojiSelect} onClose={() => setEmojiPickerOpen(false)} />
+                                <Suspense
+                                    fallback={
+                                        <div className="flex h-[300px] w-[360px] items-center justify-center rounded-lg border bg-popover shadow-xl">
+                                            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                                        </div>
+                                    }
+                                >
+                                    <EmojiPicker onSelect={handleEmojiSelect} onClose={() => setEmojiPickerOpen(false)} />
+                                </Suspense>
                             </div>
                         </div>,
                         document.body

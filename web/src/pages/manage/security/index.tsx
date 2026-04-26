@@ -1,5 +1,5 @@
-﻿import { useEffect, useState } from "react";
-import { adminApi, LoginLogEntry } from "@/lib/api";
+import { useEffect, useState, useTransition } from "react";
+import { adminApi, type LoginLogEntry } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -12,79 +12,100 @@ import { toast } from "sonner";
 import { Shield, Search, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Loader2 } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { DataSyncBadge, DataSyncBar } from "@/components/admin/data-sync-bar";
+import { getApiErrorMessage } from "@/lib/api-error";
+import { formatDateTime } from "@/lib/format";
 
-// Add CSS animation
-const style = `
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-`;
+interface LoginLogFilters {
+  username: string;
+  ipAddress: string;
+  success: string;
+}
+
+const EMPTY_FILTERS: LoginLogFilters = {
+  username: "",
+  ipAddress: "",
+  success: "all",
+};
 
 export default function SecurityPage() {
   const { t, locale } = useTranslation();
   const [logs, setLogs] = useState<LoginLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [total, setTotal] = useState(0);
   const [successCount, setSuccessCount] = useState(0);
   const [failedCount, setFailedCount] = useState(0);
   const [page, setPage] = useState(1);
   const [perPage] = useState(20);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isFilterPending, startFilterTransition] = useTransition();
 
   // Filters
-  const [usernameFilter, setUsernameFilter] = useState("");
-  const [ipFilter, setIpFilter] = useState("");
-  const [successFilter, setSuccessFilter] = useState<string>("all");
-
-  const fetchLogs = async () => {
-    setLoading(true);
-    try {
-      const params: any = { page, per_page: perPage };
-      if (usernameFilter.trim()) params.username = usernameFilter.trim();
-      if (ipFilter.trim()) params.ip_address = ipFilter.trim();
-      if (successFilter !== "all") {
-        params.success = successFilter === "success";
-      }
-
-      const { data } = await adminApi.getLoginLogs(params);
-      setLogs(data.logs);
-      setTotal(data.total);
-      setSuccessCount(data.success_count);
-      setFailedCount(data.failed_count);
-    } catch (error: any) {
-      toast.error(error.response?.data?.error?.message || t("error.loadFailed"));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [filters, setFilters] = useState<LoginLogFilters>(EMPTY_FILTERS);
+  const [appliedFilters, setAppliedFilters] = useState<LoginLogFilters>(EMPTY_FILTERS);
 
   useEffect(() => {
+    let active = true;
+
+    const fetchLogs = async () => {
+      setLoading(true);
+      try {
+        const params: Parameters<typeof adminApi.getLoginLogs>[0] = { page, per_page: perPage };
+        if (appliedFilters.username.trim()) params.username = appliedFilters.username.trim();
+        if (appliedFilters.ipAddress.trim()) params.ip_address = appliedFilters.ipAddress.trim();
+        if (appliedFilters.success !== "all") {
+          params.success = appliedFilters.success === "success";
+        }
+
+        const { data } = await adminApi.getLoginLogs(params);
+        if (!active) return;
+
+        setLogs(data.logs);
+        setTotal(data.total);
+        setSuccessCount(data.success_count);
+        setFailedCount(data.failed_count);
+      } catch (error) {
+        if (active) {
+          toast.error(getApiErrorMessage(error, t("error.loadFailed")));
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+          setHasLoaded(true);
+        }
+      }
+    };
+
     fetchLogs();
-  }, [page]);
+    return () => {
+      active = false;
+    };
+  }, [appliedFilters, page, perPage, refreshKey, t]);
 
   const handleSearch = () => {
-    setPage(1);
-    fetchLogs();
+    startFilterTransition(() => {
+      setPage(1);
+      setAppliedFilters({
+        username: filters.username.trim(),
+        ipAddress: filters.ipAddress.trim(),
+        success: filters.success,
+      });
+      setRefreshKey((key) => key + 1);
+    });
   };
 
   const handleReset = () => {
-    setUsernameFilter("");
-    setIpFilter("");
-    setSuccessFilter("all");
-    setPage(1);
-    setTimeout(fetchLogs, 0);
+    startFilterTransition(() => {
+      setFilters(EMPTY_FILTERS);
+      setAppliedFilters(EMPTY_FILTERS);
+      setPage(1);
+      setRefreshKey((key) => key + 1);
+    });
   };
 
   const formatDate = (dateStr: string) => {
-    try {
-      const date = new Date(dateStr);
-      return date.toLocaleString(locale, {
+    return formatDateTime(dateStr, locale, {
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -92,16 +113,14 @@ export default function SecurityPage() {
         minute: "2-digit",
         second: "2-digit",
       });
-    } catch {
-      return dateStr;
-    }
   };
 
-  const totalPages = Math.ceil(total / perPage);
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const showInitialLoading = loading && !hasLoaded;
+  const isSyncing = (loading && hasLoaded) || isFilterPending;
+  const isBusy = showInitialLoading || isFilterPending;
 
   return (
-    <>
-      <style>{style}</style>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -113,11 +132,12 @@ export default function SecurityPage() {
               {t("security.description")}
             </p>
           </div>
-          <Button onClick={fetchLogs} variant="outline" size="sm" disabled={loading}>
-            <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
+          <Button onClick={() => setRefreshKey((key) => key + 1)} variant="outline" size="sm" disabled={isSyncing}>
+            <RefreshCw className={cn("h-4 w-4 mr-2", isSyncing && "animate-spin")} />
             {t("common.refresh")}
           </Button>
         </div>
+        <DataSyncBadge active={isSyncing} label={t("common.loading")} />
 
         {/* Filters */}
         <Card className="transition-all hover:shadow-md">
@@ -131,8 +151,8 @@ export default function SecurityPage() {
                 <Input
                   id="username"
                   placeholder={t("security.searchUsername")}
-                  value={usernameFilter}
-                  onChange={(e) => setUsernameFilter(e.target.value)}
+                  value={filters.username}
+                  onChange={(e) => setFilters((current) => ({ ...current, username: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                 />
               </div>
@@ -142,15 +162,15 @@ export default function SecurityPage() {
                 <Input
                   id="ip"
                   placeholder={t("security.searchIp")}
-                  value={ipFilter}
-                  onChange={(e) => setIpFilter(e.target.value)}
+                  value={filters.ipAddress}
+                  onChange={(e) => setFilters((current) => ({ ...current, ipAddress: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                 />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="status">{t("security.status")}</Label>
-                <Select value={successFilter} onValueChange={setSuccessFilter}>
+                <Select value={filters.success} onValueChange={(success) => setFilters((current) => ({ ...current, success }))}>
                   <SelectTrigger id="status">
                     <SelectValue />
                   </SelectTrigger>
@@ -163,15 +183,15 @@ export default function SecurityPage() {
               </div>
 
               <div className="space-y-2 flex items-end gap-2">
-                <Button onClick={handleSearch} className="flex-1" disabled={loading}>
-                  {loading ? (
+                <Button onClick={handleSearch} className="flex-1" disabled={isBusy}>
+                  {isBusy ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
                     <Search className="h-4 w-4 mr-2" />
                   )}
                   {t("common.search")}
                 </Button>
-                <Button onClick={handleReset} variant="outline" disabled={loading}>
+                <Button onClick={handleReset} variant="outline" disabled={isBusy}>
                   {t("common.reset")}
                 </Button>
               </div>
@@ -214,7 +234,8 @@ export default function SecurityPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {loading ? (
+            <DataSyncBar active={isSyncing} label={t("common.loading")} className="mb-3" />
+            {showInitialLoading ? (
               <div className="space-y-2">
                 {[...Array(5)].map((_, i) => (
                   <Skeleton key={i} className="h-12 w-full" />
@@ -228,7 +249,7 @@ export default function SecurityPage() {
             ) : (
               <>
                 <div className="rounded-md border">
-                  <Table>
+                  <Table className={cn(isSyncing && "opacity-70 transition-opacity")}>
                     <TableHeader>
                       <TableRow>
                         <TableHead>{t("security.status")}</TableHead>
@@ -240,13 +261,10 @@ export default function SecurityPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {logs.map((log, index) => (
+                      {logs.map((log) => (
                         <TableRow
                           key={log.id}
                           className="transition-colors hover:bg-muted/50"
-                          style={{
-                            animation: `fadeIn 0.3s ease-in-out ${index * 0.05}s both`
-                          }}
                         >
                           <TableCell>
                             {log.success ? (
@@ -295,7 +313,7 @@ export default function SecurityPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => setPage(p => Math.max(1, p - 1))}
-                        disabled={page === 1 || loading}
+                      disabled={page === 1 || showInitialLoading}
                       >
                         {t("pagination.prev")}
                       </Button>
@@ -303,7 +321,7 @@ export default function SecurityPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                        disabled={page >= totalPages || loading}
+                        disabled={page >= totalPages || showInitialLoading}
                       >
                         {t("pagination.next")}
                       </Button>
@@ -315,7 +333,6 @@ export default function SecurityPage() {
           </CardContent>
         </Card>
       </div>
-    </>
   );
 }
 

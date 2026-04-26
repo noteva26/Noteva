@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useMemo } from "react";
+import { lazy, Suspense, startTransition, useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   articlesApi,
@@ -35,7 +35,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
-import MarkdownEditor, { type MarkdownEditorRef } from "@/components/ui/markdown-editor";
+import type { MarkdownEditorRef } from "@/components/ui/markdown-editor";
+
+const MarkdownEditor = lazy(() => import("@/components/ui/markdown-editor"));
+
+function EditorFallback() {
+  return <Skeleton className="h-[400px] w-full" />;
+}
 
 interface PluginEditorButton {
   id: string;
@@ -51,6 +57,40 @@ interface EnabledPluginInfo {
   editor_config?: {
     toolbar?: PluginEditorButton[];
   };
+}
+
+type ArticleStatus = "draft" | "published" | "archived";
+type ArticleSubmitStatus = "draft" | "published";
+
+interface ArticleFormState {
+  title: string;
+  slug: string;
+  content: string;
+  status: ArticleStatus;
+  category_id: number;
+  thumbnail: string | null;
+  is_pinned: boolean;
+  pin_order: number;
+  scheduled_at: string;
+}
+
+type SaveState =
+  | { type: "idle" }
+  | {
+    type: "success";
+    status: ArticleSubmitStatus;
+    savedFingerprint: string;
+    submittedAt: number;
+  }
+  | { type: "error"; message: string; submittedAt: number };
+
+const INITIAL_SAVE_STATE: SaveState = { type: "idle" };
+
+function createArticleFingerprint(form: ArticleFormState, selectedTags: number[]) {
+  return JSON.stringify({
+    ...form,
+    selectedTags,
+  });
 }
 
 function extractImages(content: string): string[] {
@@ -71,23 +111,19 @@ export default function EditArticlePage() {
   const editorRef = useRef<MarkdownEditorRef>(null);
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTags, setSelectedTags] = useState<number[]>([]);
   const [pluginButtons, setPluginButtons] = useState<PluginEditorButton[]>([]);
 
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [lastSavedContent, setLastSavedContent] = useState("");
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
-  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [lastSavedFingerprint, setLastSavedFingerprint] = useState("");
+  const [autoSaveEnabled] = useState(true);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<ArticleFormState>({
     title: "",
     slug: "",
     content: "",
-    status: "draft" as "draft" | "published" | "archived",
+    status: "draft",
     category_id: 0,
     thumbnail: null as string | null,
     is_pinned: false,
@@ -96,13 +132,8 @@ export default function EditArticlePage() {
   });
 
   const contentImages = useMemo(() => extractImages(form.content), [form.content]);
-
-  useEffect(() => {
-    if (!loading && lastSavedContent) {
-      const currentState = JSON.stringify({ ...form, selectedTags });
-      setHasUnsavedChanges(currentState !== lastSavedContent);
-    }
-  }, [form, selectedTags, lastSavedContent, loading]);
+  const currentFingerprint = useMemo(() => createArticleFingerprint(form, selectedTags), [form, selectedTags]);
+  const hasUnsavedChanges = !loading && !!lastSavedFingerprint && currentFingerprint !== lastSavedFingerprint;
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -118,35 +149,42 @@ export default function EditArticlePage() {
   useEffect(() => {
     if (!autoSaveEnabled || !hasUnsavedChanges || !articleId || form.status === "published") return;
 
-    autoSaveTimerRef.current = setTimeout(async () => {
-      if (hasUnsavedChanges && form.title.trim()) {
+    const timer = window.setTimeout(async () => {
+      const editorContent = editorRef.current?.getValue() ?? form.content;
+      const currentForm = { ...form, content: editorContent };
+
+      if (currentForm.title.trim()) {
         try {
           const data: UpdateArticleInput = {
-            title: form.title, slug: form.slug, content: form.content,
-            status: form.status, category_id: form.category_id,
-            tag_ids: selectedTags, thumbnail: form.thumbnail,
-            is_pinned: form.is_pinned, pin_order: form.pin_order,
-            scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : undefined,
+            title: currentForm.title, slug: currentForm.slug, content: currentForm.content,
+            status: currentForm.status, category_id: currentForm.category_id,
+            tag_ids: selectedTags, thumbnail: currentForm.thumbnail,
+            is_pinned: currentForm.is_pinned, pin_order: currentForm.pin_order,
+            scheduled_at: currentForm.scheduled_at ? new Date(currentForm.scheduled_at).toISOString() : undefined,
           };
           await articlesApi.update(articleId, data);
-          setLastSavedContent(JSON.stringify({ ...form, selectedTags }));
-          setHasUnsavedChanges(false);
+          setForm(currentForm);
+          setLastSavedFingerprint(createArticleFingerprint(currentForm, selectedTags));
           toast.success(t("article.autoSaved"), { duration: 2000 });
         } catch { }
       }
     }, 30000);
 
-    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
+    return () => window.clearTimeout(timer);
   }, [hasUnsavedChanges, autoSaveEnabled, articleId, form, selectedTags, t]);
 
   useEffect(() => {
     if (!articleId) return;
+    let active = true;
+
     const fetchData = async () => {
       try {
         const [catRes, tagRes, articleRes, pluginsRes] = await Promise.all([
           categoriesApi.list(), tagsApi.list(), articlesApi.getById(articleId),
           fetch("/api/v1/plugins/enabled").then(r => r.json()).catch(() => []),
         ]);
+        if (!active) return;
+
         setCategories(catRes.data.categories);
         setTags(tagRes.data.tags);
         const buttons: PluginEditorButton[] = [];
@@ -157,7 +195,7 @@ export default function EditArticlePage() {
         }
         setPluginButtons(buttons);
         const article = articleRes.data;
-        const formData = {
+        const formData: ArticleFormState = {
           title: article.title, slug: article.slug, content: article.content,
           status: article.status, category_id: article.category_id,
           thumbnail: article.thumbnail || null,
@@ -167,47 +205,75 @@ export default function EditArticlePage() {
         const tagIds = article.tags?.map((tag) => tag.id) || [];
         setForm(formData);
         setSelectedTags(tagIds);
-        setLastSavedContent(JSON.stringify({ ...formData, selectedTags: tagIds }));
-      } catch (error) {
+        setLastSavedFingerprint(createArticleFingerprint(formData, tagIds));
+      } catch {
+        if (!active) return;
         toast.error(t("error.loadFailed"));
         navigate("/manage/articles");
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
+
     fetchData();
-  }, [articleId, navigate]);
+    return () => {
+      active = false;
+    };
+  }, [articleId, navigate, t]);
+
+  const [saveState, saveArticle, isSaving] = useActionState<SaveState, ArticleSubmitStatus>(
+    async (_prevState, status) => {
+      const editorContent = editorRef.current?.getValue() ?? form.content;
+      const currentForm: ArticleFormState = { ...form, content: editorContent, status };
+
+      if (!currentForm.title.trim()) {
+        return { type: "error", message: `${t("article.title")} ${t("common.error")}`, submittedAt: Date.now() };
+      }
+
+      try {
+        const data: UpdateArticleInput = {
+          title: currentForm.title, slug: currentForm.slug, content: currentForm.content,
+          status, category_id: currentForm.category_id,
+          tag_ids: selectedTags, thumbnail: currentForm.thumbnail,
+          is_pinned: currentForm.is_pinned, pin_order: currentForm.pin_order,
+          scheduled_at: currentForm.scheduled_at ? new Date(currentForm.scheduled_at).toISOString() : undefined,
+        };
+        await articlesApi.update(articleId, data);
+        setForm(currentForm);
+        return {
+          type: "success",
+          status,
+          savedFingerprint: createArticleFingerprint(currentForm, selectedTags),
+          submittedAt: Date.now(),
+        };
+      } catch {
+        return { type: "error", message: t("article.saveFailed"), submittedAt: Date.now() };
+      }
+    },
+    INITIAL_SAVE_STATE
+  );
+
+  useEffect(() => {
+    if (saveState.type === "error") {
+      toast.error(saveState.message);
+      return;
+    }
+
+    if (saveState.type !== "success") return;
+
+    setLastSavedFingerprint(saveState.savedFingerprint);
+    toast.success(saveState.status === "published" ? t("article.publishSuccess") : t("article.saveSuccess"));
+  }, [saveState, t]);
 
   const toggleTag = (tagId: number) => {
     setSelectedTags((prev) => prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]);
   };
 
-  const handleSubmit = async (status?: "draft" | "published" | "archived") => {
-    // Sync content from editor before submit
-    const editorContent = editorRef.current?.getValue() || form.content;
-    const currentForm = { ...form, content: editorContent };
-
-    if (!currentForm.title.trim()) { toast.error(t("article.title") + " " + t("common.error")); return; }
-    setSaving(true);
-    setSaveSuccess(false);
-    try {
-      const data: UpdateArticleInput = {
-        title: currentForm.title, slug: currentForm.slug, content: currentForm.content,
-        status: status || currentForm.status, category_id: currentForm.category_id,
-        tag_ids: selectedTags, thumbnail: currentForm.thumbnail,
-        is_pinned: currentForm.is_pinned, pin_order: currentForm.pin_order,
-        scheduled_at: currentForm.scheduled_at ? new Date(currentForm.scheduled_at).toISOString() : undefined,
-      };
-      await articlesApi.update(articleId, data);
-      const newForm = { ...currentForm, status: status || currentForm.status };
-      setForm(newForm);
-      setLastSavedContent(JSON.stringify({ ...newForm, selectedTags }));
-      setHasUnsavedChanges(false);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2000);
-      toast.success(status === "published" ? t("article.publishSuccess") : t("article.saveSuccess"));
-    } catch (error) { toast.error(t("article.saveFailed")); }
-    finally { setSaving(false); }
+  const handleSubmit = (status: ArticleSubmitStatus) => {
+    if (isSaving) return;
+    startTransition(() => {
+      saveArticle(status);
+    });
   };
 
   const handleDelete = async () => {
@@ -217,6 +283,9 @@ export default function EditArticlePage() {
       navigate("/manage/articles");
     } catch (error) { toast.error(t("article.deleteFailed")); }
   };
+
+  const saveSucceeded = saveState.type === "success" && !hasUnsavedChanges;
+  const canSubmit = hasUnsavedChanges;
 
   if (loading) {
     return (
@@ -269,12 +338,12 @@ export default function EditArticlePage() {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          <Button variant="outline" onClick={() => handleSubmit("draft")} disabled={saving || !hasUnsavedChanges}>
-            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saveSuccess ? <Check className="h-4 w-4 mr-2 text-green-500" /> : <Save className="h-4 w-4 mr-2" />}
+          <Button variant="outline" onClick={() => handleSubmit("draft")} disabled={isSaving || !canSubmit}>
+            {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saveSucceeded ? <Check className="h-4 w-4 mr-2 text-green-500" /> : <Save className="h-4 w-4 mr-2" />}
             {t("article.saveDraft")}
           </Button>
-          <Button onClick={() => handleSubmit("published")} disabled={saving || !hasUnsavedChanges}>
-            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saveSuccess ? <Check className="h-4 w-4 mr-2" /> : null}
+          <Button onClick={() => handleSubmit("published")} disabled={isSaving || !canSubmit}>
+            {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saveSucceeded ? <Check className="h-4 w-4 mr-2" /> : null}
             {form.status === "published" ? t("article.update") : t("article.publish")}
           </Button>
         </div>
@@ -292,14 +361,16 @@ export default function EditArticlePage() {
           </div>
           <div className="space-y-2">
             <Label>{t("article.content")}</Label>
-            <MarkdownEditor
-              ref={editorRef}
-              initialValue={form.content}
-              onChange={(value: string) => setForm((f) => ({ ...f, content: value }))}
-              pluginButtons={pluginButtons}
-              placeholder={t("article.useMarkdown")}
-              minHeight={400}
-            />
+            <Suspense fallback={<EditorFallback />}>
+              <MarkdownEditor
+                ref={editorRef}
+                initialValue={form.content}
+                onChange={(value: string) => setForm((f) => ({ ...f, content: value }))}
+                pluginButtons={pluginButtons}
+                placeholder={t("article.useMarkdown")}
+                minHeight={400}
+              />
+            </Suspense>
           </div>
         </div>
 
@@ -332,7 +403,7 @@ export default function EditArticlePage() {
           <Card>
             <CardHeader><CardTitle className="text-base">{t("article.status")}</CardTitle></CardHeader>
             <CardContent>
-              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as typeof form.status }))}>
+              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as ArticleStatus }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="draft">{t("article.draft")}</SelectItem>

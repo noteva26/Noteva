@@ -1,36 +1,35 @@
 import { useEffect, useRef } from "react";
+import { waitForNoteva } from "@/hooks/useNoteva";
 
 interface PluginSlotProps {
   name: string;
   className?: string;
 }
 
-/**
- * 插件注入点组件
- */
 export function PluginSlot({ name, className }: PluginSlotProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!ref.current) return;
-    
-    const tryRender = () => {
-      if ((window as any).Noteva) {
-        (window as any).Noteva.slots.render(name, ref.current);
-      } else {
-        setTimeout(tryRender, 100);
-      }
+    let active = true;
+
+    const renderSlot = async () => {
+      const element = ref.current;
+      if (!element) return;
+
+      const sdk = await waitForNoteva({ timeout: 5_000 });
+      if (!active || !sdk || !ref.current) return;
+
+      sdk.slots.render(name, ref.current);
     };
-    tryRender();
+
+    void renderSlot();
+
+    return () => {
+      active = false;
+    };
   }, [name]);
 
-  return (
-    <div
-      ref={ref}
-      data-noteva-slot={name}
-      className={className}
-    />
-  );
+  return <div ref={ref} data-noteva-slot={name} className={className} />;
 }
 
 export default PluginSlot;

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Smile } from "lucide-react";
-import { getNoteva } from "@/hooks/useNoteva";
+import { getNoteva, waitForNoteva } from "@/hooks/useNoteva";
 
 interface ResolvedCategory {
   id: string;
@@ -28,15 +28,20 @@ export function EmojiPicker({ onSelect }: EmojiPickerProps) {
   // Load categories from SDK when picker opens
   useEffect(() => {
     if (!open) return;
-    const load = () => {
-      const Noteva = getNoteva();
-      if (Noteva?.emoji) {
+
+    let active = true;
+    const load = async () => {
+      const Noteva = await waitForNoteva();
+      if (active && Noteva?.emoji) {
         setCategories(Noteva.emoji.getCategories());
-      } else {
-        setTimeout(load, 50);
       }
     };
-    load();
+
+    void load();
+
+    return () => {
+      active = false;
+    };
   }, [open]);
 
   // Click outside to close

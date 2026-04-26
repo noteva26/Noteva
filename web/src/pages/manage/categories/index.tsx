@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { motion } from "motion/react";
 import { categoriesApi, Category, CreateCategoryInput } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -27,11 +27,21 @@ import { Plus, Edit, Trash2, FolderTree } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import { EmptyState } from "@/components/ui/empty-state";
+import { DataSyncBadge, DataSyncBar } from "@/components/admin/data-sync-bar";
 
 export default function CategoriesPage() {
   const { t } = useTranslation();
   const [categories, setCategories] = useState<Category[]>([]);
+  const [optimisticCategories, removeOptimisticCategories] = useOptimistic(
+    categories,
+    (currentCategories, categoryIds: Set<number>) =>
+      currentCategories.filter((category) => !categoryIds.has(category.id))
+  );
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, startRefreshTransition] = useTransition();
+  const [isMutating, startMutationTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -43,22 +53,40 @@ export default function CategoriesPage() {
     description: "",
   });
 
-  const fetchCategories = async () => {
-    try {
-      const response = await categoriesApi.list();
-      const cats = response.data?.categories || [];
-      setCategories(Array.isArray(cats) ? cats : []);
-    } catch (error) {
-      toast.error(t("error.loadFailed"));
-      setCategories([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    let active = true;
+
+    const fetchCategories = async () => {
+      try {
+        setLoading(true);
+        const response = await categoriesApi.list();
+        if (!active) return;
+
+        const cats = response.data?.categories || [];
+        setCategories(Array.isArray(cats) ? cats : []);
+      } catch {
+        if (!active) return;
+        toast.error(t("error.loadFailed"));
+        setCategories([]);
+      } finally {
+        if (active) {
+          setLoading(false);
+          setHasLoaded(true);
+        }
+      }
+    };
+
     fetchCategories();
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [refreshKey, t]);
+
+  const refreshCategories = () => {
+    startRefreshTransition(() => {
+      setRefreshKey((key) => key + 1);
+    });
+  };
 
   const openCreateDialog = () => {
     setEditingCategory(null);
@@ -76,38 +104,56 @@ export default function CategoriesPage() {
     setDialogOpen(true);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!form.name.trim()) {
       toast.error(t("category.name"));
       return;
     }
-    try {
-      if (editingCategory) {
-        await categoriesApi.update(editingCategory.id, form);
-        toast.success(t("category.updateSuccess"));
-      } else {
-        await categoriesApi.create(form as CreateCategoryInput);
-        toast.success(t("category.createSuccess"));
+
+    startMutationTransition(async () => {
+      try {
+        if (editingCategory) {
+          const response = await categoriesApi.update(editingCategory.id, form);
+          setCategories((current) =>
+            current.map((category) =>
+              category.id === editingCategory.id ? response.data : category
+            )
+          );
+          toast.success(t("category.updateSuccess"));
+        } else {
+          const response = await categoriesApi.create(form as CreateCategoryInput);
+          setCategories((current) => [...current, response.data]);
+          toast.success(t("category.createSuccess"));
+        }
+        setDialogOpen(false);
+      } catch {
+        toast.error(t("common.error"));
       }
-      setDialogOpen(false);
-      fetchCategories();
-    } catch (error) {
-      toast.error(t("common.error"));
-    }
+    });
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!deletingCategory) return;
-    try {
-      await categoriesApi.delete(deletingCategory.id);
-      toast.success(t("category.deleteSuccess"));
+
+    const category = deletingCategory;
+    startMutationTransition(async () => {
+      removeOptimisticCategories(new Set([category.id]));
       setDeleteDialogOpen(false);
       setDeletingCategory(null);
-      fetchCategories();
-    } catch (error) {
-      toast.error(t("category.deleteFailed"));
-    }
+
+      try {
+        await categoriesApi.delete(category.id);
+        setCategories((current) => current.filter((item) => item.id !== category.id));
+        toast.success(t("category.deleteSuccess"));
+      } catch {
+        toast.error(t("category.deleteFailed"));
+        refreshCategories();
+      }
+    });
   };
+
+  const showInitialLoading = loading && !hasLoaded;
+  const isSyncing = (loading && hasLoaded) || isRefreshing;
 
   return (
     <div className="space-y-6">
@@ -128,6 +174,7 @@ export default function CategoriesPage() {
           </Button>
         </motion.div>
       </motion.div>
+      <DataSyncBadge active={isSyncing} label={t("common.loading")} />
 
       <motion.div
         initial={{ opacity: 0 }}
@@ -136,13 +183,14 @@ export default function CategoriesPage() {
       >
         <Card>
           <CardContent className="p-4">
-            {loading ? (
+            <DataSyncBar active={isSyncing} label={t("common.loading")} className="mb-3" />
+            {showInitialLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="h-12 w-full skeleton-shimmer rounded" />
                 ))}
               </div>
-            ) : categories.length === 0 ? (
+            ) : optimisticCategories.length === 0 ? (
               <EmptyState
                 icon={FolderTree}
                 title={t("category.noCategories")}
@@ -150,8 +198,8 @@ export default function CategoriesPage() {
                 onAction={openCreateDialog}
               />
             ) : (
-              <div className="space-y-1">
-                {categories.map((category, i) => {
+              <div className={`space-y-1 transition-opacity ${isSyncing ? "opacity-70" : ""}`}>
+                {optimisticCategories.map((category, i) => {
                   const isDefault = category.slug === "uncategorized";
                   return (
                     <motion.div
@@ -229,7 +277,7 @@ export default function CategoriesPage() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={handleSubmit}>
+            <Button onClick={handleSubmit} disabled={isMutating}>
               {editingCategory ? t("common.save") : t("common.create")}
             </Button>
           </DialogFooter>
@@ -246,7 +294,7 @@ export default function CategoriesPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>{t("common.delete")}</AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete} disabled={isMutating}>{t("common.delete")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

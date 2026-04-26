@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,8 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, ChevronUp, ChevronDown, ExternalLink, Eye, EyeOff, FolderOpen } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { DataSyncBadge, DataSyncBar } from "@/components/admin/data-sync-bar";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 interface NavItem {
   id: number;
@@ -52,11 +54,74 @@ interface Page {
   status: string;
 }
 
+type NavOptimisticAction =
+  | { type: "remove"; id: number }
+  | { type: "toggleVisible"; id: number };
+
+function removeNavItem(items: NavItem[], id: number): NavItem[] {
+  return items
+    .filter((item) => item.id !== id)
+    .map((item) => ({
+      ...item,
+      children: item.children ? removeNavItem(item.children, id) : undefined,
+    }));
+}
+
+function updateNavItemInTree(items: NavItem[], updatedItem: NavItem): NavItem[] {
+  return items.map((item) => {
+    if (item.id === updatedItem.id) {
+      return { ...updatedItem, children: item.children };
+    }
+
+    return {
+      ...item,
+      children: item.children ? updateNavItemInTree(item.children, updatedItem) : undefined,
+    };
+  });
+}
+
+function insertNavItem(items: NavItem[], newItem: NavItem): NavItem[] {
+  if (newItem.parent_id === null) {
+    return [...items, newItem];
+  }
+
+  return items.map((item) => {
+    if (item.id === newItem.parent_id) {
+      return { ...item, children: [...(item.children || []), newItem] };
+    }
+
+    return {
+      ...item,
+      children: item.children ? insertNavItem(item.children, newItem) : undefined,
+    };
+  });
+}
+
+function reduceOptimisticNavAction(items: NavItem[], action: NavOptimisticAction): NavItem[] {
+  if (action.type === "remove") {
+    return removeNavItem(items, action.id);
+  }
+
+  return items.map((item) => ({
+    ...item,
+    visible: item.id === action.id ? !item.visible : item.visible,
+    children: item.children ? reduceOptimisticNavAction(item.children, action) : undefined,
+  }));
+}
+
 export default function NavManagePage() {
   const { t } = useTranslation();
   const [navItems, setNavItems] = useState<NavItem[]>([]);
+  const [optimisticNavItems, applyOptimisticNavAction] = useOptimistic(
+    navItems,
+    reduceOptimisticNavAction
+  );
   const [pages, setPages] = useState<Page[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, startRefreshTransition] = useTransition();
+  const [isMutating, startMutationTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<NavItem | null>(null);
@@ -78,22 +143,37 @@ export default function NavManagePage() {
   ];
 
   useEffect(() => {
-    loadData();
-  }, []);
+    let active = true;
 
-  const loadData = async () => {
-    try {
-      const [navRes, pagesRes] = await Promise.all([
-        api.get("/admin/nav/tree"),
-        api.get("/admin/pages"),
-      ]);
-      setNavItems(navRes.data.items || []);
-      setPages(pagesRes.data.pages || []);
-    } catch (err) {
-      toast.error(t("navManage.loadFailed"));
-    } finally {
-      setLoading(false);
-    }
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [navRes, pagesRes] = await Promise.all([
+          api.get<{ items: NavItem[] }>("/admin/nav/tree"),
+          api.get<{ pages: Page[] }>("/admin/pages"),
+        ]);
+        if (!active) return;
+
+        setNavItems(navRes.data.items || []);
+        setPages(pagesRes.data.pages || []);
+      } catch {
+        if (active) toast.error(t("navManage.loadFailed"));
+      } finally {
+        if (active) {
+          setLoading(false);
+          setHasLoaded(true);
+        }
+      }
+    };
+
+    loadData();
+    return () => {
+      active = false;
+    };
+  }, [refreshKey, t]);
+
+  const refreshNav = () => {
+    startRefreshTransition(() => setRefreshKey((key) => key + 1));
   };
 
   const getAllItems = (): NavItem[] => {
@@ -104,7 +184,7 @@ export default function NavManagePage() {
         if (item.children) collect(item.children);
       }
     };
-    collect(navItems);
+    collect(optimisticNavItems);
     return result;
   };
 
@@ -142,7 +222,7 @@ export default function NavManagePage() {
     setDialogOpen(true);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!formData.title.trim()) {
       toast.error(t("navManage.fillTitle"));
       return;
@@ -152,53 +232,68 @@ export default function NavManagePage() {
       return;
     }
 
-    try {
-      const payload = {
-        parent_id: parentId,
-        title: formData.title,
-        nav_type: formData.nav_type === "group" ? "builtin" : formData.nav_type,
-        target: formData.nav_type === "group" ? "" : formData.target,
-        open_new_tab: formData.open_new_tab,
-        sort_order: editingItem?.sort_order ?? getMaxSortOrder(parentId),
-        visible: formData.visible,
-      };
+    startMutationTransition(async () => {
+      try {
+        const payload = {
+          parent_id: parentId,
+          title: formData.title,
+          nav_type: formData.nav_type === "group" ? "builtin" : formData.nav_type,
+          target: formData.nav_type === "group" ? "" : formData.target,
+          open_new_tab: formData.open_new_tab,
+          sort_order: editingItem?.sort_order ?? getMaxSortOrder(parentId),
+          visible: formData.visible,
+        };
 
-      if (editingItem) {
-        await api.put(`/admin/nav/${editingItem.id}`, payload);
-        toast.success(t("navManage.updateSuccess"));
-      } else {
-        await api.post("/admin/nav", payload);
-        toast.success(t("navManage.createSuccess"));
+        if (editingItem) {
+          const { data } = await api.put<{ item: NavItem }>(`/admin/nav/${editingItem.id}`, payload);
+          setNavItems((current) => updateNavItemInTree(current, data.item));
+          toast.success(t("navManage.updateSuccess"));
+        } else {
+          const { data } = await api.post<{ item: NavItem }>("/admin/nav", payload);
+          setNavItems((current) => insertNavItem(current, data.item));
+          toast.success(t("navManage.createSuccess"));
+        }
+        setDialogOpen(false);
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, t("navManage.saveFailed")));
       }
-      setDialogOpen(false);
-      loadData();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error?.message || t("navManage.saveFailed"));
-    }
+    });
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!deletingItem) return;
-    try {
-      await api.delete(`/admin/nav/${deletingItem.id}`);
-      toast.success(t("navManage.deleteSuccess"));
+
+    const item = deletingItem;
+    startMutationTransition(async () => {
+      applyOptimisticNavAction({ type: "remove", id: item.id });
       setDeleteDialogOpen(false);
-      loadData();
-    } catch (err) {
-      toast.error(t("navManage.deleteFailed"));
-    }
+      setDeletingItem(null);
+
+      try {
+        await api.delete(`/admin/nav/${item.id}`);
+        setNavItems((current) => removeNavItem(current, item.id));
+        toast.success(t("navManage.deleteSuccess"));
+      } catch {
+        toast.error(t("navManage.deleteFailed"));
+        refreshNav();
+      }
+    });
   };
 
-  const toggleVisible = async (item: NavItem) => {
-    try {
-      await api.put(`/admin/nav/${item.id}`, { visible: !item.visible });
-      loadData();
-    } catch (err) {
-      toast.error(t("navManage.updateFailed"));
-    }
+  const toggleVisible = (item: NavItem) => {
+    startMutationTransition(async () => {
+      applyOptimisticNavAction({ type: "toggleVisible", id: item.id });
+      try {
+        const { data } = await api.put<{ item: NavItem }>(`/admin/nav/${item.id}`, { visible: !item.visible });
+        setNavItems((current) => updateNavItemInTree(current, data.item));
+      } catch {
+        toast.error(t("navManage.updateFailed"));
+        refreshNav();
+      }
+    });
   };
 
-  const moveItem = async (item: NavItem, direction: "up" | "down") => {
+  const moveItem = (item: NavItem, direction: "up" | "down") => {
     const allItems = getAllItems();
     const siblings = allItems
       .filter(i => i.parent_id === item.parent_id)
@@ -212,17 +307,19 @@ export default function NavManagePage() {
     const swapIdx = direction === "up" ? idx - 1 : idx + 1;
     const swapItem = siblings[swapIdx];
 
-    try {
-      await api.put("/admin/nav/order", {
-        items: [
-          { id: item.id, parent_id: item.parent_id, sort_order: swapItem.sort_order },
-          { id: swapItem.id, parent_id: swapItem.parent_id, sort_order: item.sort_order },
-        ],
-      });
-      loadData();
-    } catch (err) {
-      toast.error(t("navManage.sortFailed"));
-    }
+    startMutationTransition(async () => {
+      try {
+        await api.put("/admin/nav/order", {
+          items: [
+            { id: item.id, parent_id: item.parent_id, sort_order: swapItem.sort_order },
+            { id: swapItem.id, parent_id: swapItem.parent_id, sort_order: item.sort_order },
+          ],
+        });
+        refreshNav();
+      } catch {
+        toast.error(t("navManage.sortFailed"));
+      }
+    });
   };
 
   const getNavTypeLabel = (item: NavItem) => {
@@ -286,13 +383,13 @@ export default function NavManagePage() {
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => moveItem(item, "up")} disabled={isFirst}>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => moveItem(item, "up")} disabled={isFirst || isMutating}>
               <ChevronUp className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => moveItem(item, "down")} disabled={isLast}>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => moveItem(item, "down")} disabled={isLast || isMutating}>
               <ChevronDown className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleVisible(item)}>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleVisible(item)} disabled={isMutating}>
               {item.visible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
             </Button>
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(item)}>
@@ -312,17 +409,18 @@ export default function NavManagePage() {
 
         {item.children && item.children.length > 0 && (
           <div className="mt-2">
-            {item.children.sort((a, b) => a.sort_order - b.sort_order).map(child => renderNavItem(child, level + 1))}
+            {[...item.children].sort((a, b) => a.sort_order - b.sort_order).map(child => renderNavItem(child, level + 1))}
           </div>
         )}
       </div>
     );
   };
 
-  if (loading) return <div className="p-6">{t("common.loading")}</div>;
+  const showInitialLoading = loading && !hasLoaded;
+  const isSyncing = (loading && hasLoaded) || isRefreshing;
 
   return (
-    <div className="p-6">
+    <div className="space-y-6">
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold">{t("navManage.title")}</h1>
@@ -333,11 +431,19 @@ export default function NavManagePage() {
           {t("navManage.addTopNav")}
         </Button>
       </div>
+      <DataSyncBadge active={isSyncing} label={t("common.loading")} />
 
-      <div className="space-y-2">
-        {navItems.sort((a, b) => a.sort_order - b.sort_order).map(item => renderNavItem(item))}
-        {navItems.length === 0 && (
-          <div className="text-center text-muted-foreground py-12 border rounded-lg bg-muted/20">{t("navManage.noNavItems")}</div>
+      <div className={`space-y-2 transition-opacity ${isSyncing ? "opacity-70" : ""}`}>
+        <DataSyncBar active={isSyncing} label={t("common.loading")} className="mb-3" />
+        {showInitialLoading ? (
+          <div className="text-center text-muted-foreground py-12 border rounded-lg bg-muted/20">{t("common.loading")}</div>
+        ) : (
+          <>
+            {[...optimisticNavItems].sort((a, b) => a.sort_order - b.sort_order).map(item => renderNavItem(item))}
+            {optimisticNavItems.length === 0 && (
+              <div className="text-center text-muted-foreground py-12 border rounded-lg bg-muted/20">{t("navManage.noNavItems")}</div>
+            )}
+          </>
         )}
       </div>
 
@@ -420,7 +526,7 @@ export default function NavManagePage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>{t("common.cancel")}</Button>
-            <Button onClick={handleSubmit}>{t("common.save")}</Button>
+            <Button onClick={handleSubmit} disabled={isMutating}>{t("common.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -433,7 +539,7 @@ export default function NavManagePage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>{t("common.delete")}</AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete} disabled={isMutating}>{t("common.delete")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

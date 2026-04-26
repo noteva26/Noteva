@@ -1,11 +1,13 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { useCallback } from "react";
 
 // Import built-in locale files
 import zhCN from "./locales/zh-CN.json";
 import zhTW from "./locales/zh-TW.json";
 import en from "./locales/en.json";
 import ja from "./locales/ja.json";
+import { localesApi } from "../api";
 
 export type Locale = string;
 
@@ -143,26 +145,29 @@ export function t(key: string, params?: Record<string, string | number>): string
 export function useTranslation() {
   const { locale, setLocale, _version } = useI18nStore();
 
-  const translate = (key: string, params?: Record<string, string | number>): string => {
-    const msgs = getMessages(locale);
-    let message = getNestedValue(msgs, key);
+  const translate = useCallback(
+    (key: string, params?: Record<string, string | number>): string => {
+      const msgs = getMessages(locale);
+      let message = getNestedValue(msgs, key);
 
-    if (!message && locale !== "en") {
-      const enMsgs = getMessages("en");
-      message = getNestedValue(enMsgs, key);
-    }
+      if (!message && locale !== "en") {
+        const enMsgs = getMessages("en");
+        message = getNestedValue(enMsgs, key);
+      }
 
-    if (!message) {
-      console.warn(`Missing translation for key: ${key}`);
-      return key;
-    }
+      if (!message) {
+        console.warn(`Missing translation for key: ${key}`);
+        return key;
+      }
 
-    if (!params) return message;
+      if (!params) return message;
 
-    return message.replace(/\{(\w+)\}/g, (_, paramKey) => {
-      return params[paramKey]?.toString() ?? `{${paramKey}}`;
-    });
-  };
+      return message.replace(/\{(\w+)\}/g, (_, paramKey) => {
+        return params[paramKey]?.toString() ?? `{${paramKey}}`;
+      });
+    },
+    [locale, _version]
+  );
 
   return {
     t: translate,
@@ -213,7 +218,6 @@ export function unregisterCustomLocale(code: string) {
  */
 export async function loadCustomLocales() {
   try {
-    const { localesApi } = await import("../api");
     const res = await localesApi.list();
     const items = res.data.locales;
 

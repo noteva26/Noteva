@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { authApi, User } from "@/lib/api";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 interface AuthState {
   user: User | null;
@@ -26,8 +27,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       const { data } = await authApi.login(usernameOrEmail, password);
       // Cookie is set automatically by the server (httpOnly)
       set({ user: data.user, isAuthenticated: true, isLoading: false });
-    } catch (error: any) {
-      const message = error.response?.data?.error?.message || "Login failed";
+    } catch (error) {
+      const message = getApiErrorMessage(error, "Login failed");
       set({ error: message, isLoading: false });
       throw error;
     }
@@ -38,8 +39,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       await authApi.register(username, email, password);
       set({ isLoading: false });
-    } catch (error: any) {
-      const message = error.response?.data?.error?.message || "Registration failed";
+    } catch (error) {
+      const message = getApiErrorMessage(error, "Registration failed");
       set({ error: message, isLoading: false });
       throw error;
     }

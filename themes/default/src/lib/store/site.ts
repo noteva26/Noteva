@@ -3,6 +3,11 @@
  * 使用 Noteva SDK 替代直接 API 调用
  */
 import { create } from "zustand";
+import {
+  getInjectedSiteConfig,
+  waitForNoteva,
+  type InjectedSiteConfig,
+} from "@/hooks/useNoteva";
 
 interface SiteSettings {
   site_name: string;
@@ -23,19 +28,10 @@ const defaultSettings: SiteSettings = {
   site_footer: "",
 };
 
-// 获取 SDK 实例
-function getNoteva() {
-  if (typeof window !== "undefined" && window.Noteva) {
-    return window.Noteva;
-  }
-  return null;
-}
-
 // 从 window.__SITE_CONFIG__ 读取后端注入的配置
 const getInjectedSettings = (): SiteSettings | null => {
-  if (typeof window === "undefined") return null;
   try {
-    const injected = (window as any).__SITE_CONFIG__;
+    const injected: InjectedSiteConfig | null = getInjectedSiteConfig();
     if (injected) {
       return {
         site_name: injected.site_name || defaultSettings.site_name,
@@ -70,24 +66,11 @@ export const useSiteStore = create<SiteState>((set, get) => ({
     
     set({ loading: true });
     try {
-      // 等待 SDK 就绪
-      const sdk = getNoteva();
-      if (!sdk) {
-        // SDK 未加载，等待后重试
-        await new Promise<void>((resolve) => {
-          const check = () => {
-            if (getNoteva()) {
-              resolve();
-            } else {
-              setTimeout(check, 50);
-            }
-          };
-          check();
-        });
+      const noteva = await waitForNoteva();
+      if (!noteva) {
+        set({ loaded: true, loading: false });
+        return;
       }
-      
-      const noteva = getNoteva()!;
-      await noteva.ready();
       
       const data = await noteva.site.getInfo();
       const settings: SiteSettings = {
@@ -96,7 +79,7 @@ export const useSiteStore = create<SiteState>((set, get) => ({
         site_subtitle: data.subtitle || data.site_subtitle || defaultSettings.site_subtitle,
         site_logo: data.logo || data.site_logo || defaultSettings.site_logo,
         site_footer: data.footer || data.site_footer || defaultSettings.site_footer,
-        email_verification_enabled: (data as any).email_verification_enabled || "false",
+        email_verification_enabled: data.email_verification_enabled || "false",
       };
       set({ settings, loaded: true, loading: false });
     } catch {

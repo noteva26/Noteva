@@ -1,18 +1,33 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { Comments } from "@/components/comments";
 import PluginSlot from "@/components/plugin-slot";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Calendar, Folder, ArrowLeft, ArrowRight, Tag, Eye, Heart, MessageSquare, BookOpen, Clock } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  Calendar,
+  Clock,
+  Eye,
+  Folder,
+  Heart,
+  MessageSquare,
+  Tag,
+} from "lucide-react";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
 import { toast } from "sonner";
-import { getNoteva, getArticleUrl } from "@/hooks/useNoteva";
+import { getArticleUrl, getNoteva, waitForNoteva } from "@/hooks/useNoteva";
 import { TocSidebar } from "@/components/toc-sidebar";
+import { cn } from "@/lib/utils";
+
+const Comments = lazy(() =>
+  import("@/components/comments").then((module) => ({ default: module.Comments }))
+);
 
 interface Article {
   id: number;
@@ -21,6 +36,8 @@ interface Article {
   content: string;
   content_html?: string;
   html?: string;
+  published_at?: string;
+  publishedAt?: string;
   word_count?: number;
   reading_time?: number;
   prev?: { id: number; slug: string; title: string } | null;
@@ -30,7 +47,18 @@ interface Article {
   tags?: { id: number; name: string; slug: string }[];
   toc?: { level: number; text: string; id: string }[];
   thumbnail?: string | null;
-  [key: string]: any;
+}
+
+function CommentsFallback() {
+  return (
+    <div className="mt-8 rounded-lg border bg-card p-6">
+      <div className="mb-5 h-6 w-32 rounded skeleton-shimmer" />
+      <div className="space-y-3">
+        <div className="h-20 rounded-md skeleton-shimmer" />
+        <div className="h-9 w-28 rounded-md skeleton-shimmer" />
+      </div>
+    </div>
+  );
 }
 
 export default function PostPage() {
@@ -51,30 +79,47 @@ export default function PostPage() {
   // OG/SEO meta tags via SDK
   useEffect(() => {
     if (!article || !siteInfo.name) return;
-    const Noteva = getNoteva();
-    if (!Noteva) return;
-    Noteva.seo.setArticleMeta({
-      title: article.title,
-      excerpt: article.content?.slice(0, 160)?.replace(/[#*`>\n]/g, '').trim(),
-      thumbnail: article.thumbnail ?? undefined,
-      slug: article.slug || String(article.id),
-      published_at: (article.published_at ?? article.publishedAt) ?? undefined,
-    }, siteInfo.name, window.location.origin);
+
+    let active = true;
+    const updateSeo = async () => {
+      const Noteva = await waitForNoteva({ timeout: 3_000 });
+      if (!active || !Noteva) return;
+
+      Noteva.seo.setArticleMeta({
+        title: article.title,
+        excerpt: article.content?.slice(0, 160)?.replace(/[#*`>\n]/g, "").trim(),
+        thumbnail: article.thumbnail ?? undefined,
+        slug: article.slug || String(article.id),
+        published_at: (article.published_at ?? article.publishedAt) ?? undefined,
+      }, siteInfo.name, window.location.origin);
+    };
+
+    void updateSeo();
+
+    return () => {
+      active = false;
+    };
   }, [article, siteInfo.name]);
 
   useEffect(() => {
     if (!slug) { setNotFound(true); setLoading(false); return; }
 
+    let active = true;
     const loadSiteInfo = async () => {
-      const Noteva = getNoteva();
-      if (!Noteva) { setTimeout(loadSiteInfo, 50); return; }
+      const Noteva = await waitForNoteva();
+      if (!active || !Noteva) return;
+
       try {
         const info = await Noteva.site.getInfo();
-        setSiteInfo({ name: info.name || "Noteva" });
+        if (active) setSiteInfo({ name: info.name || info.site_name || "Noteva" });
       } catch { }
     };
-    loadSiteInfo();
-  }, []);
+    void loadSiteInfo();
+
+    return () => {
+      active = false;
+    };
+  }, [slug]);
 
   useEffect(() => {
     if (article) {
@@ -85,37 +130,55 @@ export default function PostPage() {
   useEffect(() => {
     if (!slug) return;
 
+    let active = true;
     const loadArticle = async () => {
-      const Noteva = getNoteva();
-      if (!Noteva) { setTimeout(loadArticle, 50); return; }
+      setLoading(true);
+      setNotFound(false);
+
+      const Noteva = await waitForNoteva();
+      if (!active) return;
+
+      if (!Noteva) {
+        setNotFound(true);
+        setLoading(false);
+        return;
+      }
 
       try {
         const data = await Noteva.articles.get(slug);
+        if (!active) return;
+
         setArticle(data);
         setLikeCount(Noteva.articles.getStats(data).likes);
 
         try {
-          const likeResult = await Noteva.interactions.checkLike('article', data.id);
-          setIsLiked(likeResult.liked);
-        } catch { setIsLiked(false); }
+          const likeResult = await Noteva.interactions.checkLike("article", data.id);
+          if (active) setIsLiked(likeResult.liked);
+        } catch {
+          if (active) setIsLiked(false);
+        }
 
         await Noteva.articles.incrementView(data.id);
-      } catch (err) {
-        console.error(err);
-        setNotFound(true);
+      } catch {
+        if (active) setNotFound(true);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
-    loadArticle();
+
+    void loadArticle();
+
+    return () => {
+      active = false;
+    };
   }, [slug]);
 
   const handleLike = async () => {
     if (!article) return;
-    const Noteva = getNoteva();
+    const Noteva = await waitForNoteva();
     if (!Noteva) return;
     try {
-      const result = await Noteva.interactions.like('article', article.id);
+      const result = await Noteva.interactions.like("article", article.id);
       setIsLiked(result.liked);
       setLikeCount(result.like_count);
       toast.success(result.liked ? t("comment.liked") : t("comment.unliked"));
@@ -130,11 +193,15 @@ export default function PostPage() {
 
   if (loading) {
     return (
-      <div className="relative flex min-h-screen flex-col">
+      <div className="theme-page-shell relative flex min-h-screen flex-col">
         <SiteHeader />
-        <main className="flex-1"><div className="container py-8 max-w-4xl mx-auto">
-          <Skeleton className="h-10 w-3/4 mb-4" /><Skeleton className="h-6 w-1/2 mb-8" /><Skeleton className="h-64 w-full" />
-        </div></main>
+        <main className="flex-1">
+          <div className="container mx-auto max-w-[900px] py-8">
+            <Skeleton className="mb-4 h-10 w-3/4" />
+            <Skeleton className="mb-6 h-6 w-1/2" />
+            <Skeleton className="h-72 w-full" />
+          </div>
+        </main>
         <SiteFooter />
       </div>
     );
@@ -142,35 +209,68 @@ export default function PostPage() {
 
   if (notFound || !article) {
     return (
-      <div className="relative flex min-h-screen flex-col">
+      <div className="theme-page-shell relative flex min-h-screen flex-col">
         <SiteHeader />
-        <main className="flex-1"><div className="container py-16 text-center max-w-4xl mx-auto">
-          <h1 className="text-4xl font-bold mb-4">{t("error.notFound")}</h1>
-          <p className="text-muted-foreground mb-8">{t("error.notFoundDesc")}</p>
-          <Button onClick={() => navigate("/")}>{t("error.backHome")}</Button>
-        </div></main>
+        <main className="flex-1">
+          <div className="container mx-auto max-w-4xl py-16 text-center">
+            <h1 className="mb-4 text-4xl font-semibold">{t("error.notFound")}</h1>
+            <p className="mb-8 text-muted-foreground">{t("error.notFoundDesc")}</p>
+            <Button onClick={() => navigate("/")}>{t("error.backHome")}</Button>
+          </div>
+        </main>
         <SiteFooter />
       </div>
     );
   }
 
+  const stats = Noteva?.articles.getStats(article) || {
+    views: 0,
+    likes: likeCount,
+    comments: 0,
+  };
+  const articleHtml =
+    Noteva?.articles.getHtml(article) || article.content_html || article.html || "";
+  const thumbnail = Noteva?.articles.getThumbnail(article) || article.thumbnail;
+  const publishedAt =
+    Noteva?.articles.getDate(article) || article.published_at || article.publishedAt || "";
+  const hasReadableToc =
+    (article.toc?.filter((item) => item.level >= 2 && item.level <= 3).length || 0) >= 2;
+
   return (
-    <div className="relative flex min-h-screen flex-col">
+    <div className="theme-page-shell relative flex min-h-screen flex-col">
       <SiteHeader />
       <main className="flex-1">
-        <div className="container py-8 max-w-6xl mx-auto flex gap-8">
-          <article className="flex-1 min-w-0 max-w-4xl" data-article-id={article.id}>
-            <Button variant="ghost" size="sm" className="mb-6" onClick={() => navigate(-1)}>
-              <ArrowLeft className="h-4 w-4 mr-2" />{t("common.back")}
-            </Button>
-
-            <header className="mb-8">
-              <h1 className="text-4xl font-bold mb-4">{article.title}</h1>
-              <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground article-meta">
-                <span className="flex items-center gap-1">
-                  <Calendar className="h-4 w-4" />
-                  {new Date(Noteva?.articles.getDate(article) || '').toLocaleDateString(getDateLocale(), { year: "numeric", month: "long", day: "numeric" })}
-                </span>
+        <div
+          className={cn(
+            "container mx-auto grid gap-10 py-8",
+            hasReadableToc
+              ? "max-w-7xl xl:grid-cols-[minmax(0,900px)_17rem] xl:gap-14"
+              : "max-w-[900px]"
+          )}
+        >
+          <article
+            className={cn("min-w-0", hasReadableToc && "xl:justify-self-end")}
+            data-article-id={article.id}
+          >
+            <header className="mb-6">
+              {article.category ? (
+                <Link
+                  to={`/categories?c=${article.category.slug}`}
+                  className="mb-3 inline-flex text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                >
+                  {article.category.name}
+                </Link>
+              ) : null}
+              <h1 className="mb-4 text-4xl font-semibold leading-tight md:text-[2.75rem]">
+                {article.title}
+              </h1>
+              <div className="article-meta flex flex-wrap items-center gap-x-3.5 gap-y-1.5 text-sm text-muted-foreground">
+                {publishedAt ? (
+                  <span className="flex items-center gap-1">
+                    <Calendar className="h-4 w-4" />
+                    {new Date(publishedAt).toLocaleDateString(getDateLocale(), { year: "numeric", month: "long", day: "numeric" })}
+                  </span>
+                ) : null}
                 {article.category && (
                   <Link to={`/categories?c=${article.category.slug}`} className="flex items-center gap-1 hover:text-foreground transition-colors">
                     <Folder className="h-4 w-4" />{article.category.name}
@@ -182,22 +282,32 @@ export default function PostPage() {
                 {(article.reading_time ?? 0) > 0 && (
                   <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{article.reading_time}{t("article.minRead")}</span>
                 )}
-                <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{(Noteva?.articles.getStats(article).views ?? 0) + 1}</span>
-                <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{Noteva?.articles.getStats(article).comments ?? 0}</span>
+                <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{stats.views + 1}</span>
+                <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{stats.comments}</span>
               </div>
             </header>
 
-            <Card>
-              <CardContent className="prose dark:prose-invert max-w-none p-6 md:p-8 [&_img.twemoji]:!w-[1.2em] [&_img.twemoji]:!h-[1.2em] [&_img.twemoji]:!inline-block [&_img.twemoji]:!m-0 [&_img.twemoji]:!align-[-0.1em] [&_img.emoji]:!w-[1.2em] [&_img.emoji]:!h-[1.2em] [&_img.emoji]:!inline-block [&_img.emoji]:!m-0 [&_img.emoji]:!align-[-0.1em]">
+            {thumbnail ? (
+              <div className="mb-6 overflow-hidden rounded-lg border bg-muted">
+                <img
+                  src={thumbnail}
+                  alt={article.title}
+                  className="max-h-[460px] w-full object-cover"
+                />
+              </div>
+            ) : null}
+
+            <Card className="article-card overflow-hidden">
+              <CardContent className="prose dark:prose-invert max-w-none p-5 md:p-7 [&_img.twemoji]:!w-[1.2em] [&_img.twemoji]:!h-[1.2em] [&_img.twemoji]:!inline-block [&_img.twemoji]:!m-0 [&_img.twemoji]:!align-[-0.1em] [&_img.emoji]:!w-[1.2em] [&_img.emoji]:!h-[1.2em] [&_img.emoji]:!inline-block [&_img.emoji]:!m-0 [&_img.emoji]:!align-[-0.1em]">
                 <PluginSlot name="article_content_top" />
-                <div className="article-content" dangerouslySetInnerHTML={{ __html: Noteva?.articles.getHtml(article) || '' }} />
+                <div className="article-content" dangerouslySetInnerHTML={{ __html: articleHtml }} />
                 <PluginSlot name="article_content_bottom" />
               </CardContent>
             </Card>
 
             <PluginSlot name="article_after_content" className="my-4" />
 
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-2">
                 {article.category && (
                   <Link to={`/categories?c=${article.category.slug}`}>
@@ -215,11 +325,10 @@ export default function PostPage() {
               </Button>
             </div>
 
-            {/* Prev / Next navigation */}
             {(article.prev || article.next) && (
-              <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {article.prev ? (
-                  <Link to={getArticleUrl(article.prev)} className="group flex items-center gap-2 p-4 rounded-lg border hover:bg-muted/50 transition-colors">
+                  <Link to={getArticleUrl(article.prev)} className="group flex items-center gap-2 rounded-lg border bg-card p-4 transition-colors hover:border-primary/60 hover:bg-muted/40">
                     <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
                     <div className="min-w-0">
                       <div className="text-xs text-muted-foreground">{t("article.prev")}</div>
@@ -228,7 +337,7 @@ export default function PostPage() {
                   </Link>
                 ) : <div />}
                 {article.next && (
-                  <Link to={getArticleUrl(article.next)} className="group flex items-center justify-end gap-2 p-4 rounded-lg border hover:bg-muted/50 transition-colors text-right">
+                  <Link to={getArticleUrl(article.next)} className="group flex items-center justify-end gap-2 rounded-lg border bg-card p-4 text-right transition-colors hover:border-primary/60 hover:bg-muted/40">
                     <div className="min-w-0">
                       <div className="text-xs text-muted-foreground">{t("article.next")}</div>
                       <div className="text-sm font-medium truncate">{article.next.title}</div>
@@ -239,13 +348,12 @@ export default function PostPage() {
               </div>
             )}
 
-            {/* Related articles */}
             {article.related && article.related.length > 0 && (
-              <div className="mt-8">
+              <div className="mt-7">
                 <h3 className="text-lg font-semibold mb-3">{t("article.related")}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {article.related.map((item) => (
-                    <Link key={item.id} to={getArticleUrl(item)} className="block p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                    <Link key={item.id} to={getArticleUrl(item)} className="block rounded-lg border bg-card p-3 transition-colors hover:border-primary/60 hover:bg-muted/40">
                       <span className="text-sm font-medium line-clamp-2">{item.title}</span>
                     </Link>
                   ))}
@@ -253,9 +361,11 @@ export default function PostPage() {
               </div>
             )}
 
-            <Comments articleId={article.id} />
+            <Suspense fallback={<CommentsFallback />}>
+              <Comments articleId={article.id} />
+            </Suspense>
           </article>
-          {article.toc && article.toc.length > 0 && (
+          {hasReadableToc && article.toc && (
             <TocSidebar toc={article.toc} />
           )}
         </div>

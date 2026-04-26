@@ -1,10 +1,8 @@
-
-
-import { useState, useRef, useCallback } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { uploadApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Upload, X, Image as ImageIcon, Loader2 } from "lucide-react";
+import { X, Image as ImageIcon, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -15,64 +13,84 @@ interface ImageUploadProps {
 }
 
 export function ImageUpload({ onUpload, onInsert, className }: ImageUploadProps) {
-  const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [isUploading, startUploadTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewUrlRef = useRef<string | null>(null);
 
-  const handleUpload = useCallback(async (file: File) => {
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+      }
+    };
+  }, []);
+
+  const setPreviewUrl = (url: string | null) => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+    previewUrlRef.current = url;
+    setPreview(url);
+  };
+
+  const handleUpload = (file: File) => {
     if (!file.type.startsWith("image/")) {
-      toast.error("请选择图片文件");
+      toast.error("Please select an image file");
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      toast.error("图片大小不能超过 5MB");
+      toast.error("Image size must be under 5MB");
       return;
     }
 
-    setUploading(true);
-    setPreview(URL.createObjectURL(file));
+    setPreviewUrl(URL.createObjectURL(file));
+    startUploadTransition(async () => {
+      try {
+        const { data } = await uploadApi.image(file);
+        onUpload?.(data.url);
+        onInsert?.(`![${file.name}](${data.url})`);
+        toast.success("Image uploaded");
+      } catch {
+        toast.error("Image upload failed");
+        setPreviewUrl(null);
+      } finally {
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }
+    });
+  };
 
-    try {
-      const { data } = await uploadApi.image(file);
-      onUpload?.(data.url);
-      onInsert?.(`![${file.name}](${data.url})`);
-      toast.success("图片上传成功");
-    } catch (error) {
-      toast.error("图片上传失败");
-      setPreview(null);
-    } finally {
-      setUploading(false);
-    }
-  }, [onUpload, onInsert]);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files[0];
+    const file = event.dataTransfer.files[0];
     if (file) handleUpload(file);
-  }, [handleUpload]);
+  };
 
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData.items;
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
+  const handlePaste = (event: React.ClipboardEvent) => {
+    const items = event.clipboardData.items;
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
       if (item.type.startsWith("image/")) {
         const file = item.getAsFile();
         if (file) handleUpload(file);
         break;
       }
     }
-  }, [handleUpload]);
+  };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (file) handleUpload(file);
   };
 
   const clearPreview = () => {
-    setPreview(null);
+    setPreviewUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -83,7 +101,7 @@ export function ImageUpload({ onUpload, onInsert, className }: ImageUploadProps)
         dragOver && "border-primary bg-primary/5",
         className
       )}
-      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragOver={(event) => { event.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
       onPaste={handlePaste}
@@ -104,12 +122,12 @@ export function ImageUpload({ onUpload, onInsert, className }: ImageUploadProps)
               alt="Preview"
               className="max-h-48 mx-auto rounded-lg object-contain"
             />
-            {uploading && (
+            {isUploading && (
               <div className="absolute inset-0 flex items-center justify-center bg-background/80 rounded-lg">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
             )}
-            {!uploading && (
+            {!isUploading && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -128,12 +146,12 @@ export function ImageUpload({ onUpload, onInsert, className }: ImageUploadProps)
             <div className="p-3 rounded-full bg-muted mb-3">
               <ImageIcon className="h-6 w-6 text-muted-foreground" />
             </div>
-            <p className="text-sm font-medium">点击或拖拽上传图片</p>
+            <p className="text-sm font-medium">Click or drag to upload an image</p>
             <p className="text-xs text-muted-foreground mt-1">
-              支持 JPG、PNG、GIF，最大 5MB
+              Supports JPG, PNG, GIF, max 5MB
             </p>
             <p className="text-xs text-muted-foreground">
-              也可以直接粘贴图片
+              You can also paste an image
             </p>
           </div>
         )}

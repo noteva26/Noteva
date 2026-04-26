@@ -1,6 +1,4 @@
-
-
-import { useState, useRef, useCallback } from "react";
+import { useRef, useTransition } from "react";
 import { uploadApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,34 +13,37 @@ interface AvatarUploadProps {
 }
 
 export function AvatarUpload({ value, onChange, className }: AvatarUploadProps) {
-  const [uploading, setUploading] = useState(false);
+  const [isUploading, startUploadTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleUpload = useCallback(async (file: File) => {
+  const handleUpload = (file: File) => {
     if (!file.type.startsWith("image/")) {
-      toast.error("请选择图片文件");
+      toast.error("Please select an image file");
       return;
     }
 
     if (file.size > 2 * 1024 * 1024) {
-      toast.error("头像大小不能超过 2MB");
+      toast.error("Avatar size must be under 2MB");
       return;
     }
 
-    setUploading(true);
-    try {
-      const { data } = await uploadApi.image(file);
-      onChange?.(data.url);
-      toast.success("头像上传成功");
-    } catch (error) {
-      toast.error("头像上传失败");
-    } finally {
-      setUploading(false);
-    }
-  }, [onChange]);
+    startUploadTransition(async () => {
+      try {
+        const { data } = await uploadApi.image(file);
+        onChange?.(data.url);
+        toast.success("Avatar uploaded");
+      } catch {
+        toast.error("Avatar upload failed");
+      } finally {
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }
+    });
+  };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (file) handleUpload(file);
   };
 
@@ -61,12 +62,11 @@ export function AvatarUpload({ value, onChange, className }: AvatarUploadProps) 
         onChange={handleFileChange}
       />
 
-      {/* Avatar preview */}
-      <div 
+      <div
         className="relative w-16 h-16 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer border-2 border-dashed border-muted-foreground/25 hover:border-primary/50 transition-colors"
         onClick={() => fileInputRef.current?.click()}
       >
-        {uploading ? (
+        {isUploading ? (
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         ) : value ? (
           <img src={value} alt="Avatar" className="w-full h-full object-cover" />
@@ -75,13 +75,12 @@ export function AvatarUpload({ value, onChange, className }: AvatarUploadProps) 
         )}
       </div>
 
-      {/* URL input + buttons */}
       <div className="flex-1 space-y-2">
         <div className="flex gap-2">
           <Input
             placeholder="https://..."
             value={value || ""}
-            onChange={(e) => onChange?.(e.target.value)}
+            onChange={(event) => onChange?.(event.target.value)}
             className="flex-1"
           />
           <Button
@@ -89,7 +88,7 @@ export function AvatarUpload({ value, onChange, className }: AvatarUploadProps) 
             variant="outline"
             size="icon"
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
+            disabled={isUploading}
           >
             <Upload className="h-4 w-4" />
           </Button>
@@ -99,6 +98,7 @@ export function AvatarUpload({ value, onChange, className }: AvatarUploadProps) 
               variant="outline"
               size="icon"
               onClick={clearAvatar}
+              disabled={isUploading}
             >
               <X className="h-4 w-4" />
             </Button>

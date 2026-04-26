@@ -1,289 +1,390 @@
-import { useEffect, useState } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion } from "motion/react";
-import { SiteHeader } from "@/components/site-header";
+import { ArticleSummaryCard } from "@/components/article-summary-card";
 import { SiteFooter } from "@/components/site-footer";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/ui/button";
-import { Calendar, Folder, Eye, Heart, MessageSquare, Tag, Pin, FileText, ChevronLeft, ChevronRight } from "lucide-react";
-import { useTranslation, useI18nStore } from "@/lib/i18n";
-import { getNoteva, getArticleUrl } from "@/hooks/useNoteva";
-
-interface Article {
-  id: number;
-  slug: string;
-  title: string;
-  content: string;
-  content_html?: string;
-  html?: string;
-  thumbnail?: string;
-  cover_image?: string;
-  category?: { id: number; name: string; slug: string };
-  tags?: { id: number; name: string; slug: string }[];
-  // SDK 兼容字段 — 通过 Noteva.articles.getDate/getStats/isPinned 访问
-  [key: string]: any;
-}
-
+import { Card, CardContent } from "@/components/ui/card";
+import { ChevronLeft, ChevronRight, FileText } from "lucide-react";
+import {
+  getInjectedSiteConfig,
+  waitForNoteva,
+  type NotevaArticle,
+} from "@/hooks/useNoteva";
+import { useI18nStore, useTranslation } from "@/lib/i18n";
 
 const PAGE_SIZE = 10;
+const ARTICLE_SKELETON_KEYS = ["article-a", "article-b", "article-c"];
 
-/** Highlight keyword matches in text, returning React nodes */
-function highlightKeyword(text: string, keyword: string) {
-  if (!keyword || !keyword.trim()) return text;
-  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(${escaped})`, "gi");
-  const parts = text.split(regex);
-  if (parts.length <= 1) return text;
-  return parts.map((part, i) =>
-    regex.test(part) ? (
-      <mark key={i} className="bg-yellow-200 dark:bg-yellow-700/60 text-inherit rounded-sm px-0.5">
-        {part}
-      </mark>
-    ) : (
-      part
-    )
-  );
+interface SiteInfo {
+  name: string;
+  subtitle: string;
+  description: string;
+}
+
+function getInitialSiteInfo(): SiteInfo | null {
+  const config = getInjectedSiteConfig();
+  if (!config) return null;
+
+  return {
+    name: config.site_name || "Noteva",
+    subtitle: config.site_subtitle || "",
+    description: config.site_description || "",
+  };
+}
+
+function getDateLocale(locale: string) {
+  switch (locale) {
+    case "zh-TW":
+      return "zh-TW";
+    case "en":
+      return "en-US";
+    default:
+      return "zh-CN";
+  }
+}
+
+function getPageParam(value: string | null) {
+  const page = Number.parseInt(value || "", 10);
+  return Number.isFinite(page) && page > 0 ? page : 1;
+}
+
+function preloadPostPage() {
+  void import("@/pages/post");
 }
 
 export default function HomePage() {
-  const [articles, setArticles] = useState<Article[]>([]);
+  const mountedRef = useRef(false);
+  const [articles, setArticles] = useState<NotevaArticle[]>([]);
   const [loading, setLoading] = useState(true);
-  const [siteInfo, setSiteInfo] = useState<{ name: string; subtitle: string; description: string } | null>(null);
+  const [siteInfo, setSiteInfo] = useState<SiteInfo | null>(() =>
+    getInitialSiteInfo()
+  );
   const [totalPages, setTotalPages] = useState(1);
+  const [isPaging, startPageTransition] = useTransition();
   const { t } = useTranslation();
-  const locale = useI18nStore((s) => s.locale);
+  const locale = useI18nStore((state) => state.locale);
   const [searchParams, setSearchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") || "";
-  const currentPage = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const normalizedSearchQuery = useMemo(
+    () => deferredSearchQuery.trim().toLowerCase(),
+    [deferredSearchQuery]
+  );
+  const currentPage = getPageParam(searchParams.get("page"));
+  const dateLocale = getDateLocale(locale);
+  const pageIsLoading = loading || isPaging;
 
-  // Site-level OG/SEO meta tags via SDK
   useEffect(() => {
-    if (!siteInfo?.name) return;
-    const Noteva = getNoteva();
-    if (!Noteva) return;
-    Noteva.seo.setSiteMeta(siteInfo.name, siteInfo.description || siteInfo.subtitle || '', window.location.origin);
-  }, [siteInfo]);
+    mountedRef.current = true;
 
-  useEffect(() => {
-    const config = (window as any).__SITE_CONFIG__;
-    if (config) {
-      setSiteInfo({
-        name: config.site_name || "Noteva",
-        subtitle: config.site_subtitle || "",
-        description: config.site_description || "",
-      });
-      document.title = config.site_name || "Noteva";
-    }
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    const loadData = async () => {
-      const Noteva = getNoteva();
-      if (!Noteva) { setTimeout(loadData, 50); return; }
+    if (!siteInfo?.name) return;
+
+    document.title = siteInfo.name;
+
+    let active = true;
+    const updateSeo = async () => {
+      const noteva = await waitForNoteva({ timeout: 3_000 });
+      if (!active || !noteva) return;
+
+      noteva.seo.setSiteMeta(
+        siteInfo.name,
+        siteInfo.description || siteInfo.subtitle || "",
+        window.location.origin
+      );
+    };
+
+    void updateSeo();
+
+    return () => {
+      active = false;
+    };
+  }, [siteInfo?.description, siteInfo?.name, siteInfo?.subtitle]);
+
+  useEffect(() => {
+    if (siteInfo) return undefined;
+
+    let active = true;
+    const loadSiteInfo = async () => {
+      const noteva = await waitForNoteva();
+      if (!active) return;
+
+      if (!noteva) {
+        setSiteInfo({ name: "Noteva", subtitle: "", description: "" });
+        return;
+      }
 
       try {
-        if (!siteInfo) {
-          const info = await Noteva.site.getInfo();
-          setSiteInfo({
-            name: info.name || "Noteva",
-            subtitle: info.subtitle || "",
-            description: info.description || "",
-          });
-          document.title = info.name || "Noteva";
-        }
+        const info = await noteva.site.getInfo();
+        if (!active) return;
 
-        const result = await Noteva.articles.list({ page: currentPage, pageSize: PAGE_SIZE });
-        setArticles(result.articles || []);
-        const total = result.total || 0;
-        setTotalPages(Math.max(1, Math.ceil(total / PAGE_SIZE)));
-      } catch (err) {
-        console.error("Failed to load data:", err);
-        setArticles([]);
-      } finally {
-        setLoading(false);
+        setSiteInfo({
+          name: info.name || info.site_name || "Noteva",
+          subtitle: info.subtitle || info.site_subtitle || "",
+          description: info.description || info.site_description || "",
+        });
+      } catch {
+        if (active) {
+          setSiteInfo({ name: "Noteva", subtitle: "", description: "" });
+        }
       }
     };
-    loadData();
+
+    void loadSiteInfo();
+
+    return () => {
+      active = false;
+    };
+  }, [siteInfo]);
+
+  const loadArticles = useCallback(async () => {
+    const noteva = await waitForNoteva();
+    if (!noteva) {
+      if (mountedRef.current) {
+        setArticles([]);
+        setTotalPages(1);
+        setLoading(false);
+      }
+      return;
+    }
+
+    try {
+      const result = await noteva.articles.list({
+        page: currentPage,
+        pageSize: PAGE_SIZE,
+      });
+
+      if (mountedRef.current) {
+        setArticles(result.articles || []);
+        setTotalPages(Math.max(1, Math.ceil((result.total || 0) / PAGE_SIZE)));
+      }
+    } catch {
+      if (mountedRef.current) {
+        setArticles([]);
+        setTotalPages(1);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
   }, [currentPage]);
 
-  const goToPage = (page: number) => {
-    const params = new URLSearchParams(searchParams);
-    if (page <= 1) {
-      params.delete("page");
-    } else {
-      params.set("page", String(page));
+  useEffect(() => {
+    if (mountedRef.current) {
+      setLoading(true);
     }
-    setSearchParams(params);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
 
-  const getDateLocale = () => {
-    switch (locale) {
-      case "zh-TW": return "zh-TW";
-      case "en": return "en-US";
-      default: return "zh-CN";
+    void loadArticles();
+  }, [loadArticles]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const browser = window as unknown as {
+      requestIdleCallback?: (
+        callback: IdleRequestCallback,
+        options?: IdleRequestOptions
+      ) => number;
+      cancelIdleCallback?: (handle: number) => void;
+      setTimeout: typeof window.setTimeout;
+      clearTimeout: typeof window.clearTimeout;
+    };
+
+    if (browser.requestIdleCallback && browser.cancelIdleCallback) {
+      const id = browser.requestIdleCallback(preloadPostPage, {
+        timeout: 2500,
+      });
+
+      return () => browser.cancelIdleCallback?.(id);
     }
-  };
 
-  const Noteva = getNoteva();
+    const id = browser.setTimeout(preloadPostPage, 1200);
+    return () => browser.clearTimeout(id);
+  }, []);
 
-  const filteredArticles = articles.filter((article) =>
-    article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    article.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    article.tags?.some(tag => tag.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    article.category?.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredArticles = useMemo(() => {
+    if (!normalizedSearchQuery) return articles;
+
+    return articles.filter((article) => {
+      const title = article.title.toLowerCase();
+      const content = article.content.toLowerCase();
+      const category = article.category?.name.toLowerCase() || "";
+      const tags = article.tags || [];
+
+      return (
+        title.includes(normalizedSearchQuery) ||
+        content.includes(normalizedSearchQuery) ||
+        category.includes(normalizedSearchQuery) ||
+        tags.some((tag) => tag.name.toLowerCase().includes(normalizedSearchQuery))
+      );
+    });
+  }, [articles, normalizedSearchQuery]);
+
+  const goToPage = useCallback(
+    (page: number) => {
+      const nextPage = Math.min(totalPages, Math.max(1, page));
+      const params = new URLSearchParams(searchParams);
+
+      if (nextPage <= 1) {
+        params.delete("page");
+      } else {
+        params.set("page", String(nextPage));
+      }
+
+      startPageTransition(() => {
+        setSearchParams(params);
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [searchParams, setSearchParams, totalPages]
   );
 
   return (
-    <div className="relative flex min-h-screen flex-col">
+    <div className="theme-page-shell relative flex min-h-screen flex-col">
       <SiteHeader />
       <main className="flex-1">
-        <div className="container py-8 max-w-4xl mx-auto">
+        <div className="container mx-auto max-w-4xl py-10 md:py-12">
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: "easeOut" }}
-            className="mb-8 text-center"
+            transition={{ duration: 0.45, ease: "easeOut" }}
+            className="mb-10 text-center"
           >
             {siteInfo ? (
               <>
-                <h1 className="text-4xl font-bold mb-2">{t("home.welcome")} {siteInfo.name}</h1>
-                <p className="text-muted-foreground text-lg">
-                  {siteInfo.subtitle || siteInfo.description || t("home.subtitle")}
+                <p className="mb-3 text-sm font-medium text-muted-foreground">
+                  {t("home.latestPosts")}
+                </p>
+                <h1 className="mx-auto mb-3 max-w-3xl text-4xl font-semibold leading-tight md:text-5xl">
+                  {t("home.welcome")} {siteInfo.name}
+                </h1>
+                <p className="mx-auto max-w-2xl text-base leading-7 text-muted-foreground md:text-lg">
+                  {siteInfo.subtitle ||
+                    siteInfo.description ||
+                    t("home.subtitle")}
                 </p>
               </>
             ) : (
               <>
-                <div className="h-10 w-64 mx-auto mb-4 skeleton-shimmer rounded" />
-                <div className="h-6 w-96 mx-auto skeleton-shimmer rounded" />
+                <div className="mx-auto mb-4 h-10 w-64 rounded skeleton-shimmer" />
+                <div className="mx-auto h-6 w-full max-w-md rounded skeleton-shimmer" />
               </>
             )}
           </motion.div>
 
-          {searchQuery && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-6 text-center">
-              <p className="text-muted-foreground">
-                {t("common.search")}: <span className="font-medium text-foreground">{searchQuery}</span>
-              </p>
+          {searchQuery ? (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mb-6 rounded-lg border bg-card/80 px-4 py-3 text-center text-sm text-muted-foreground"
+            >
+              {t("common.search")}:{" "}
+              <span className="font-medium text-foreground">{searchQuery}</span>
             </motion.div>
-          )}
+          ) : null}
 
           <div className="grid gap-6 article-list">
-            {loading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <Card key={i}>
-                  <CardHeader><div className="h-6 w-3/4 skeleton-shimmer rounded" /></CardHeader>
-                  <CardContent><div className="h-4 w-full mb-2 skeleton-shimmer rounded" /><div className="h-4 w-2/3 skeleton-shimmer rounded" /></CardContent>
+            {pageIsLoading ? (
+              ARTICLE_SKELETON_KEYS.map((key) => (
+                <Card key={key} className="overflow-hidden">
+                  <CardContent className="p-6">
+                    <div className="mb-4 h-6 w-3/4 rounded skeleton-shimmer" />
+                    <div className="mb-2 h-4 w-full rounded skeleton-shimmer" />
+                    <div className="h-4 w-2/3 rounded skeleton-shimmer" />
+                  </CardContent>
                 </Card>
               ))
             ) : filteredArticles.length === 0 ? (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 400, damping: 30 }}>
-                <Card>
-                  <CardContent className="py-12 flex flex-col items-center justify-center text-center">
-                    <div className="rounded-full bg-muted flex items-center justify-center mb-4 size-12">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+              >
+                <Card className="border-dashed">
+                  <CardContent className="flex flex-col items-center justify-center py-14 text-center">
+                    <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-muted">
                       <FileText className="size-5 text-muted-foreground" />
                     </div>
-                    <p className="text-muted-foreground">{searchQuery ? t("common.noData") : t("home.noPostsYet")}</p>
+                    <p className="text-muted-foreground">
+                      {searchQuery ? t("common.noData") : t("home.noPostsYet")}
+                    </p>
                   </CardContent>
                 </Card>
               </motion.div>
             ) : (
-              filteredArticles.map((article, index) => {
-                const thumbnail = Noteva?.articles.getThumbnail(article);
-                return (
-                  <motion.div
-                    key={article.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ type: "spring", stiffness: 400, damping: 30, delay: index * 0.05 }}
-                    whileHover={{ y: -2 }}
-                  >
-                    <Card className="hover:shadow-md transition-shadow overflow-hidden" data-article-id={article.id}>
-                      <div className="flex">
-                        <div className="flex-1">
-                          <CardHeader>
-                            <div className="flex items-center gap-2">
-                              {Noteva?.articles.isPinned(article) && (
-                                <Badge variant="destructive" className="gap-1"><Pin className="h-3 w-3" />{t("article.pinned")}</Badge>
-                              )}
-                              <CardTitle className="flex-1">
-                                <Link to={getArticleUrl(article)} className="hover:text-primary transition-colors">{searchQuery ? highlightKeyword(article.title, searchQuery) : article.title}</Link>
-                              </CardTitle>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground article-meta">
-                              <span className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(Noteva?.articles.getDate(article) || '').toLocaleDateString(getDateLocale())}</span>
-                              <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{Noteva?.articles.getStats(article).views ?? 0}</span>
-                              <span className="flex items-center gap-1"><Heart className="h-4 w-4" />{Noteva?.articles.getStats(article).likes ?? 0}</span>
-                              <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{Noteva?.articles.getStats(article).comments ?? 0}</span>
-                            </div>
-                          </CardHeader>
-                          <CardContent>
-                            <p className="text-muted-foreground line-clamp-2 mb-4">{searchQuery ? highlightKeyword(Noteva?.articles.getExcerpt(article) || '', searchQuery) : Noteva?.articles.getExcerpt(article)}</p>
-                            <div className="flex flex-wrap items-center gap-2">
-                              {article.category && (
-                                <Link to={`/categories?c=${article.category.slug}`}>
-                                  <Badge variant="outline" className="hover:bg-secondary"><Folder className="h-3 w-3 mr-1" />{article.category.name}</Badge>
-                                </Link>
-                              )}
-                              {article.tags && article.tags.slice(0, 3).map((tag) => (
-                                <Link key={tag.id} to={`/tags?t=${tag.slug}`}>
-                                  <Badge variant="secondary" className="hover:bg-secondary/80"><Tag className="h-3 w-3 mr-1" />{tag.name}</Badge>
-                                </Link>
-                              ))}
-                              {article.tags && article.tags.length > 3 && <Badge variant="secondary">+{article.tags.length - 3}</Badge>}
-                            </div>
-                          </CardContent>
-                        </div>
-                        {thumbnail && (
-                          <div className="hidden sm:block w-48 flex-shrink-0">
-                            <Link to={getArticleUrl(article)} className="block h-full">
-                              <div className="relative h-full min-h-[160px]">
-                                <img src={thumbnail} alt={article.title} className="absolute inset-0 w-full h-full object-cover" />
-                              </div>
-                            </Link>
-                          </div>
-                        )}
-                      </div>
-                    </Card>
-                  </motion.div>
-                );
-              })
+              filteredArticles.map((article, index) => (
+                <motion.div
+                  key={article.id}
+                  initial={{ opacity: 0, y: 18 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 400,
+                    damping: 30,
+                    delay: index * 0.04,
+                  }}
+                  whileHover={{ y: -2 }}
+                >
+                  <ArticleSummaryCard
+                    article={article}
+                    dateLocale={dateLocale}
+                    highlightQuery={deferredSearchQuery}
+                    priorityImage={index < 2}
+                    onWarmRoute={preloadPostPage}
+                  />
+                </motion.div>
+              ))
             )}
           </div>
 
-          {/* Pagination */}
-          {!loading && !searchQuery && totalPages > 1 && (
+          {!pageIsLoading && !searchQuery && totalPages > 1 ? (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.2 }}
-              className="flex items-center justify-center gap-2 mt-8"
+              className="mt-8 flex items-center justify-center gap-2"
             >
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => goToPage(currentPage - 1)}
-                disabled={currentPage <= 1}
+                disabled={currentPage <= 1 || isPaging}
               >
-                <ChevronLeft className="h-4 w-4 mr-1" />
+                <ChevronLeft className="mr-1 h-4 w-4" />
                 {t("pagination.prev")}
               </Button>
-              <span className="text-sm text-muted-foreground px-3">
-                {t("pagination.page").replace("{current}", String(currentPage)).replace("{total}", String(totalPages))}
+              <span className="px-3 text-sm text-muted-foreground">
+                {t("pagination.page")
+                  .replace("{current}", String(currentPage))
+                  .replace("{total}", String(totalPages))}
               </span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => goToPage(currentPage + 1)}
-                disabled={currentPage >= totalPages}
+                disabled={currentPage >= totalPages || isPaging}
               >
                 {t("pagination.next")}
-                <ChevronRight className="h-4 w-4 ml-1" />
+                <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
             </motion.div>
-          )}
+          ) : null}
         </div>
       </main>
       <SiteFooter />

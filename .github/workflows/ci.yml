@@ -15,27 +15,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  rust:
-    name: Rust
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Check
-        run: cargo check --all-targets --locked
-
-      - name: Test
-        run: cargo test --locked
-
-  frontend:
-    name: Frontend
+  check:
+    name: Build & Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -66,3 +47,15 @@ jobs:
 
       - name: Build default theme
         run: pnpm --dir themes/default build
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check
+        run: cargo check --all-targets --locked
+
+      - name: Test
+        run: cargo test --locked
