@@ -7,6 +7,19 @@
 
   // API 基础路径
   const API_BASE = '/api/v1';
+  const SDK_VERSION = '1.0.0';
+
+  class NotevaError extends Error {
+    constructor(message, options = {}) {
+      super(message);
+      this.name = 'NotevaError';
+      this.status = options.status || 0;
+      this.code = options.code || null;
+      this.data = options.data || null;
+      this.url = options.url || '';
+      this.method = options.method || '';
+    }
+  }
 
   // ============================================
   // 钩子系统
@@ -26,6 +39,7 @@
       }
       this._hooks[name].push({ callback, priority });
       this._hooks[name].sort((a, b) => a.priority - b.priority);
+      return () => this.off(name, callback);
     },
 
     /**
@@ -46,8 +60,13 @@
       if (!this._hooks[name]) return args[0];
       let result = args[0];
       for (const hook of this._hooks[name]) {
-        const ret = hook.callback(result, ...args.slice(1));
-        if (ret !== undefined) result = ret;
+        try {
+          const ret = hook.callback(result, ...args.slice(1));
+          if (ret !== undefined) result = ret;
+        } catch (e) {
+          console.error(`[Noteva] Hook handler error for "${name}":`, e);
+          events.emit('hook:error', { name, error: e });
+        }
       }
       return result;
     },
@@ -59,8 +78,13 @@
       if (!this._hooks[name]) return args[0];
       let result = args[0];
       for (const hook of this._hooks[name]) {
-        const ret = await hook.callback(result, ...args.slice(1));
-        if (ret !== undefined) result = ret;
+        try {
+          const ret = await hook.callback(result, ...args.slice(1));
+          if (ret !== undefined) result = ret;
+        } catch (e) {
+          console.error(`[Noteva] Async hook handler error for "${name}":`, e);
+          events.emit('hook:error', { name, error: e });
+        }
       }
       return result;
     },
@@ -77,6 +101,7 @@
         this._listeners[event] = [];
       }
       this._listeners[event].push(callback);
+      return () => this.off(event, callback);
     },
 
     once(event, callback) {
@@ -84,7 +109,7 @@
         this.off(event, wrapper);
         callback(...args);
       };
-      this.on(event, wrapper);
+      return this.on(event, wrapper);
     },
 
     off(event, callback) {
@@ -132,10 +157,13 @@
       hooks.trigger('api_request_after', { method, url, response, result });
 
       if (!response.ok) {
-        const error = new Error(result.error || `HTTP ${response.status}`);
-        error.status = response.status;
-        error.data = result;
-        throw error;
+        throw new NotevaError(result.message || result.error || `HTTP ${response.status}`, {
+          status: response.status,
+          code: result.code,
+          data: result,
+          url,
+          method,
+        });
       }
 
       return result;
@@ -168,98 +196,409 @@
     delete: (url) => request('DELETE', url),
   };
 
+  const firstValue = (...values) => values.find(value => value !== undefined && value !== null);
+
+  const asNumber = (value, fallback = 0) => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return fallback;
+  };
+
+  const asBoolean = (value, fallback = false) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'off', ''].includes(normalized)) return false;
+    }
+    return fallback;
+  };
+
+  const asArray = (value) => Array.isArray(value) ? value : [];
+
+  const stripMarkup = (value) => String(value || '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`[^`]*`/g, '')
+    .replace(/!?\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/#{1,6}\s/g, '')
+    .replace(/[*_~`>|\-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const extractThumbnail = (value) => {
+    const content = String(value || '');
+    const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/i)
+      || content.match(/!\[[^\]]*\]\(([^)]+)\)/);
+    return imgMatch ? imgMatch[1] : null;
+  };
+
+  const normalizeSimpleUser = (user) => {
+    if (!user) return null;
+    return {
+      id: asNumber(user.id),
+      username: user.username || '',
+      email: user.email || '',
+      role: user.role || '',
+      status: user.status || '',
+      displayName: firstValue(user.displayName, user.display_name, user.username, ''),
+      avatar: firstValue(user.avatar, user.avatar_url, ''),
+      totpEnabled: asBoolean(firstValue(user.totpEnabled, user.totp_enabled), false),
+      createdAt: firstValue(user.createdAt, user.created_at, ''),
+      updatedAt: firstValue(user.updatedAt, user.updated_at, ''),
+    };
+  };
+
+  const normalizeCategory = (category) => {
+    if (!category) return null;
+    return {
+      id: asNumber(category.id),
+      slug: category.slug || '',
+      name: category.name || category.title || '',
+      description: category.description || '',
+      parentId: firstValue(category.parentId, category.parent_id, null),
+      articleCount: asNumber(firstValue(category.articleCount, category.article_count), 0),
+      createdAt: firstValue(category.createdAt, category.created_at, ''),
+      updatedAt: firstValue(category.updatedAt, category.updated_at, ''),
+    };
+  };
+
+  const normalizeTag = (tag) => {
+    if (!tag) return null;
+    return {
+      id: asNumber(tag.id),
+      slug: tag.slug || '',
+      name: tag.name || tag.title || '',
+      articleCount: asNumber(firstValue(tag.articleCount, tag.article_count), 0),
+      createdAt: firstValue(tag.createdAt, tag.created_at, ''),
+      updatedAt: firstValue(tag.updatedAt, tag.updated_at, ''),
+    };
+  };
+
+  const normalizeArticleLink = (article) => {
+    if (!article) return null;
+    const content = firstValue(article.content, article.html, article.content_html, '');
+    const thumbnail = firstValue(
+      article.thumbnail,
+      article.coverImage,
+      article.cover_image,
+      extractThumbnail(content)
+    );
+    return {
+      id: asNumber(article.id),
+      slug: article.slug || String(article.id || ''),
+      title: article.title || '',
+      thumbnail: thumbnail || null,
+      url: article.url || '',
+    };
+  };
+
+  const normalizeArticle = (article) => {
+    if (!article) return null;
+    const content = firstValue(article.content, '');
+    const html = firstValue(article.html, article.content_html, '');
+    const thumbnail = firstValue(
+      article.thumbnail,
+      article.coverImage,
+      article.cover_image,
+      extractThumbnail(html || content)
+    );
+    const excerpt = firstValue(article.excerpt, stripMarkup(content || html).slice(0, 200));
+    return {
+      id: asNumber(article.id),
+      slug: article.slug || String(article.id || ''),
+      title: article.title || '',
+      content,
+      html,
+      excerpt,
+      thumbnail: thumbnail || null,
+      coverImage: firstValue(article.coverImage, article.cover_image, thumbnail, null),
+      authorId: firstValue(article.authorId, article.author_id, null),
+      categoryId: firstValue(article.categoryId, article.category_id, null),
+      status: article.status || '',
+      author: normalizeSimpleUser(article.author),
+      category: normalizeCategory(article.category),
+      tags: asArray(article.tags).map(normalizeTag).filter(Boolean),
+      createdAt: firstValue(article.createdAt, article.created_at, ''),
+      updatedAt: firstValue(article.updatedAt, article.updated_at, ''),
+      publishedAt: firstValue(article.publishedAt, article.published_at, article.createdAt, article.created_at, ''),
+      scheduledAt: firstValue(article.scheduledAt, article.scheduled_at, null),
+      viewCount: asNumber(firstValue(article.viewCount, article.view_count), 0),
+      likeCount: asNumber(firstValue(article.likeCount, article.like_count), 0),
+      commentCount: asNumber(firstValue(article.commentCount, article.comment_count), 0),
+      wordCount: asNumber(firstValue(article.wordCount, article.word_count), 0),
+      readingTime: asNumber(firstValue(article.readingTime, article.reading_time), 0),
+      isPinned: asBoolean(firstValue(article.isPinned, article.is_pinned), false),
+      pinOrder: asNumber(firstValue(article.pinOrder, article.pin_order), 0),
+      prev: normalizeArticleLink(article.prev),
+      next: normalizeArticleLink(article.next),
+      related: asArray(article.related).map(normalizeArticleLink).filter(Boolean),
+      toc: asArray(article.toc),
+      meta: firstValue(article.meta, null),
+      canonicalUrl: firstValue(article.canonicalUrl, article.canonical_url, null),
+    };
+  };
+
+  const normalizeArticleList = (result = {}) => {
+    const page = asNumber(result.page, 1);
+    const pageSize = asNumber(firstValue(result.pageSize, result.page_size), 10);
+    const total = asNumber(result.total, 0);
+    const totalPages = asNumber(firstValue(result.totalPages, result.total_pages), pageSize > 0 ? Math.ceil(total / pageSize) : 0);
+    return {
+      articles: asArray(result.articles).map(normalizeArticle).filter(Boolean),
+      total,
+      page,
+      pageSize,
+      totalPages,
+      hasMore: page * pageSize < total,
+    };
+  };
+
+  const normalizePage = (page) => {
+    if (!page) return null;
+    return {
+      id: asNumber(page.id),
+      slug: page.slug || String(page.id || ''),
+      title: page.title || '',
+      content: firstValue(page.content, ''),
+      html: firstValue(page.html, page.content_html, ''),
+      status: page.status || '',
+      source: page.source || '',
+      createdAt: firstValue(page.createdAt, page.created_at, ''),
+      updatedAt: firstValue(page.updatedAt, page.updated_at, ''),
+    };
+  };
+
+  const normalizeComment = (comment) => {
+    if (!comment) return null;
+    return {
+      id: asNumber(comment.id),
+      articleId: firstValue(comment.articleId, comment.article_id, null),
+      userId: firstValue(comment.userId, comment.user_id, null),
+      parentId: firstValue(comment.parentId, comment.parent_id, null),
+      nickname: firstValue(comment.nickname, comment.author?.username, null),
+      email: firstValue(comment.email, null),
+      content: comment.content || '',
+      html: firstValue(comment.html, comment.content_html, ''),
+      status: comment.status || '',
+      createdAt: firstValue(comment.createdAt, comment.created_at, ''),
+      updatedAt: firstValue(comment.updatedAt, comment.updated_at, ''),
+      avatarUrl: firstValue(comment.avatarUrl, comment.avatar_url, comment.author?.avatar, ''),
+      likeCount: asNumber(firstValue(comment.likeCount, comment.like_count), 0),
+      isLiked: asBoolean(firstValue(comment.isLiked, comment.is_liked), false),
+      isAuthor: asBoolean(firstValue(comment.isAuthor, comment.is_author), false),
+      replies: asArray(comment.replies).map(normalizeComment).filter(Boolean),
+    };
+  };
+
+  const normalizeNavItem = (item) => {
+    if (!item) return null;
+    const type = firstValue(item.type, item.navType, item.nav_type, 'external');
+    const target = firstValue(item.target, item.url, '');
+    return {
+      id: asNumber(item.id),
+      parentId: firstValue(item.parentId, item.parent_id, null),
+      title: firstValue(item.title, item.name, ''),
+      name: firstValue(item.name, item.title, ''),
+      type,
+      target,
+      url: firstValue(item.url, target, ''),
+      openNewTab: asBoolean(firstValue(item.openNewTab, item.open_new_tab, item.target === '_blank'), false),
+      order: asNumber(firstValue(item.order, item.sortOrder, item.sort_order), 0),
+      visible: asBoolean(firstValue(item.visible, true), true),
+      children: asArray(item.children).map(normalizeNavItem).filter(Boolean),
+    };
+  };
+
+  const normalizeLikeResult = (result = {}) => ({
+    success: asBoolean(firstValue(result.success, true), true),
+    liked: asBoolean(result.liked, false),
+    likeCount: asNumber(firstValue(result.likeCount, result.like_count), 0),
+  });
+
+  const normalizeSiteInfo = (data = {}) => ({
+    version: data.version || '',
+    name: firstValue(data.name, data.site_name, 'Noteva'),
+    description: firstValue(data.description, data.site_description, ''),
+    subtitle: firstValue(data.subtitle, data.site_subtitle, ''),
+    logo: firstValue(data.logo, data.site_logo, '/logo.png'),
+    footer: firstValue(data.footer, data.site_footer, ''),
+    url: firstValue(data.url, data.site_url, ''),
+    permalinkStructure: firstValue(data.permalinkStructure, data.permalink_structure, '/posts/{slug}'),
+    emailVerificationEnabled: asBoolean(firstValue(data.emailVerificationEnabled, data.email_verification_enabled), false),
+    demoMode: asBoolean(firstValue(data.demoMode, data.demo_mode), false),
+    customCss: firstValue(data.customCss, data.custom_css, ''),
+    customJs: firstValue(data.customJs, data.custom_js, ''),
+    fontFamily: firstValue(data.fontFamily, data.font_family, ''),
+    stats: {
+      totalArticles: asNumber(firstValue(data.stats?.totalArticles, data.stats?.total_articles), 0),
+      totalCategories: asNumber(firstValue(data.stats?.totalCategories, data.stats?.total_categories), 0),
+      totalTags: asNumber(firstValue(data.stats?.totalTags, data.stats?.total_tags), 0),
+    },
+  });
+
+  const normalizeThemeInfo = (data = {}) => ({
+    name: data.name || '',
+    displayName: firstValue(data.displayName, data.display_name, data.name, ''),
+    version: data.version || '',
+    description: data.description || '',
+    author: data.author || '',
+    repository: data.repository || '',
+    preview: data.preview || '',
+    requiresNoteva: firstValue(data.requiresNoteva, data.requires_noteva, ''),
+    compatible: firstValue(data.compatible, true),
+    compatibilityMessage: firstValue(data.compatibilityMessage, data.compatibility_message, ''),
+    config: data.config || {},
+    hasSettings: asBoolean(firstValue(data.hasSettings, data.has_settings), false),
+  });
+
+  const coerceSettingValue = (value) => {
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim();
+    if (trimmed === '') return '';
+    const lowered = trimmed.toLowerCase();
+    if (lowered === 'true') return true;
+    if (lowered === 'false') return false;
+    if (lowered === 'null') return null;
+    if (/^-?(0|[1-9]\d*)(\.\d+)?$/.test(trimmed)) return Number(trimmed);
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try { return JSON.parse(trimmed); } catch { return value; }
+    }
+    return value;
+  };
+
+  const normalizeSettings = (payload = {}) => {
+    const values = payload && typeof payload === 'object' && payload.values ? payload.values : payload;
+    const normalized = {};
+    for (const [key, value] of Object.entries(values || {})) {
+      normalized[key] = coerceSettingValue(value);
+    }
+    return normalized;
+  };
+
+  const normalizeArchiveEntry = (entry = {}) => {
+    const month = entry.month || '';
+    const [yearText, monthText] = String(month).split('-');
+    return {
+      month,
+      year: asNumber(firstValue(entry.year, yearText), 0),
+      monthNumber: asNumber(firstValue(entry.monthNumber, entry.month_number, monthText), 0),
+      count: asNumber(entry.count, 0),
+    };
+  };
+
   // ============================================
   // 站点 API
   // ============================================
   const site = {
     _info: null,
     _nav: null,
-    _themeConfig: {},
     _permalinkStructure: '/posts/{slug}',
 
     async getInfo() {
       if (this._info) return this._info;
-      const data = await api.get('/site/info');
-      // 缓存 permalink 结构
-      this._permalinkStructure = data.permalink_structure || '/posts/{slug}';
-      // 透传全部后端字段 + 兼容短名映射
-      this._info = {
-        ...data,
-        // 兼容短名
-        name: data.site_name || data.name || '',
-        description: data.site_description || data.description || '',
-        subtitle: data.site_subtitle || data.subtitle || '',
-        logo: data.site_logo || data.logo || '',
-        footer: data.site_footer || data.footer || '',
-        version: data.version || '',
-        permalinkStructure: this._permalinkStructure,
-        permalink_structure: this._permalinkStructure,
-      };
+      this._info = normalizeSiteInfo(await api.get('/site/info'));
+      this._permalinkStructure = this._info.permalinkStructure || '/posts/{slug}';
       return this._info;
-    },
-
-    /**
-     * 生成文章 URL
-     * @param {object} article - 文章对象，需要包含 id 和 slug
-     * @returns {string} 文章 URL
-     */
-    getArticleUrl(article) {
-      if (!article) return '/posts/';
-      const structure = this._permalinkStructure || '/posts/{slug}';
-      return structure
-        .replace('{id}', article.id)
-        .replace('{slug}', article.slug || article.id);
     },
 
     async getNav() {
       if (this._nav) return this._nav;
       const result = await api.get('/nav');
-      this._nav = result.items || [];
+      this._nav = asArray(result.items).map(normalizeNavItem).filter(Boolean);
       return this._nav;
     },
 
-    async loadThemeConfig() {
-      try {
+    async refresh() {
+      this._info = null;
+      this._nav = null;
+      return this.getInfo();
+    },
+  };
+
+  const urls = {
+    article(article) {
+      if (!article) return '/posts/';
+      const structure = site._permalinkStructure || '/posts/{slug}';
+      return structure
+        .replace('{id}', encodeURIComponent(String(article.id || '')))
+        .replace('{slug}', encodeURIComponent(String(article.slug || article.id || '')));
+    },
+
+    category(category) {
+      const slug = typeof category === 'string' ? category : category?.slug;
+      return `/categories?c=${encodeURIComponent(slug || '')}`;
+    },
+
+    tag(tag) {
+      const slug = typeof tag === 'string' ? tag : tag?.slug;
+      return `/tags?t=${encodeURIComponent(slug || '')}`;
+    },
+
+    page(page) {
+      const slug = typeof page === 'string' ? page : page?.slug;
+      return `/${String(slug || '').replace(/^\/+/, '')}`;
+    },
+
+    asset(path) {
+      return `/${String(path || '').replace(/^\/+/, '')}`;
+    },
+
+    upload(path) {
+      const normalized = String(path || '').replace(/^\/+/, '');
+      return normalized.startsWith('uploads/') ? `/${normalized}` : `/uploads/${normalized}`;
+    },
+  };
+
+  const theme = {
+    _info: null,
+    _config: null,
+    _settings: null,
+
+    async getInfo() {
+      if (this._info) return this._info;
+      this._info = normalizeThemeInfo(await api.get('/theme/info'));
+      return this._info;
+    },
+
+    async getConfig(key) {
+      if (!this._config) {
         const result = await api.get('/theme/config');
-        this._themeConfig = result.config || {};
-        events.emit('theme:config:loaded', this._themeConfig);
-        return this._themeConfig;
-      } catch (e) {
-        console.warn('[Noteva] Failed to load theme config:', e);
-        return {};
+        this._config = result.config || {};
+        events.emit('theme:config:loaded', this._config);
       }
+      return key ? this._config[key] : this._config;
     },
 
-    getThemeConfig(key) {
-      if (key) return this._themeConfig[key];
-      return this._themeConfig;
-    },
-
-    _setThemeConfig(config) {
-      this._themeConfig = config || {};
-      events.emit('theme:config:change', this._themeConfig);
-    },
-
-    // 主题设置（settings.json 定义，数据库存储）
-    _themeSettings: null,
-
-    /**
-     * 获取当前主题的设置值
-     * 读取 /api/v1/theme/settings（公开接口，无需登录）
-     * @param {string} [key] - 可选，指定字段名
-     * @returns {Promise<object|string>} 全部设置或单个值
-     */
-    async getThemeSettings(key) {
-      if (!this._themeSettings) {
+    async getSettings(key) {
+      if (!this._settings) {
         try {
-          this._themeSettings = await api.get('/theme/settings');
+          this._settings = normalizeSettings(await api.get('/theme/settings'));
         } catch (e) {
           console.warn('[Noteva] Failed to load theme settings:', e);
-          this._themeSettings = {};
+          this._settings = {};
         }
       }
-      if (key) return this._themeSettings[key];
-      return this._themeSettings;
+      return key ? this._settings[key] : this._settings;
+    },
+
+    async getSetting(key, defaultValue = undefined) {
+      const value = await this.getSettings(key);
+      return value === undefined ? defaultValue : value;
+    },
+
+    async refreshSettings() {
+      this._settings = null;
+      return this.getSettings();
+    },
+
+    _setConfig(config) {
+      this._config = config || {};
+      events.emit('theme:config:change', this._config);
     },
   };
 
@@ -271,121 +610,40 @@
       const queryParams = {
         page: params.page || 1,
         page_size: params.pageSize || 10,
-        published_only: true,  // 前台只显示已发布文章
+        published_only: true,
       };
       // 只添加有值的可选参数
       if (params.category) queryParams.category = params.category;
       if (params.tag) queryParams.tag = params.tag;
       if (params.keyword) queryParams.keyword = params.keyword;
+      if (params.sort) queryParams.sort = params.sort;
 
-      const result = await api.get('/articles', queryParams);
-      return {
-        articles: result.articles || [],
-        total: result.total || 0,
-        page: result.page || 1,
-        pageSize: result.page_size || 10,
-        hasMore: (result.page || 1) * (result.page_size || 10) < (result.total || 0),
-      };
+      return normalizeArticleList(await api.get('/articles', queryParams));
     },
 
     async get(slug) {
-      const article = await api.get(`/articles/${slug}`);
+      const article = normalizeArticle(await api.get(`/articles/${slug}`));
       // 触发文章查看钩子
-      hooks.trigger('article_view', article);
-      events.emit('article:view', article);
-      return article;
+      const processed = hooks.trigger('article_view', article);
+      page.set({
+        type: 'article',
+        articleId: processed?.id || null,
+        article: processed || null,
+        pageId: null,
+        customPage: null,
+      });
+      events.emit('article:view', processed);
+      return processed;
     },
 
-    async getRelated(slug, params = {}) {
-      return api.get(`/articles/${slug}/related`, { limit: params.limit || 5 });
+    async related(slug, params = {}) {
+      const article = normalizeArticle(await api.get(`/articles/${slug}`));
+      return asArray(article?.related).slice(0, params.limit || 5);
     },
 
-    async getArchives() {
-      return api.get('/articles/archives');
-    },
-
-    // ============================================
-    // 文章字段兼容工具
-    // 主题开发者不用关心 snake_case vs camelCase
-    // ============================================
-
-    /**
-     * 获取文章发布日期
-     * @param {object} article - 文章对象
-     * @returns {string} 日期字符串
-     */
-    getDate(article) {
-      return article.published_at || article.publishedAt || article.created_at || article.createdAt || '';
-    },
-
-    /**
-     * 获取文章统计数据
-     * @param {object} article - 文章对象
-     * @returns {{ views: number, likes: number, comments: number }}
-     */
-    getStats(article) {
-      return {
-        views: article.view_count ?? article.viewCount ?? 0,
-        likes: article.like_count ?? article.likeCount ?? 0,
-        comments: article.comment_count ?? article.commentCount ?? 0,
-      };
-    },
-
-    /**
-     * 判断文章是否置顶
-     * @param {object} article - 文章对象
-     * @returns {boolean}
-     */
-    isPinned(article) {
-      return !!(article.is_pinned || article.isPinned);
-    },
-
-    /**
-     * 获取文章缩略图
-     * 优先级：thumbnail 字段 > 正文第一张图片
-     * @param {object} article - 文章对象
-     * @returns {string|null} 图片 URL 或 null
-     */
-    getThumbnail(article) {
-      if (article.thumbnail) return article.thumbnail;
-      if (article.cover_image) return article.cover_image;
-      // 从正文提取第一张图片
-      const content = article.content || article.content_html || article.html || '';
-      const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/i)
-        || content.match(/!\[[^\]]*\]\(([^)]+)\)/);
-      return imgMatch ? imgMatch[1] : null;
-    },
-
-    /**
-     * 生成文章纯文本摘要
-     * @param {object} article - 文章对象
-     * @param {number} [maxLength=200] - 最大长度
-     * @returns {string} 纯文本摘要
-     */
-    getExcerpt(article, maxLength = 200) {
-      // 优先使用后端摘要
-      if (article.excerpt) return article.excerpt;
-      const raw = article.content || '';
-      // 去除 Markdown/HTML 标签
-      const text = raw
-        .replace(/```[\s\S]*?```/g, '')
-        .replace(/`[^`]*`/g, '')
-        .replace(/!?\[[^\]]*\]\([^)]*\)/g, '')
-        .replace(/<[^>]+>/g, '')
-        .replace(/#{1,6}\s/g, '')
-        .replace(/[*_~`>|\-]/g, '')
-        .replace(/\n+/g, ' ')
-        .trim();
-      return text.length > maxLength ? text.slice(0, maxLength) + '...' : text;
-    },
-
-    /**
-     * 获取文章 HTML 内容
-     * @param {object} article - 文章对象
-     * @returns {string} HTML 字符串
-     */
-    getHtml(article) {
-      return article.content_html || article.html || '';
+    async archives() {
+      const result = await api.get('/articles/archives');
+      return asArray(result).map(normalizeArchiveEntry);
     },
 
     /**
@@ -409,10 +667,10 @@
      * 点赞或取消点赞
      * @param {'article'|'comment'} targetType - 目标类型
      * @param {number} targetId - 目标 ID
-     * @returns {Promise<{liked: boolean, like_count: number}>}
+     * @returns {Promise<{liked: boolean, likeCount: number}>}
      */
     async like(targetType, targetId) {
-      return api.post('/like', { target_type: targetType, target_id: targetId });
+      return normalizeLikeResult(await api.post('/like', { target_type: targetType, target_id: targetId }));
     },
 
     /**
@@ -422,7 +680,7 @@
      * @returns {Promise<{liked: boolean}>}
      */
     async checkLike(targetType, targetId) {
-      return api.get('/like/check', { target_type: targetType, target_id: targetId });
+      return normalizeLikeResult(await api.get('/like/check', { target_type: targetType, target_id: targetId }));
     },
   };
 
@@ -450,12 +708,20 @@
   const pages = {
     async list() {
       const result = await api.get('/pages');
-      return result.pages || [];
+      return asArray(result.pages).map(normalizePage).filter(Boolean);
     },
 
     async get(slug) {
       const result = await api.get(`/page/${slug}`);
-      return result.page || result;
+      const customPage = normalizePage(result.page || result);
+      page.set({
+        type: 'page',
+        articleId: null,
+        article: null,
+        pageId: customPage?.id || null,
+        customPage,
+      });
+      return customPage;
     },
   };
 
@@ -465,11 +731,12 @@
   const categories = {
     async list() {
       const result = await api.get('/categories');
-      return result.categories || [];
+      return asArray(result.categories).map(normalizeCategory).filter(Boolean);
     },
 
     async get(slug) {
-      return api.get(`/categories/${slug}`);
+      const categories = await this.list();
+      return categories.find(category => category.slug === slug || String(category.id) === String(slug)) || null;
     },
   };
 
@@ -479,11 +746,12 @@
   const tags = {
     async list() {
       const result = await api.get('/tags');
-      return result.tags || [];
+      return asArray(result.tags).map(normalizeTag).filter(Boolean);
     },
 
     async get(slug) {
-      return api.get(`/tags/${slug}`);
+      const tags = await this.list();
+      return tags.find(tag => tag.slug === slug || String(tag.id) === String(slug)) || null;
     },
   };
 
@@ -493,7 +761,7 @@
   const comments = {
     async list(articleId) {
       const result = await api.get(`/comments/${articleId}`);
-      const commentList = result.comments || result || [];
+      const commentList = asArray(result.comments || result).map(normalizeComment).filter(Boolean);
       // 触发评论显示前钩子
       return hooks.trigger('comment_before_display', commentList);
     },
@@ -506,24 +774,24 @@
         article_id: processedData.articleId,
         content: processedData.content,
         parent_id: processedData.parentId,
+        nickname: processedData.nickname,
+        email: processedData.email,
       });
 
       // 触发评论创建后钩子
-      hooks.trigger('comment_after_create', comment, { articleId: data.articleId });
-      events.emit('comment:create', comment);
+      const normalized = normalizeComment(comment.comment || comment);
+      hooks.trigger('comment_after_create', normalized, {
+        articleId: data.articleId,
+        parentId: data.parentId,
+      });
+      events.emit('comment:create', normalized);
 
-      return comment;
-    },
-
-    async delete(commentId) {
-      hooks.trigger('comment_before_delete', commentId);
-      await api.delete(`/admin/comments/${commentId}`);
-      hooks.trigger('comment_after_delete', commentId);
+      return normalized;
     },
 
     async recent(limit = 10) {
       const result = await api.get(`/comments/recent`, { limit });
-      return result.comments || result || [];
+      return asArray(result.comments || result).map(normalizeComment).filter(Boolean);
     },
   };
 
@@ -555,7 +823,7 @@
       // 创建新的检查 Promise
       this._checkPromise = (async () => {
         try {
-          this._current = await api.get('/auth/me');
+          this._current = normalizeSimpleUser(await api.get('/auth/me'));
           this._checked = true;
           return this._current;
         } catch (e) {
@@ -603,6 +871,7 @@
       hooks.trigger('user_logout', currentUser);
       await api.post('/auth/logout');
       this._current = null;
+      this._checked = true;
       events.emit('user:logout');
     },
 
@@ -628,6 +897,30 @@
       if (this._current.role === 'admin') return true;
       // 可以扩展更细粒度的权限检查
       return false;
+    },
+  };
+
+  const publicUser = {
+    isLoggedIn: () => user.isLoggedIn(),
+    getCurrent: () => user.getCurrent(),
+    check: () => user.check(),
+    logout: () => user.logout(),
+    hasPermission: (permission) => user.hasPermission(permission),
+  };
+
+  const errors = {
+    NotevaError,
+    isNotFound(error) {
+      return error?.status === 404;
+    },
+    isUnauthorized(error) {
+      return error?.status === 401;
+    },
+    isForbidden(error) {
+      return error?.status === 403;
+    },
+    isValidation(error) {
+      return error?.status === 400 || error?.code === 'VALIDATION_ERROR';
     },
   };
 
@@ -702,23 +995,65 @@
 
     push(path) {
       const oldPath = this.getPath();
-      window.history.pushState({}, '', path);
       events.emit('route:before', { from: oldPath, to: path });
-      events.emit('route:change', path);
+      hooks.trigger('route_before', { from: oldPath, to: path });
+      window.history.pushState({}, '', path);
     },
 
     replace(path) {
       const oldPath = this.getPath();
-      window.history.replaceState({}, '', path);
       events.emit('route:before', { from: oldPath, to: path });
-      events.emit('route:change', path);
+      hooks.trigger('route_before', { from: oldPath, to: path });
+      window.history.replaceState({}, '', path);
     },
   };
 
-  // 监听浏览器前进后退
-  window.addEventListener('popstate', () => {
-    events.emit('route:change', router.getPath());
-  });
+  const page = {
+    type: 'unknown',
+    path: '',
+    query: {},
+    articleId: null,
+    article: null,
+    pageId: null,
+    customPage: null,
+
+    set(context = {}) {
+      const has = (key) => Object.prototype.hasOwnProperty.call(context, key);
+      this.type = context.type || this.type || 'unknown';
+      this.path = context.path || router.getPath();
+      this.query = context.query || router.getQueryAll();
+      this.articleId = has('articleId') ? context.articleId : firstValue(context.article?.id, this.articleId, null);
+      this.article = has('article') ? context.article : firstValue(context.article, this.article, null);
+      this.pageId = has('pageId') ? context.pageId : firstValue(context.customPage?.id, this.pageId, null);
+      this.customPage = has('customPage') ? context.customPage : firstValue(context.customPage, this.customPage, null);
+      const current = this.get();
+      events.emit('page:change', current);
+      return current;
+    },
+
+    get() {
+      return {
+        type: this.type,
+        path: this.path || router.getPath(),
+        query: this.query || router.getQueryAll(),
+        articleId: this.articleId,
+        article: this.article,
+        pageId: this.pageId,
+        customPage: this.customPage,
+      };
+    },
+
+    clear() {
+      this.type = 'unknown';
+      this.path = router.getPath();
+      this.query = router.getQueryAll();
+      this.articleId = null;
+      this.article = null;
+      this.pageId = null;
+      this.customPage = null;
+      return this.get();
+    },
+  };
 
   // ============================================
   // 工具函数
@@ -1059,6 +1394,43 @@
   // ============================================
   // 文件上传 API
   // ============================================
+  async function uploadMultipart(url, entries) {
+    const formData = new FormData();
+    for (const [field, value] of entries) {
+      formData.append(field, value);
+    }
+
+    const response = await fetch(API_BASE + url, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new NotevaError(result.message || result.error?.message || result.error || `HTTP ${response.status}`, {
+        status: response.status,
+        code: result.code,
+        data: result,
+        url,
+        method: 'POST',
+      });
+    }
+    return result;
+  }
+
+  const normalizeUploadResult = (result = {}) => ({
+    url: result.url || '',
+    filename: result.filename || '',
+    size: asNumber(result.size, 0),
+    contentType: firstValue(result.contentType, result.content_type, ''),
+  });
+
+  const normalizeMultiUploadResult = (result = {}) => ({
+    files: asArray(result.files).map(normalizeUploadResult),
+    failed: asArray(result.failed),
+  });
+
   const upload = {
     /**
      * 上传图片
@@ -1066,21 +1438,23 @@
      * @returns {Promise<{url: string, filename: string, size: number}>}
      */
     async image(file) {
-      const formData = new FormData();
-      formData.append('file', file);
+      return normalizeUploadResult(await uploadMultipart('/upload/image', [['file', file]]));
+    },
 
-      const response = await fetch('/api/v1/upload/image', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
-      });
+    /**
+     * 批量上传图片
+     * @param {File[]|FileList} files - 文件列表
+     */
+    async images(files) {
+      return normalizeMultiUploadResult(await uploadMultipart('/upload/images', Array.from(files || []).map(file => ['files', file])));
+    },
 
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.error?.message || 'Upload failed');
-      }
-
-      return response.json();
+    /**
+     * 上传普通文件
+     * @param {File} file - 文件对象
+     */
+    async file(file) {
+      return normalizeUploadResult(await uploadMultipart('/upload/file', [['file', file]]));
     },
 
     /**
@@ -1089,22 +1463,8 @@
      * @param {File} file - 文件对象
      * @returns {Promise<{url: string, filename: string, size: number}>}
      */
-    async file(pluginId, file) {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch(`/api/v1/upload/plugin/${pluginId}/file`, {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.error?.message || 'Upload failed');
-      }
-
-      return response.json();
+    async pluginFile(pluginId, file) {
+      return normalizeUploadResult(await uploadMultipart(`/upload/plugin/${encodeURIComponent(pluginId)}/file`, [['file', file]]));
     },
   };
 
@@ -1207,15 +1567,15 @@
 
     /**
      * 一键设置文章页 SEO（title + meta + OG + Twitter）
-     * @param {object} article - 文章对象 { title, excerpt, thumbnail, slug, published_at, updated_at }
+     * @param {object} article - Article object with title, excerpt, thumbnail, slug, publishedAt, updatedAt
      * @param {string} siteName - 站点名称
      * @param {string} [siteUrl] - 站点 URL
      */
     setArticleMeta(article, siteName, siteUrl) {
       const title = `${article.title} - ${siteName}`;
       const desc = (article.excerpt || '').substring(0, 200);
-      const url = siteUrl ? `${siteUrl.replace(/\/$/, '')}/posts/${article.slug || article.id}` : '';
-      const image = article.thumbnail || '';
+      const url = siteUrl ? `${siteUrl.replace(/\/$/, '')}${urls.article(article)}` : '';
+      const image = article.thumbnail || article.coverImage || '';
 
       this.set({
         title,
@@ -1425,6 +1785,7 @@
   const plugins = {
     _plugins: {},
     _settings: {},
+    _enabled: [],
     _loaded: false,
 
     /**
@@ -1452,52 +1813,112 @@
     },
 
     /**
-     * 保存插件设置
+     * 获取已启用插件列表
      */
-    async saveSettings(pluginId, settings) {
-      this._settings[pluginId] = settings;
-      await api.put(`/plugins/${pluginId}/settings`, settings);
+    list() {
+      return this._enabled.slice();
+    },
+
+    /**
+     * 等待 SDK 与启用插件列表加载完成，并返回插件设置。
+     * defaults 会先合并，用户保存的设置优先级更高。
+     */
+    async ready(pluginId, defaults = {}) {
+      await ready();
+      await loadEnabledPlugins();
+      return {
+        ...defaults,
+        ...this.getSettings(pluginId),
+      };
+    },
+
+    /**
+     * 触发插件后台动作。需要管理员登录。
+     */
+    async action(pluginId, action, data = {}) {
+      return api.post(
+        `/admin/plugins/${encodeURIComponent(pluginId)}/action/${encodeURIComponent(action)}`,
+        data
+      );
+    },
+
+    /**
+     * 调用插件公开 API。返回 JSON 响应时自动解析，否则返回文本。
+     */
+    async request(pluginId, path = '', options = {}) {
+      const method = String(options.method || 'GET').toUpperCase();
+      const normalizedPath = String(path || '').replace(/^\/+/, '');
+      const url = `/plugins/${encodeURIComponent(pluginId)}/api/${normalizedPath}`;
+      const headers = { ...(options.headers || {}) };
+      let body = options.body !== undefined ? options.body : options.data;
+
+      if (body !== undefined && body !== null && typeof body === 'object' && !(body instanceof FormData) && !(body instanceof Blob)) {
+        body = JSON.stringify(body);
+        if (!headers['Content-Type'] && !headers['content-type']) {
+          headers['Content-Type'] = 'application/json';
+        }
+      }
+
+      hooks.trigger('api_request_before', { method, url, data: body });
+
+      try {
+        const response = await fetch(API_BASE + url, {
+          method,
+          headers,
+          credentials: 'include',
+          body: method === 'GET' || method === 'HEAD' ? undefined : body,
+        });
+        const contentType = response.headers.get('content-type') || '';
+        const result = contentType.includes('application/json')
+          ? await response.json().catch(() => null)
+          : await response.text();
+
+        hooks.trigger('api_request_after', { method, url, response, result });
+
+        if (!response.ok) {
+          throw new NotevaError(
+            result?.message || result?.error || `HTTP ${response.status}`,
+            {
+              status: response.status,
+              data: result,
+              url,
+              method,
+            }
+          );
+        }
+
+        return result;
+      } catch (error) {
+        hooks.trigger('api_error', error);
+        throw error;
+      }
+    },
+
+    /**
+     * request 的短别名，适合插件代码里写 Noteva.plugins.api(...)
+     */
+    api(pluginId, path = '', options = {}) {
+      return this.request(pluginId, path, options);
     },
 
     /**
      * 获取插件数据
      */
     async getData(pluginId, key) {
-      const result = await api.get(`/plugins/${pluginId}/data/${key}`);
+      const result = await api.get(`/plugins/${encodeURIComponent(pluginId)}/data/${encodeURIComponent(key)}`);
       return result.value;
     },
 
-    /**
-     * 设置插件数据
-     */
-    async setData(pluginId, key, value) {
-      await api.put(`/plugins/${pluginId}/data/${key}`, { value });
+    data: {
+      async get(pluginId, key) {
+        return plugins.getData(pluginId, key);
+      },
     },
 
-    /**
-     * 从后端加载启用的插件设置
-     */
-    async loadEnabledPlugins() {
-      if (this._loaded) return;
-      try {
-        const enabledPlugins = await api.get('/plugins/enabled');
-        for (const plugin of enabledPlugins) {
-          this._settings[plugin.id] = plugin.settings || {};
-
-          // 触发编辑器工具栏钩子
-          if (plugin.editor_config && plugin.editor_config.toolbar) {
-            for (const button of plugin.editor_config.toolbar) {
-              hooks.trigger('editor_toolbar_button', {
-                pluginId: plugin.id,
-                button: button,
-              });
-            }
-          }
-        }
-        this._loaded = true;
-      } catch (e) {
-        console.warn('[Noteva] Failed to load plugin settings:', e);
-      }
+    storage: {
+      async get(pluginId, key) {
+        return plugins.getData(pluginId, key);
+      },
     },
 
     /**
@@ -1509,6 +1930,32 @@
       return buttons;
     },
   };
+
+  async function loadEnabledPlugins() {
+    if (plugins._loaded) return plugins._enabled;
+    try {
+      const enabledPlugins = asArray(await api.get('/plugins/enabled'));
+      plugins._enabled = enabledPlugins;
+      for (const plugin of enabledPlugins) {
+        plugins._settings[plugin.id] = normalizeSettings(plugin.settings || {});
+
+        // 触发编辑器工具栏钩子
+        if (plugin.editor_config && plugin.editor_config.toolbar) {
+          for (const button of plugin.editor_config.toolbar) {
+            hooks.trigger('editor_toolbar_button', {
+              pluginId: plugin.id,
+              button: button,
+            });
+          }
+        }
+      }
+      plugins._loaded = true;
+    } catch (e) {
+      console.warn('[Noteva] Failed to load plugin settings:', e);
+      plugins._enabled = [];
+    }
+    return plugins._enabled;
+  }
 
   // ============================================
   // Shortcode 系统
@@ -1703,7 +2150,7 @@
     },
 
     mockThemeConfig(config) {
-      site._setThemeConfig(config);
+      theme._setConfig(config);
       console.log('[Noteva] Mocked theme config:', config);
     },
   };
@@ -1993,78 +2440,99 @@
   let _ready = false;
   let _readyCallbacks = [];
 
-  async function init() {
-    // 触发 system_init 钩子
-    hooks.trigger('system_init');
+  function reportReadyError(error) {
+    console.error('[Noteva] Ready callback error:', error);
+    setTimeout(() => { throw error; }, 0);
+  }
 
-    // 检查用户登录状态
-    await user.check();
-
-    // 加载站点信息
-    const siteInfo = await site.getInfo();
-
-    // 从 site info 同步版本号
-    if (siteInfo && siteInfo.version) {
-      window.Noteva.version = siteInfo.version;
+  function runReadyCallback(callback) {
+    try {
+      const result = callback();
+      if (result && typeof result.catch === 'function') {
+        result.catch(reportReadyError);
+      }
+    } catch (e) {
+      reportReadyError(e);
     }
+  }
 
-    // 注入自定义 CSS/JS（如果后端未注入）
-    if (siteInfo) {
-      if (siteInfo.custom_css && !document.getElementById('noteva-custom-css')) {
+  async function init() {
+    if (_ready) return;
+
+    try {
+      // 触发 system_init 钩子
+      hooks.trigger('system_init');
+
+      // 检查用户登录状态
+      await user.check();
+
+      // 加载站点信息
+      const siteInfo = await site.getInfo();
+
+      // 从 site info 同步版本号
+      if (siteInfo && siteInfo.version) {
+        window.Noteva.version = siteInfo.version;
+      }
+
+      // 注入自定义 CSS/JS（如果后端未注入）
+      if (siteInfo) {
+        if (siteInfo.customCss && !document.getElementById('noteva-custom-css')) {
+          const style = document.createElement('style');
+          style.id = 'noteva-custom-css';
+          style.textContent = siteInfo.customCss;
+          document.head.appendChild(style);
+        }
+        if (siteInfo.customJs && !document.getElementById('noteva-custom-js')) {
+          const script = document.createElement('script');
+          script.id = 'noteva-custom-js';
+          script.textContent = siteInfo.customJs;
+          document.body.appendChild(script);
+        }
+      }
+
+      // 注入自定义字体（Google Fonts）
+      if (siteInfo && siteInfo.fontFamily && !document.getElementById('noteva-custom-font')) {
+        const fontName = siteInfo.fontFamily;
+        // Load from Google Fonts (China mirror)
+        const link = document.createElement('link');
+        link.id = 'noteva-custom-font';
+        link.rel = 'stylesheet';
+        link.href = `https://fonts.loli.net/css2?family=${encodeURIComponent(fontName)}:wght@300;400;500;600;700&display=swap`;
+        document.head.appendChild(link);
+        // Set --noteva-font CSS variable (Tailwind font-sans references this)
         const style = document.createElement('style');
-        style.id = 'noteva-custom-css';
-        style.textContent = siteInfo.custom_css;
+        style.id = 'noteva-custom-font-style';
+        style.textContent = `:root { --noteva-font: "${fontName}"; }`;
         document.head.appendChild(style);
       }
-      if (siteInfo.custom_js && !document.getElementById('noteva-custom-js')) {
-        const script = document.createElement('script');
-        script.id = 'noteva-custom-js';
-        script.textContent = siteInfo.custom_js;
-        document.body.appendChild(script);
-      }
-    }
 
-    // 注入自定义字体（Google Fonts）
-    if (siteInfo && siteInfo.font_family && !document.getElementById('noteva-custom-font')) {
-      const fontName = siteInfo.font_family;
-      // Load from Google Fonts (China mirror)
-      const link = document.createElement('link');
-      link.id = 'noteva-custom-font';
-      link.rel = 'stylesheet';
-      link.href = `https://fonts.loli.net/css2?family=${encodeURIComponent(fontName)}:wght@300;400;500;600;700&display=swap`;
-      document.head.appendChild(link);
-      // Set --noteva-font CSS variable (Tailwind font-sans references this)
-      const style = document.createElement('style');
-      style.id = 'noteva-custom-font-style';
-      style.textContent = `:root { --noteva-font: "${fontName}"; }`;
-      document.head.appendChild(style);
-    }
+      // 加载主题配置
+      await theme.getConfig();
 
-    // 加载主题配置
-    await site.loadThemeConfig();
+      // 加载启用的插件设置
+      await loadEnabledPlugins();
 
-    // 加载启用的插件设置
-    await plugins.loadEnabledPlugins();
+      // 自动渲染插槽
+      slots.autoRender();
 
-    // 自动渲染插槽
-    slots.autoRender();
+      // 触发 body_end 钩子（页面加载完成）
+      hooks.trigger('body_end');
 
-    // 触发 body_end 钩子（页面加载完成）
-    hooks.trigger('body_end');
+      // 自动渲染数学公式和 Mermaid 图表
+      hooks.on('content_render', _renderMathAndDiagrams, 20);
 
-    // 触发内容渲染钩子
-    hooks.trigger('content_render', {
-      path: router.getPath(),
-      query: router.getQueryAll(),
-    });
+      page.clear();
 
-    // 自动渲染数学公式和 Mermaid 图表
-    hooks.on('content_render', _renderMathAndDiagrams, 20);
+      // 触发内容渲染钩子
+      hooks.trigger('content_render', {
+        path: router.getPath(),
+        query: router.getQueryAll(),
+      });
 
-    // SPA 路由变化监听：拦截 pushState/replaceState 和 popstate
-    // 自动触发 route_change 和 content_render，主题无需手动处理
-    let _lastPath = router.getPath();
-    let _contentRenderTimer = null;
+      // SPA 路由变化监听：拦截 pushState/replaceState 和 popstate
+      // 自动触发 route_change 和 content_render，主题无需手动处理
+      let _lastPath = router.getPath();
+      let _contentRenderTimer = null;
 
     const _triggerContentRender = (path) => {
       hooks.trigger('content_render', {
@@ -2078,6 +2546,7 @@
       if (newPath !== _lastPath) {
         const oldPath = _lastPath;
         _lastPath = newPath;
+        page.clear();
 
         // 触发路由变化钩子
         hooks.trigger('route_change', {
@@ -2154,19 +2623,24 @@
       _onRouteChange();
     };
     window.addEventListener('popstate', _onRouteChange);
+    } catch (e) {
+      console.error('[Noteva] SDK initialization error:', e);
+      events.emit('sdk:error', e);
+    }
 
     // 触发初始化完成
     _ready = true;
     events.emit('theme:ready');
 
     // 执行等待的回调
-    _readyCallbacks.forEach(cb => cb());
+    const callbacks = _readyCallbacks;
     _readyCallbacks = [];
+    callbacks.forEach(runReadyCallback);
   }
 
   function ready(callback) {
     if (_ready) {
-      if (callback) callback();
+      if (callback) runReadyCallback(callback);
     } else if (callback) {
       _readyCallbacks.push(callback);
     }
@@ -2181,7 +2655,8 @@
   // ============================================
   window.Noteva = {
     // 版本
-    version: '0.2.6',
+    version: '0.2.7',
+    sdkVersion: SDK_VERSION,
 
     // 核心系统
     hooks,
@@ -2190,18 +2665,22 @@
 
     // 数据 API
     site,
+    theme,
     articles,
     pages,
     categories,
     tags,
     comments,
-    user,
+    user: publicUser,
     interactions,
     search,
 
     // 辅助工具
+    urls,
     router,
+    page,
     utils,
+    errors,
     ui,
     upload,
     storage,

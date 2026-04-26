@@ -60,12 +60,12 @@ pub async fn list_login_logs(
     Query(query): Query<LoginLogsQuery>,
 ) -> Result<Json<LoginLogsResponse>, ApiError> {
     use crate::config::DatabaseDriver;
-    
+
     let offset = (query.page - 1) * query.per_page;
-    
+
     // Build WHERE clause
     let mut where_clauses = Vec::new();
-    
+
     if query.username.is_some() {
         where_clauses.push("username LIKE ?".to_string());
     }
@@ -75,13 +75,13 @@ pub async fn list_login_logs(
     if query.success.is_some() {
         where_clauses.push("success = ?".to_string());
     }
-    
+
     let where_sql = if where_clauses.is_empty() {
         String::new()
     } else {
         format!("WHERE {}", where_clauses.join(" AND "))
     };
-    
+
     // Get total count
     let count_sql = format!("SELECT COUNT(*) FROM login_logs {}", where_sql);
     let total: i64 = match state.pool.driver() {
@@ -118,23 +118,23 @@ pub async fn list_login_logs(
                 .map_err(|e| ApiError::internal_error(e.to_string()))?
         }
     };
-    
+
     // Get success/failed counts with same filters (excluding success filter)
     let mut base_where_clauses = Vec::new();
-    
+
     if query.username.is_some() {
         base_where_clauses.push("username LIKE ?".to_string());
     }
     if query.ip_address.is_some() {
         base_where_clauses.push("ip_address = ?".to_string());
     }
-    
+
     let base_where_sql = if base_where_clauses.is_empty() {
         String::new()
     } else {
         format!("WHERE {}", base_where_clauses.join(" AND "))
     };
-    
+
     // Build WHERE clause for success/failed counts
     let success_where = if base_where_sql.is_empty() {
         "WHERE success = 1".to_string()
@@ -146,29 +146,29 @@ pub async fn list_login_logs(
     } else {
         format!("{} AND success = 0", base_where_sql)
     };
-    
+
     let success_count_sql = format!("SELECT COUNT(*) FROM login_logs {}", success_where);
     let failed_count_sql = format!("SELECT COUNT(*) FROM login_logs {}", failed_where);
-    
+
     let (success_count, failed_count): (i64, i64) = match state.pool.driver() {
         DatabaseDriver::Sqlite => {
             let mut success_query = sqlx::query_scalar(&success_count_sql);
             let mut failed_query = sqlx::query_scalar(&failed_count_sql);
-            
+
             if let Some(ref username) = query.username {
                 success_query = success_query.bind(format!("%{}%", username));
             }
             if let Some(ref ip) = query.ip_address {
                 success_query = success_query.bind(ip);
             }
-            
+
             if let Some(ref username) = query.username {
                 failed_query = failed_query.bind(format!("%{}%", username));
             }
             if let Some(ref ip) = query.ip_address {
                 failed_query = failed_query.bind(ip);
             }
-            
+
             let success: i64 = success_query
                 .fetch_one(state.pool.as_sqlite().expect("sqlite pool"))
                 .await
@@ -182,21 +182,21 @@ pub async fn list_login_logs(
         DatabaseDriver::Mysql => {
             let mut success_query = sqlx::query_scalar(&success_count_sql);
             let mut failed_query = sqlx::query_scalar(&failed_count_sql);
-            
+
             if let Some(ref username) = query.username {
                 success_query = success_query.bind(format!("%{}%", username));
             }
             if let Some(ref ip) = query.ip_address {
                 success_query = success_query.bind(ip);
             }
-            
+
             if let Some(ref username) = query.username {
                 failed_query = failed_query.bind(format!("%{}%", username));
             }
             if let Some(ref ip) = query.ip_address {
                 failed_query = failed_query.bind(ip);
             }
-            
+
             let success: i64 = success_query
                 .fetch_one(state.pool.as_mysql().expect("mysql pool"))
                 .await
@@ -208,7 +208,7 @@ pub async fn list_login_logs(
             (success, failed)
         }
     };
-    
+
     // Get logs
     let logs_sql = format!(
         "SELECT id, username, ip_address, user_agent, success, failure_reason, {} FROM login_logs {} ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -218,10 +218,21 @@ pub async fn list_login_logs(
         },
         where_sql
     );
-    
+
     let logs: Vec<LoginLogEntry> = match state.pool.driver() {
         DatabaseDriver::Sqlite => {
-            let mut query_builder = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, i64, Option<String>, String)>(&logs_sql);
+            let mut query_builder = sqlx::query_as::<
+                _,
+                (
+                    i64,
+                    String,
+                    Option<String>,
+                    Option<String>,
+                    i64,
+                    Option<String>,
+                    String,
+                ),
+            >(&logs_sql);
             if let Some(ref username) = query.username {
                 query_builder = query_builder.bind(format!("%{}%", username));
             }
@@ -238,21 +249,42 @@ pub async fn list_login_logs(
                 .await
                 .map_err(|e| ApiError::internal_error(e.to_string()))?
                 .into_iter()
-                .map(|(id, username, ip_address, user_agent, success, failure_reason, created_at)| {
-                    LoginLogEntry {
+                .map(
+                    |(
                         id,
                         username,
                         ip_address,
                         user_agent,
-                        success: success != 0,
+                        success,
                         failure_reason,
                         created_at,
-                    }
-                })
+                    )| {
+                        LoginLogEntry {
+                            id,
+                            username,
+                            ip_address,
+                            user_agent,
+                            success: success != 0,
+                            failure_reason,
+                            created_at,
+                        }
+                    },
+                )
                 .collect()
         }
         DatabaseDriver::Mysql => {
-            let mut query_builder = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, i8, Option<String>, String)>(&logs_sql);
+            let mut query_builder = sqlx::query_as::<
+                _,
+                (
+                    i64,
+                    String,
+                    Option<String>,
+                    Option<String>,
+                    i8,
+                    Option<String>,
+                    String,
+                ),
+            >(&logs_sql);
             if let Some(ref username) = query.username {
                 query_builder = query_builder.bind(format!("%{}%", username));
             }
@@ -269,21 +301,31 @@ pub async fn list_login_logs(
                 .await
                 .map_err(|e| ApiError::internal_error(e.to_string()))?
                 .into_iter()
-                .map(|(id, username, ip_address, user_agent, success, failure_reason, created_at)| {
-                    LoginLogEntry {
+                .map(
+                    |(
                         id,
                         username,
                         ip_address,
                         user_agent,
-                        success: success != 0,
+                        success,
                         failure_reason,
                         created_at,
-                    }
-                })
+                    )| {
+                        LoginLogEntry {
+                            id,
+                            username,
+                            ip_address,
+                            user_agent,
+                            success: success != 0,
+                            failure_reason,
+                            created_at,
+                        }
+                    },
+                )
                 .collect()
         }
     };
-    
+
     Ok(Json(LoginLogsResponse {
         logs,
         total,

@@ -5,10 +5,7 @@
 //! Admin:  POST /api/v1/admin/locales — upsert a custom locale
 //! Admin:  DELETE /api/v1/admin/locales/:code — delete a custom locale
 
-use axum::{
-    extract::Path,
-    Json,
-};
+use axum::{extract::Path, Json};
 use serde::{Deserialize, Serialize};
 
 use crate::services::locale;
@@ -42,11 +39,18 @@ pub struct LocaleDeleteResponse {
 
 /// GET /api/v1/locales — list all custom locales (code + name)
 pub async fn list_locales() -> Result<Json<LocaleListResponse>, super::ApiError> {
-    let items = locale::list_locales().await
+    let items = locale::list_locales()
+        .await
         .map_err(|e| super::ApiError::internal_error(format!("Failed to list locales: {e}")))?;
 
     Ok(Json(LocaleListResponse {
-        locales: items.into_iter().map(|i| LocaleItem { code: i.code, name: i.name }).collect(),
+        locales: items
+            .into_iter()
+            .map(|i| LocaleItem {
+                code: i.code,
+                name: i.name,
+            })
+            .collect(),
     }))
 }
 
@@ -54,7 +58,8 @@ pub async fn list_locales() -> Result<Json<LocaleListResponse>, super::ApiError>
 pub async fn get_locale(
     Path(code): Path<String>,
 ) -> Result<Json<LocaleDetailResponse>, super::ApiError> {
-    let loc = locale::get_locale(&code).await
+    let loc = locale::get_locale(&code)
+        .await
         .map_err(|e| super::ApiError::internal_error(format!("Failed to get locale: {e}")))?;
 
     match loc {
@@ -91,13 +96,16 @@ pub async fn upsert_locale(
         return Err(super::ApiError::validation_error("Invalid locale name"));
     }
     if !input.json_content.is_object() {
-        return Err(super::ApiError::validation_error("json_content must be a JSON object"));
+        return Err(super::ApiError::validation_error(
+            "json_content must be a JSON object",
+        ));
     }
 
     let json_string = serde_json::to_string(&input.json_content)
         .map_err(|e| super::ApiError::internal_error(format!("Failed to serialize JSON: {e}")))?;
 
-    locale::upsert_locale(&input.code, &input.name, &json_string).await
+    locale::upsert_locale(&input.code, &input.name, &json_string)
+        .await
         .map_err(|e| super::ApiError::internal_error(format!("Failed to save locale: {e}")))?;
 
     Ok(Json(LocaleItem {
@@ -110,7 +118,8 @@ pub async fn upsert_locale(
 pub async fn delete_locale(
     Path(code): Path<String>,
 ) -> Result<Json<LocaleDeleteResponse>, super::ApiError> {
-    let deleted = locale::delete_locale(&code).await
+    let deleted = locale::delete_locale(&code)
+        .await
         .map_err(|e| super::ApiError::internal_error(format!("Failed to delete locale: {e}")))?;
 
     if deleted {

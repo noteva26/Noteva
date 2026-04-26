@@ -12,6 +12,7 @@ pub mod category;
 pub mod comment;
 pub mod email;
 pub mod emoji;
+pub mod locale;
 pub mod markdown;
 pub mod nav_item;
 pub mod page;
@@ -19,16 +20,14 @@ pub mod password;
 pub mod rate_limiter;
 pub mod settings;
 pub mod tag;
-pub mod locale;
 pub mod user;
 
-pub use article::{ArticleService, ArticleServiceError, generate_slug as generate_article_slug};
+pub use article::{generate_slug as generate_article_slug, ArticleService, ArticleServiceError};
 pub use category::{
-    CategoryService, CategoryServiceError, CreateCategoryInput, UpdateCategoryInput,
-    generate_slug,
+    generate_slug, CategoryService, CategoryServiceError, CreateCategoryInput, UpdateCategoryInput,
 };
-pub use comment::{CommentService, generate_fingerprint};
-pub use email::{EmailService, generate_verification_code};
+pub use comment::{generate_fingerprint, CommentService};
+pub use email::{generate_verification_code, EmailService};
 pub use emoji::{process_all_emoji, process_shortcodes, process_unicode_emoji};
 pub use markdown::{MarkdownRenderer, TocEntry};
 pub use nav_item::NavItemService;

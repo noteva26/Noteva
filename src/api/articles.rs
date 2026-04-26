@@ -96,18 +96,17 @@ pub fn public_router() -> Router<AppState> {
 
 /// Build the protected articles router (admin access by ID)
 pub fn protected_router() -> Router<AppState> {
-    Router::new()
-        .route("/{id}", get(get_article_by_id))
+    Router::new().route("/{id}", get(get_article_by_id))
 }
 
 // Export handlers for use in mod.rs
 pub use create_article as create_article_handler;
-pub use update_article as update_article_handler;
 pub use delete_article as delete_article_handler;
+pub use get_article as get_article_handler;
 pub use get_article_by_id as get_article_by_id_handler;
 pub use list_articles as list_articles_handler;
-pub use get_article as get_article_handler;
 pub use resolve_article as resolve_article_handler;
+pub use update_article as update_article_handler;
 
 /// Build the articles router (legacy, combines both)
 pub fn router() -> Router<AppState> {
@@ -137,7 +136,8 @@ pub async fn list_articles(
             Some(id)
         } else {
             // Try to find by slug
-            state.category_service
+            state
+                .category_service
                 .get_by_slug(cat)
                 .await
                 .ok()
@@ -154,7 +154,8 @@ pub async fn list_articles(
             Some(id)
         } else {
             // Try to find by slug
-            state.tag_service
+            state
+                .tag_service
                 .get_by_slug(t)
                 .await
                 .ok()
@@ -207,10 +208,11 @@ pub async fn list_articles(
     let page = result.page;
     let per_page = result.per_page;
     let total_pages = result.total_pages();
-    
+
     // Batch-fetch tags for all articles (1 query instead of N)
     let article_ids: Vec<i64> = result.items.iter().map(|a| a.id).collect();
-    let tags_map = state.tag_service
+    let tags_map = state
+        .tag_service
         .get_by_article_ids(&article_ids)
         .await
         .unwrap_or_default();
@@ -218,7 +220,8 @@ pub async fn list_articles(
     // Build responses with category + tags
     let mut articles: Vec<ArticleResponse> = Vec::new();
     for article in result.items {
-        let category = state.category_service
+        let category = state
+            .category_service
             .get_by_id(article.category_id)
             .await
             .ok()
@@ -228,7 +231,6 @@ pub async fn list_articles(
         let response: ArticleResponse = article.into();
         articles.push(response.with_category(category).with_tags(tags));
     }
-
 
     // Hook: article_list_filter — allow plugins to modify article list
     state.hook_manager.trigger(
@@ -264,27 +266,32 @@ pub struct ArchiveEntry {
 pub async fn get_archives(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ArchiveEntry>>, ApiError> {
-    let monthly = state.article_service
+    let monthly = state
+        .article_service
         .get_archives_monthly()
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
-    let archives: Vec<ArchiveEntry> = monthly.into_iter()
-        .map(|(month, count)| ArchiveEntry { month, count: count as usize })
+    let archives: Vec<ArchiveEntry> = monthly
+        .into_iter()
+        .map(|(month, count)| ArchiveEntry {
+            month,
+            count: count as usize,
+        })
         .collect();
 
     Ok(Json(archives))
 }
 
 /// GET /api/v1/articles/:slug - Get article by slug or ID
-/// 
+///
 /// Resolves articles based on the current permalink_structure setting:
 /// - `/posts/{slug}` mode: treats identifier as slug; if numeric and not found, tries by ID and returns canonical_url for redirect
 /// - `/posts/{id}` mode: treats identifier as ID; if non-numeric, tries by slug and returns canonical_url for redirect
-/// 
+///
 /// For public access, only returns published articles.
 /// Draft/archived articles return 404 to prevent information leakage.
-/// 
+///
 /// Triggers hooks:
 /// - `article_before_display`: Before returning article data (can modify/filter)
 /// - `article_view`: After article is viewed (for statistics, logging)
@@ -293,7 +300,8 @@ pub async fn get_article(
     Path(identifier): Path<String>,
 ) -> Result<Json<ArticleResponse>, ApiError> {
     // Read permalink structure setting
-    let permalink_structure = state.settings_service
+    let permalink_structure = state
+        .settings_service
         .get(crate::services::settings::keys::PERMALINK_STRUCTURE)
         .await
         .ok()
@@ -308,13 +316,19 @@ pub async fn get_article(
         // ID mode: prefer ID resolution
         if let Ok(id) = identifier.parse::<i64>() {
             // Numeric identifier in ID mode: resolve by ID (primary path)
-            let art = state.article_service.get_by_id(id).await
+            let art = state
+                .article_service
+                .get_by_id(id)
+                .await
                 .map_err(|e| ApiError::internal_error(e.to_string()))?
                 .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", identifier)))?;
             (art, false)
         } else {
             // Non-numeric identifier in ID mode: try slug, redirect to canonical ID URL
-            let art = state.article_service.get_by_slug(&identifier).await
+            let art = state
+                .article_service
+                .get_by_slug(&identifier)
+                .await
                 .map_err(|e| ApiError::internal_error(e.to_string()))?
                 .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", identifier)))?;
             (art, true)
@@ -322,7 +336,10 @@ pub async fn get_article(
     } else {
         // Slug mode (default): prefer slug resolution
         // First try as slug
-        let by_slug = state.article_service.get_by_slug(&identifier).await
+        let by_slug = state
+            .article_service
+            .get_by_slug(&identifier)
+            .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
         if let Some(art) = by_slug {
@@ -330,27 +347,38 @@ pub async fn get_article(
         } else if is_numeric {
             // Slug not found, identifier is numeric: try by ID, redirect to canonical slug URL
             let id = identifier.parse::<i64>().unwrap();
-            let art = state.article_service.get_by_id(id).await
+            let art = state
+                .article_service
+                .get_by_id(id)
+                .await
                 .map_err(|e| ApiError::internal_error(e.to_string()))?
                 .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", identifier)))?;
             (art, true)
         } else {
-            return Err(ApiError::not_found(format!("Article not found: {}", identifier)));
+            return Err(ApiError::not_found(format!(
+                "Article not found: {}",
+                identifier
+            )));
         }
     };
 
     // Only return published articles for public access
     if article.status != crate::models::ArticleStatus::Published {
-        return Err(ApiError::not_found(format!("Article not found: {}", identifier)));
+        return Err(ApiError::not_found(format!(
+            "Article not found: {}",
+            identifier
+        )));
     }
 
     // Fetch category and tags
-    let category = state.category_service
+    let category = state
+        .category_service
         .get_by_id(article.category_id)
         .await
         .ok()
         .flatten();
-    let tags = state.tag_service
+    let tags = state
+        .tag_service
         .get_by_article_id(article.id)
         .await
         .unwrap_or_default();
@@ -362,10 +390,14 @@ pub async fn get_article(
 
     let mut response: ArticleResponse = article.into();
     response = response.with_category(category).with_tags(tags.clone());
-    
+
     // Re-render HTML from raw markdown to ensure heading IDs match TOC
     let toc = state.article_service.extract_toc(&response.content);
-    response.content_html = state.article_service.render_markdown_with_shortcodes(&response.content, Some(article_id), None);
+    response.content_html = state.article_service.render_markdown_with_shortcodes(
+        &response.content,
+        Some(article_id),
+        None,
+    );
     response = response.with_toc(toc);
 
     // Generate canonical URL if redirect is needed
@@ -401,8 +433,13 @@ pub async fn get_article(
         }
 
         // Related articles via targeted SQL query (1 query instead of loading all)
-        if let Ok(related_articles) = state.article_service.get_related(article_id, article_category_id, 5).await {
-            let related: Vec<ArticleLink> = related_articles.into_iter()
+        if let Ok(related_articles) = state
+            .article_service
+            .get_related(article_id, article_category_id, 5)
+            .await
+        {
+            let related: Vec<ArticleLink> = related_articles
+                .into_iter()
                 .map(|a| ArticleLink {
                     id: a.id,
                     slug: a.slug,
@@ -422,18 +459,17 @@ pub async fn get_article(
             "is_public": true
         }
     });
-    let modified = state.hook_manager.trigger(
-        crate::plugin::hook_names::ARTICLE_BEFORE_DISPLAY,
-        hook_data
-    );
-    
+    let modified = state
+        .hook_manager
+        .trigger(crate::plugin::hook_names::ARTICLE_BEFORE_DISPLAY, hook_data);
+
     // If hook returned modified article, use it
     if let Some(modified_article) = modified.get("article") {
         if let Ok(updated) = serde_json::from_value::<ArticleResponse>(modified_article.clone()) {
             response = updated;
         }
     }
-    
+
     // Trigger article_view hook (for statistics, logging - fire and forget)
     let view_data = serde_json::json!({
         "article_id": response.id,
@@ -441,16 +477,15 @@ pub async fn get_article(
         "title": &response.title,
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
-    state.hook_manager.trigger(
-        crate::plugin::hook_names::ARTICLE_VIEW,
-        view_data
-    );
+    state
+        .hook_manager
+        .trigger(crate::plugin::hook_names::ARTICLE_VIEW, view_data);
 
     Ok(Json(response))
 }
 
 /// GET /api/v1/admin/articles/:id - Get article by ID (admin only)
-/// 
+///
 /// Returns any article regardless of status for editing purposes.
 /// Requires authentication.
 pub async fn get_article_by_id(
@@ -466,25 +501,31 @@ pub async fn get_article_by_id(
         .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", id)))?;
 
     // Fetch category and tags
-    let category = state.category_service
+    let category = state
+        .category_service
         .get_by_id(article.category_id)
         .await
         .ok()
         .flatten();
-    let tags = state.tag_service
+    let tags = state
+        .tag_service
         .get_by_article_id(article.id)
         .await
         .unwrap_or_default();
 
     let response: ArticleResponse = article.into();
     let response = response.with_category(category).with_tags(tags);
-    
+
     // Re-render HTML from raw markdown to ensure heading IDs match TOC
     let toc = state.article_service.extract_toc(&response.content);
     let mut response = response;
-    response.content_html = state.article_service.render_markdown_with_shortcodes(&response.content, Some(response.id), None);
+    response.content_html = state.article_service.render_markdown_with_shortcodes(
+        &response.content,
+        Some(response.id),
+        None,
+    );
     let response = response.with_toc(toc);
-    
+
     Ok(Json(response))
 }
 
@@ -502,7 +543,9 @@ pub async fn create_article(
         .as_ref()
         .and_then(|s| ArticleStatus::from_str(s));
 
-    let scheduled_at = body.scheduled_at.as_deref()
+    let scheduled_at = body
+        .scheduled_at
+        .as_deref()
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&chrono::Utc));
 
@@ -557,12 +600,19 @@ pub async fn update_article(
         .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", id)))?;
 
     if !user.0.can_edit(existing.author_id) {
-        return Err(ApiError::forbidden("You don't have permission to edit this article"));
+        return Err(ApiError::forbidden(
+            "You don't have permission to edit this article",
+        ));
     }
 
-    let status = body.status.as_ref().and_then(|s| ArticleStatus::from_str(s));
+    let status = body
+        .status
+        .as_ref()
+        .and_then(|s| ArticleStatus::from_str(s));
 
-    let scheduled_at = body.scheduled_at.as_deref()
+    let scheduled_at = body
+        .scheduled_at
+        .as_deref()
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&chrono::Utc));
 
@@ -621,7 +671,9 @@ pub async fn delete_article(
         .ok_or_else(|| ApiError::not_found(format!("Article not found: {}", id)))?;
 
     if !user.0.can_edit(existing.author_id) {
-        return Err(ApiError::forbidden("You don't have permission to delete this article"));
+        return Err(ApiError::forbidden(
+            "You don't have permission to delete this article",
+        ));
     }
 
     state
@@ -645,11 +697,11 @@ pub struct ResolveArticleResponse {
 }
 
 /// GET /api/v1/articles/resolve - Resolve article by path
-/// 
+///
 /// This endpoint resolves an article from various path formats:
 /// - By slug: "hello-world"
 /// - By ID: "42"
-/// 
+///
 /// Returns the article along with its canonical URL based on current permalink settings.
 /// If the requested path doesn't match the canonical URL, `should_redirect` will be true.
 pub async fn resolve_article(
@@ -657,33 +709,40 @@ pub async fn resolve_article(
     Query(query): Query<ResolveArticleQuery>,
 ) -> Result<Json<ResolveArticleResponse>, ApiError> {
     let path = query.path.trim_start_matches('/');
-    
+
     // Try to find article by different methods
     let article = if let Ok(id) = path.parse::<i64>() {
         // Try as ID first
-        state.article_service.get_by_id(id).await
+        state
+            .article_service
+            .get_by_id(id)
+            .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?
     } else {
         // Try as slug
-        state.article_service.get_by_slug(path).await
+        state
+            .article_service
+            .get_by_slug(path)
+            .await
             .map_err(|e| ApiError::internal_error(e.to_string()))?
     };
-    
+
     let article = article.ok_or_else(|| ApiError::not_found("Article not found"))?;
-    
+
     // Only return published articles for public access
     if article.status != crate::models::ArticleStatus::Published {
         return Err(ApiError::not_found("Article not found"));
     }
-    
+
     // Get permalink structure from settings
-    let permalink_structure = state.settings_service
+    let permalink_structure = state
+        .settings_service
         .get(crate::services::settings::keys::PERMALINK_STRUCTURE)
         .await
         .ok()
         .flatten()
         .unwrap_or_else(|| "/posts/{slug}".to_string());
-    
+
     // Generate canonical URL
     let canonical_url = crate::services::settings::generate_article_url(
         &permalink_structure,
@@ -691,31 +750,37 @@ pub async fn resolve_article(
         &article.slug,
         article.published_at.as_ref(),
     );
-    
+
     // Check if redirect is needed
     let requested_path = format!("/posts/{}", path);
     let should_redirect = requested_path != canonical_url;
-    
+
     // Fetch category and tags
-    let category = state.category_service
+    let category = state
+        .category_service
         .get_by_id(article.category_id)
         .await
         .ok()
         .flatten();
-    let tags = state.tag_service
+    let tags = state
+        .tag_service
         .get_by_article_id(article.id)
         .await
         .unwrap_or_default();
-    
+
     let response: ArticleResponse = article.into();
     let response = response.with_category(category).with_tags(tags);
-    
+
     // Re-render HTML from raw markdown to ensure heading IDs match TOC
     let toc = state.article_service.extract_toc(&response.content);
     let mut response = response;
-    response.content_html = state.article_service.render_markdown_with_shortcodes(&response.content, Some(response.id), None);
+    response.content_html = state.article_service.render_markdown_with_shortcodes(
+        &response.content,
+        Some(response.id),
+        None,
+    );
     let response = response.with_toc(toc);
-    
+
     Ok(Json(ResolveArticleResponse {
         article: response,
         canonical_url,

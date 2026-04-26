@@ -76,7 +76,6 @@
   "home": {
     "welcome": "Welcome to",
     "subtitle": "A clean and elegant blog system",
-    "latestPosts": "Latest Posts",
     "readMore": "Read More",
     "noPostsYet": "No posts yet"
   },

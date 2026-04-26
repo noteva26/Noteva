@@ -3,8 +3,8 @@
 use crate::cache::{Cache, CacheLayer};
 use crate::db::repositories::PageRepository;
 use crate::models::{Page, PageStatus};
-use crate::services::MarkdownRenderer;
 use crate::plugin::HookManager;
+use crate::services::MarkdownRenderer;
 use anyhow::{Context, Result};
 use serde_json::json;
 use std::sync::Arc;
@@ -38,7 +38,11 @@ impl PageService {
         }
     }
 
-    pub fn with_hooks(repo: Arc<dyn PageRepository>, cache: Arc<Cache>, hook_manager: Arc<HookManager>) -> Self {
+    pub fn with_hooks(
+        repo: Arc<dyn PageRepository>,
+        cache: Arc<Cache>,
+        hook_manager: Arc<HookManager>,
+    ) -> Self {
         Self {
             repo,
             markdown: MarkdownRenderer::new(),
@@ -56,14 +60,23 @@ impl PageService {
         }
     }
 
-    pub async fn create(&self, slug: String, title: String, content: String, status: Option<String>) -> Result<Page> {
+    pub async fn create(
+        &self,
+        slug: String,
+        title: String,
+        content: String,
+        status: Option<String>,
+    ) -> Result<Page> {
         // Hook: page_before_create
         let hook_data = self.trigger_hook(
             "page_before_create",
             json!({ "slug": slug, "title": title }),
         );
         let slug = hook_data["slug"].as_str().map(String::from).unwrap_or(slug);
-        let title = hook_data["title"].as_str().map(String::from).unwrap_or(title);
+        let title = hook_data["title"]
+            .as_str()
+            .map(String::from)
+            .unwrap_or(title);
 
         // Check slug uniqueness
         if self.repo.exists_by_slug(&slug).await? {
@@ -76,7 +89,11 @@ impl PageService {
             page.status = s.parse().unwrap_or(PageStatus::Draft);
         }
 
-        let created = self.repo.create(&page).await.context("Failed to create page")?;
+        let created = self
+            .repo
+            .create(&page)
+            .await
+            .context("Failed to create page")?;
 
         // Invalidate cache
         self.invalidate_cache().await?;
@@ -141,14 +158,21 @@ impl PageService {
         let pages = self.repo.list().await?;
 
         // Cache the result
-        let _ = self.cache.set(CACHE_KEY_PAGE_LIST, &pages, self.cache_ttl).await;
+        let _ = self
+            .cache
+            .set(CACHE_KEY_PAGE_LIST, &pages, self.cache_ttl)
+            .await;
 
         Ok(pages)
     }
 
     pub async fn list_published(&self) -> Result<Vec<Page>> {
         // Try cache first
-        if let Ok(Some(pages)) = self.cache.get::<Vec<Page>>(CACHE_KEY_PAGE_LIST_PUBLISHED).await {
+        if let Ok(Some(pages)) = self
+            .cache
+            .get::<Vec<Page>>(CACHE_KEY_PAGE_LIST_PUBLISHED)
+            .await
+        {
             return Ok(pages);
         }
 
@@ -156,13 +180,27 @@ impl PageService {
         let pages = self.repo.list_published().await?;
 
         // Cache the result
-        let _ = self.cache.set(CACHE_KEY_PAGE_LIST_PUBLISHED, &pages, self.cache_ttl).await;
+        let _ = self
+            .cache
+            .set(CACHE_KEY_PAGE_LIST_PUBLISHED, &pages, self.cache_ttl)
+            .await;
 
         Ok(pages)
     }
 
-    pub async fn update(&self, id: i64, slug: Option<String>, title: Option<String>, content: Option<String>, status: Option<String>) -> Result<Page> {
-        let mut page = self.repo.get_by_id(id).await?.ok_or_else(|| anyhow::anyhow!("Page not found"))?;
+    pub async fn update(
+        &self,
+        id: i64,
+        slug: Option<String>,
+        title: Option<String>,
+        content: Option<String>,
+        status: Option<String>,
+    ) -> Result<Page> {
+        let mut page = self
+            .repo
+            .get_by_id(id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Page not found"))?;
 
         // Hook: page_before_update
         self.trigger_hook(
@@ -210,7 +248,11 @@ impl PageService {
     }
 
     pub async fn delete(&self, id: i64) -> Result<()> {
-        let page = self.repo.get_by_id(id).await?.ok_or_else(|| anyhow::anyhow!("Page not found"))?;
+        let page = self
+            .repo
+            .get_by_id(id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Page not found"))?;
 
         // Hook: page_before_delete
         self.trigger_hook(
@@ -268,7 +310,9 @@ impl PageService {
                 continue;
             }
             let page = Page::new_auto(slug.clone(), title.clone(), source.to_string());
-            self.repo.create(&page).await
+            self.repo
+                .create(&page)
+                .await
                 .with_context(|| format!("Failed to auto-create page '{}'", slug))?;
             tracing::info!("Auto-created page '{}' (source: {})", slug, source);
             created += 1;

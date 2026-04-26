@@ -1,6 +1,6 @@
 {
   "name": "noteva",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": true,
   "description": "A lightweight modern blog system",
   "scripts": {
@@ -9,6 +9,7 @@
     "build:theme": "cd themes/default && pnpm run build",
     "build:frontend": "pnpm run build:web && pnpm run build:theme",
     "build:all": "pnpm run build:frontend && echo 'Frontend built. Run: cargo build --release'",
+    "check:sdk": "node scripts/check-sdk-contract.mjs",
     "dev:web": "cd web && pnpm run dev",
     "dev:theme": "cd themes/default && pnpm run dev"
   },

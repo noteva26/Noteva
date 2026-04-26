@@ -5,8 +5,8 @@
 //! - Property 18: Plugin timeout termination
 
 use super::{
-    Permission, PluginError, PluginManifest, PluginRuntime,
-    ResourceLimits, DEFAULT_FUEL_LIMIT, DEFAULT_MEMORY_LIMIT_BYTES, DEFAULT_TIMEOUT,
+    Permission, PluginError, PluginManifest, PluginRuntime, ResourceLimits, DEFAULT_FUEL_LIMIT,
+    DEFAULT_MEMORY_LIMIT_BYTES, DEFAULT_TIMEOUT,
 };
 use proptest::prelude::*;
 use std::time::Duration;
@@ -14,14 +14,28 @@ use std::time::Duration;
 /// Create a minimal valid WASM module that exports a "main" function returning i32
 /// and exports "memory"
 fn create_minimal_wasm() -> Vec<u8> {
-    wat::parse_str(r#"
+    wat::parse_str(
+        r#"
         (module
             (memory (export "memory") 1)
             (func (export "main") (result i32)
-                i32.const 42
+                (local $i i32)
+                (loop $burn
+                    local.get $i
+                    i32.const 1
+                    i32.add
+                    local.tee $i
+                    i32.const 32
+                    i32.lt_s
+                    br_if $burn
+                )
+                local.get $i
+                return
             )
         )
-    "#).expect("Failed to parse WAT")
+    "#,
+    )
+    .expect("Failed to parse WAT")
 }
 
 /// Check if WASM execution is supported on this platform
@@ -34,10 +48,7 @@ fn wasm_execution_supported() -> bool {
 /// Strategy for generating valid permission sets (only allowed permissions)
 fn permission_strategy() -> impl Strategy<Value = Vec<Permission>> {
     prop::collection::vec(
-        prop_oneof![
-            Just(Permission::ReadArticles),
-            Just(Permission::ReadConfig),
-        ],
+        prop_oneof![Just(Permission::ReadArticles), Just(Permission::ReadConfig),],
         0..=2,
     )
 }
@@ -62,7 +73,7 @@ fn manifest_strategy() -> impl Strategy<Value = PluginManifest> {
 fn resource_limits_strategy() -> impl Strategy<Value = ResourceLimits> {
     (
         (64 * 1024u64)..=(16 * 1024 * 1024), // memory: 64KB to 16MB (min 1 WASM page)
-        10000u64..=10_000_000,                // fuel: 10K to 10M (enough to run minimal wasm)
+        10000u64..=10_000_000,               // fuel: 10K to 10M (enough to run minimal wasm)
     )
         .prop_map(|(memory, fuel)| ResourceLimits {
             memory_limit_bytes: memory,
@@ -105,7 +116,7 @@ proptest! {
             Ok(handle) => {
                 // Verify the plugin was loaded with correct permissions
                 let info = runtime.get_plugin_info(handle).unwrap();
-                
+
                 // Plugin should only have permissions it declared AND that are allowed
                 for perm_str in &info.permissions {
                     let perm = Permission::from_str(perm_str).unwrap();
@@ -178,7 +189,6 @@ proptest! {
     }
 }
 
-
 // ============================================================================
 // Property 18: Plugin Timeout Termination
 // ============================================================================
@@ -216,7 +226,7 @@ proptest! {
 
         // Verify the limits are stored correctly
         let stored_limits = runtime.get_plugin_limits(handle).unwrap();
-        
+
         prop_assert_eq!(
             stored_limits.memory_limit_bytes,
             memory_limit,
@@ -257,7 +267,7 @@ proptest! {
 
         // Verify the timeout is stored correctly
         let stored_limits = runtime.get_plugin_limits(handle).unwrap();
-        
+
         prop_assert_eq!(
             stored_limits.timeout,
             Duration::from_millis(timeout_ms),
@@ -284,8 +294,7 @@ fn test_fuel_consumption_tracked() {
         timeout: Duration::from_secs(5),
     };
 
-    let mut runtime = PluginRuntime::with_limits(limits)
-        .expect("Failed to create runtime");
+    let mut runtime = PluginRuntime::with_limits(limits).expect("Failed to create runtime");
 
     runtime.set_allowed_permissions(vec![]);
 
@@ -298,9 +307,9 @@ fn test_fuel_consumption_tracked() {
 
     // Execute the minimal WASM
     let result = runtime.execute_with_limits(handle, "main", &[]);
-    
+
     assert!(result.is_ok(), "Execution should succeed: {:?}", result);
-    
+
     let exec_result = result.unwrap();
     assert!(exec_result.success, "Execution should be successful");
     assert!(
@@ -365,7 +374,10 @@ fn test_plugin_load_and_unload() {
     // Unload plugin
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        runtime.unload_plugin(handle).await.expect("Failed to unload");
+        runtime
+            .unload_plugin(handle)
+            .await
+            .expect("Failed to unload");
     });
 
     // Verify plugin is unloaded
@@ -392,16 +404,19 @@ fn test_execute_minimal_wasm() {
 
     let result = runtime.execute_with_limits(handle, "main", &[]);
     assert!(result.is_ok(), "Execution failed: {:?}", result);
-    
+
     let exec_result = result.unwrap();
     assert!(exec_result.success);
-    assert!(exec_result.fuel_consumed > 0, "Should have consumed some fuel");
+    assert!(
+        exec_result.fuel_consumed > 0,
+        "Should have consumed some fuel"
+    );
 }
 
 #[test]
 fn test_permission_denied_for_disallowed() {
     let mut runtime = PluginRuntime::new().expect("Failed to create runtime");
-    
+
     // Only allow ReadArticles
     runtime.set_allowed_permissions(vec![Permission::ReadArticles]);
 
@@ -439,7 +454,9 @@ fn test_update_plugin_limits() {
         timeout: Duration::from_secs(10),
     };
 
-    runtime.set_plugin_limits(handle, new_limits.clone()).expect("Failed to set limits");
+    runtime
+        .set_plugin_limits(handle, new_limits.clone())
+        .expect("Failed to set limits");
 
     // Verify limits were updated
     let stored = runtime.get_plugin_limits(handle).unwrap();

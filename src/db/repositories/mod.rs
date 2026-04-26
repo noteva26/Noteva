@@ -24,5 +24,5 @@ pub use plugin_data::{PluginData, PluginDataRepository, SqlxPluginDataRepository
 pub use plugin_state::{PluginState, PluginStateRepository, SqlxPluginStateRepository};
 pub use session::{SessionRepository, SqlxSessionRepository};
 pub use settings::{Setting, SettingsRepository, SqlxSettingsRepository};
-pub use tag::{TagRepository, SqlxTagRepository};
+pub use tag::{SqlxTagRepository, TagRepository};
 pub use user::{SqlxUserRepository, UserRepository};

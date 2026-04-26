@@ -825,6 +825,12 @@ interface ThemeCardProps {
 }
 
 function ThemeCard({ theme, isActive, isDefault, isSwitching, isUpdating, deleting, onSwitch, onDelete, onSettings, onUpdate, updateInfo, t }: ThemeCardProps) {
+  const repositoryHref = theme.repository
+    ? theme.repository.startsWith("http")
+      ? theme.repository
+      : `https://github.com/${theme.repository}`
+    : "";
+
   return (
     <div
       className={cn(
@@ -869,9 +875,9 @@ function ThemeCard({ theme, isActive, isDefault, isSwitching, isUpdating, deleti
               )}
             </div>
           </div>
-          {theme.url && (
+          {theme.repository && (
             <a
-              href={theme.url}
+              href={repositoryHref}
               target="_blank"
               rel="noopener noreferrer"
               className="text-muted-foreground hover:text-foreground"

@@ -52,8 +52,8 @@ impl HookRegistry {
     /// Load the registry from the compile-time embedded JSON.
     pub fn load_embedded() -> Self {
         let json = include_str!("../../hook-registry.json");
-        let mut registry: HookRegistry =
-            serde_json::from_str(json).expect("hook-registry.json is invalid — this is a build-time bug");
+        let mut registry: HookRegistry = serde_json::from_str(json)
+            .expect("hook-registry.json is invalid — this is a build-time bug");
         registry.build_index();
         registry
     }
@@ -218,4 +218,3 @@ pub fn validate_plugin_hooks(
 
     warnings
 }
-

@@ -122,12 +122,20 @@ impl CategoryService {
     /// Satisfies requirements:
     /// - 2.1: WHEN 用户创建分类 THEN Category_Service SHALL 创建分类记录并支持设置父分类
     /// - 2.5: IF 分类名称已存�?THEN Category_Service SHALL 返回重复错误
-    pub async fn create(&self, input: CreateCategoryInput) -> Result<Category, CategoryServiceError> {
+    pub async fn create(
+        &self,
+        input: CreateCategoryInput,
+    ) -> Result<Category, CategoryServiceError> {
         // Validate input
         self.validate_create_input(&input)?;
 
         // Check name uniqueness (Requirement 2.5)
-        if self.repo.exists_by_name(&input.name).await.context("Failed to check name uniqueness")? {
+        if self
+            .repo
+            .exists_by_name(&input.name)
+            .await
+            .context("Failed to check name uniqueness")?
+        {
             return Err(CategoryServiceError::DuplicateName(input.name));
         }
 
@@ -135,13 +143,24 @@ impl CategoryService {
         let slug = input.slug.unwrap_or_else(|| generate_slug(&input.name));
 
         // Check slug uniqueness
-        if self.repo.exists_by_slug(&slug).await.context("Failed to check slug uniqueness")? {
+        if self
+            .repo
+            .exists_by_slug(&slug)
+            .await
+            .context("Failed to check slug uniqueness")?
+        {
             return Err(CategoryServiceError::DuplicateSlug(slug));
         }
 
         // Validate parent exists if specified (Requirement 2.1)
         if let Some(parent_id) = input.parent_id {
-            if self.repo.get_by_id(parent_id).await.context("Failed to get parent category")?.is_none() {
+            if self
+                .repo
+                .get_by_id(parent_id)
+                .await
+                .context("Failed to get parent category")?
+                .is_none()
+            {
                 return Err(CategoryServiceError::ParentNotFound(parent_id));
             }
         }
@@ -155,7 +174,11 @@ impl CategoryService {
             input.sort_order.unwrap_or(0),
         );
 
-        let created = self.repo.create(&category).await.context("Failed to create category")?;
+        let created = self
+            .repo
+            .create(&category)
+            .await
+            .context("Failed to create category")?;
 
         // Invalidate cache
         self.invalidate_cache().await?;
@@ -178,7 +201,11 @@ impl CategoryService {
         }
 
         // Get from database
-        let category = self.repo.get_by_id(id).await.context("Failed to get category by ID")?;
+        let category = self
+            .repo
+            .get_by_id(id)
+            .await
+            .context("Failed to get category by ID")?;
 
         // Cache the result
         if let Some(ref cat) = category {
@@ -203,7 +230,11 @@ impl CategoryService {
         }
 
         // Get from database
-        let category = self.repo.get_by_slug(slug).await.context("Failed to get category by slug")?;
+        let category = self
+            .repo
+            .get_by_slug(slug)
+            .await
+            .context("Failed to get category by slug")?;
 
         // Cache the result
         if let Some(ref cat) = category {
@@ -220,15 +251,28 @@ impl CategoryService {
     /// Satisfies requirement 2.3: WHEN 用户请求某分类下的文�?THEN Category_Service SHALL 返回该分类及其子分类下的所有文�?
     pub async fn list_tree(&self) -> Result<Vec<CategoryTree>, CategoryServiceError> {
         // Try cache first
-        if let Some(tree) = self.cache.get::<Vec<CategoryTree>>(CACHE_KEY_CATEGORY_TREE).await.ok().flatten() {
+        if let Some(tree) = self
+            .cache
+            .get::<Vec<CategoryTree>>(CACHE_KEY_CATEGORY_TREE)
+            .await
+            .ok()
+            .flatten()
+        {
             return Ok(tree);
         }
 
         // Get from database
-        let tree = self.repo.list_tree().await.context("Failed to get category tree")?;
+        let tree = self
+            .repo
+            .list_tree()
+            .await
+            .context("Failed to get category tree")?;
 
         // Cache the result
-        let _ = self.cache.set(CACHE_KEY_CATEGORY_TREE, &tree, self.cache_ttl).await;
+        let _ = self
+            .cache
+            .set(CACHE_KEY_CATEGORY_TREE, &tree, self.cache_ttl)
+            .await;
 
         Ok(tree)
     }
@@ -236,15 +280,28 @@ impl CategoryService {
     /// List all categories (flat list)
     pub async fn list(&self) -> Result<Vec<Category>, CategoryServiceError> {
         // Try cache first
-        if let Some(list) = self.cache.get::<Vec<Category>>(CACHE_KEY_CATEGORY_LIST).await.ok().flatten() {
+        if let Some(list) = self
+            .cache
+            .get::<Vec<Category>>(CACHE_KEY_CATEGORY_LIST)
+            .await
+            .ok()
+            .flatten()
+        {
             return Ok(list);
         }
 
         // Get from database
-        let list = self.repo.list().await.context("Failed to list categories")?;
+        let list = self
+            .repo
+            .list()
+            .await
+            .context("Failed to list categories")?;
 
         // Cache the result
-        let _ = self.cache.set(CACHE_KEY_CATEGORY_LIST, &list, self.cache_ttl).await;
+        let _ = self
+            .cache
+            .set(CACHE_KEY_CATEGORY_LIST, &list, self.cache_ttl)
+            .await;
 
         Ok(list)
     }
@@ -255,7 +312,11 @@ impl CategoryService {
     ///
     /// Satisfies requirement 2.3: WHEN 用户请求某分类下的文�?THEN Category_Service SHALL 返回该分类及其子分类下的所有文�?
     pub async fn get_all_descendants(&self, id: i64) -> Result<Vec<i64>, CategoryServiceError> {
-        self.repo.get_all_descendants(id).await.context("Failed to get descendants").map_err(Into::into)
+        self.repo
+            .get_all_descendants(id)
+            .await
+            .context("Failed to get descendants")
+            .map_err(Into::into)
     }
 
     /// Update a category
@@ -274,17 +335,30 @@ impl CategoryService {
     /// - `CircularReference` if the new parent would create a cycle
     ///
     /// Satisfies requirement 2.5: IF 分类名称已存�?THEN Category_Service SHALL 返回重复错误
-    pub async fn update(&self, id: i64, input: UpdateCategoryInput) -> Result<Category, CategoryServiceError> {
+    pub async fn update(
+        &self,
+        id: i64,
+        input: UpdateCategoryInput,
+    ) -> Result<Category, CategoryServiceError> {
         // Get existing category
-        let mut category = self.repo.get_by_id(id)
+        let mut category = self
+            .repo
+            .get_by_id(id)
             .await
             .context("Failed to get category")?
-            .ok_or_else(|| CategoryServiceError::NotFound(format!("Category with ID {} not found", id)))?;
+            .ok_or_else(|| {
+                CategoryServiceError::NotFound(format!("Category with ID {} not found", id))
+            })?;
 
         // Check name uniqueness if name is being changed (Requirement 2.5)
         if let Some(ref new_name) = input.name {
             if new_name != &category.name {
-                if self.repo.exists_by_name(new_name).await.context("Failed to check name uniqueness")? {
+                if self
+                    .repo
+                    .exists_by_name(new_name)
+                    .await
+                    .context("Failed to check name uniqueness")?
+                {
                     return Err(CategoryServiceError::DuplicateName(new_name.clone()));
                 }
                 category.name = new_name.clone();
@@ -294,7 +368,12 @@ impl CategoryService {
         // Check slug uniqueness if slug is being changed
         if let Some(ref new_slug) = input.slug {
             if new_slug != &category.slug {
-                if self.repo.exists_by_slug(new_slug).await.context("Failed to check slug uniqueness")? {
+                if self
+                    .repo
+                    .exists_by_slug(new_slug)
+                    .await
+                    .context("Failed to check slug uniqueness")?
+                {
                     return Err(CategoryServiceError::DuplicateSlug(new_slug.clone()));
                 }
                 category.slug = new_slug.clone();
@@ -310,7 +389,13 @@ impl CategoryService {
         if let Some(new_parent_id) = input.parent_id {
             // Validate parent exists if specified
             if let Some(parent_id) = new_parent_id {
-                if self.repo.get_by_id(parent_id).await.context("Failed to get parent category")?.is_none() {
+                if self
+                    .repo
+                    .get_by_id(parent_id)
+                    .await
+                    .context("Failed to get parent category")?
+                    .is_none()
+                {
                     return Err(CategoryServiceError::ParentNotFound(parent_id));
                 }
                 // Check for circular reference
@@ -327,7 +412,11 @@ impl CategoryService {
         }
 
         // Save changes
-        let updated = self.repo.update(&category).await.context("Failed to update category")?;
+        let updated = self
+            .repo
+            .update(&category)
+            .await
+            .context("Failed to update category")?;
 
         // Invalidate cache
         self.invalidate_cache().await?;
@@ -350,10 +439,14 @@ impl CategoryService {
     /// Satisfies requirement 2.4: WHEN 用户删除分类 THEN Category_Service SHALL 将该分类下的文章移至默认分类
     pub async fn delete(&self, id: i64) -> Result<(), CategoryServiceError> {
         // Get the category to delete
-        let category = self.repo.get_by_id(id)
+        let category = self
+            .repo
+            .get_by_id(id)
             .await
             .context("Failed to get category")?
-            .ok_or_else(|| CategoryServiceError::NotFound(format!("Category with ID {} not found", id)))?;
+            .ok_or_else(|| {
+                CategoryServiceError::NotFound(format!("Category with ID {} not found", id))
+            })?;
 
         // Cannot delete the default category
         if category.is_default() {
@@ -361,29 +454,46 @@ impl CategoryService {
         }
 
         // Get the default category
-        let default_category = self.repo.get_default()
+        let default_category = self
+            .repo
+            .get_default()
             .await
             .context("Failed to get default category")?
-            .ok_or_else(|| CategoryServiceError::NotFound("Default category not found".to_string()))?;
+            .ok_or_else(|| {
+                CategoryServiceError::NotFound("Default category not found".to_string())
+            })?;
 
         // Get all descendant category IDs (including this one)
-        let descendant_ids = self.repo.get_all_descendants(id)
+        let descendant_ids = self
+            .repo
+            .get_all_descendants(id)
             .await
             .context("Failed to get descendant categories")?;
 
         // Move articles from this category and all descendants to default category (Requirement 2.4)
-        self.move_articles_to_category(&descendant_ids, default_category.id).await?;
+        self.move_articles_to_category(&descendant_ids, default_category.id)
+            .await?;
 
         // Update children to have no parent (or move to default parent)
         // First, get direct children and update their parent to this category's parent
-        let children = self.repo.get_children(id).await.context("Failed to get children")?;
+        let children = self
+            .repo
+            .get_children(id)
+            .await
+            .context("Failed to get children")?;
         for mut child in children {
             child.parent_id = category.parent_id;
-            self.repo.update(&child).await.context("Failed to update child category")?;
+            self.repo
+                .update(&child)
+                .await
+                .context("Failed to update child category")?;
         }
 
         // Delete the category
-        self.repo.delete(id).await.context("Failed to delete category")?;
+        self.repo
+            .delete(id)
+            .await
+            .context("Failed to delete category")?;
 
         // Invalidate cache
         self.invalidate_cache().await?;
@@ -393,19 +503,31 @@ impl CategoryService {
 
     /// Get the default category (uncategorized)
     pub async fn get_default(&self) -> Result<Option<Category>, CategoryServiceError> {
-        self.repo.get_default().await.context("Failed to get default category").map_err(Into::into)
+        self.repo
+            .get_default()
+            .await
+            .context("Failed to get default category")
+            .map_err(Into::into)
     }
 
     /// Check if a category name already exists
     ///
     /// Satisfies requirement 2.5: IF 分类名称已存�?THEN Category_Service SHALL 返回重复错误
     pub async fn exists_by_name(&self, name: &str) -> Result<bool, CategoryServiceError> {
-        self.repo.exists_by_name(name).await.context("Failed to check name existence").map_err(Into::into)
+        self.repo
+            .exists_by_name(name)
+            .await
+            .context("Failed to check name existence")
+            .map_err(Into::into)
     }
 
     /// Check if a category slug already exists
     pub async fn exists_by_slug(&self, slug: &str) -> Result<bool, CategoryServiceError> {
-        self.repo.exists_by_slug(slug).await.context("Failed to check slug existence").map_err(Into::into)
+        self.repo
+            .exists_by_slug(slug)
+            .await
+            .context("Failed to check slug existence")
+            .map_err(Into::into)
     }
 
     // ========================================================================
@@ -413,14 +535,21 @@ impl CategoryService {
     // ========================================================================
 
     /// Validate category creation input
-    fn validate_create_input(&self, input: &CreateCategoryInput) -> Result<(), CategoryServiceError> {
+    fn validate_create_input(
+        &self,
+        input: &CreateCategoryInput,
+    ) -> Result<(), CategoryServiceError> {
         if input.name.trim().is_empty() {
-            return Err(CategoryServiceError::ValidationError("Category name cannot be empty".to_string()));
+            return Err(CategoryServiceError::ValidationError(
+                "Category name cannot be empty".to_string(),
+            ));
         }
 
         if let Some(ref slug) = input.slug {
             if slug.trim().is_empty() {
-                return Err(CategoryServiceError::ValidationError("Category slug cannot be empty".to_string()));
+                return Err(CategoryServiceError::ValidationError(
+                    "Category slug cannot be empty".to_string(),
+                ));
             }
         }
 
@@ -428,14 +557,20 @@ impl CategoryService {
     }
 
     /// Check if setting parent_id would create a circular reference
-    async fn would_create_cycle(&self, category_id: i64, new_parent_id: i64) -> Result<bool, CategoryServiceError> {
+    async fn would_create_cycle(
+        &self,
+        category_id: i64,
+        new_parent_id: i64,
+    ) -> Result<bool, CategoryServiceError> {
         // A category cannot be its own parent
         if category_id == new_parent_id {
             return Ok(true);
         }
 
         // Check if the new parent is a descendant of this category
-        let descendants = self.repo.get_all_descendants(category_id)
+        let descendants = self
+            .repo
+            .get_all_descendants(category_id)
             .await
             .context("Failed to get descendants")?;
 
@@ -447,7 +582,11 @@ impl CategoryService {
     /// This is called when deleting a category to move its articles to the default category.
     ///
     /// Satisfies requirement 2.4: WHEN 用户删除分类 THEN Category_Service SHALL 将该分类下的文章移至默认分类
-    async fn move_articles_to_category(&self, from_category_ids: &[i64], to_category_id: i64) -> Result<(), CategoryServiceError> {
+    async fn move_articles_to_category(
+        &self,
+        from_category_ids: &[i64],
+        to_category_id: i64,
+    ) -> Result<(), CategoryServiceError> {
         use crate::config::DatabaseDriver;
 
         match self.pool.driver() {
@@ -481,8 +620,14 @@ impl CategoryService {
     /// Invalidate all category-related cache entries
     async fn invalidate_cache(&self) -> Result<(), CategoryServiceError> {
         // Delete pattern-based cache entries
-        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_CATEGORY_BY_ID)).await;
-        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_CATEGORY_BY_SLUG)).await;
+        let _ = self
+            .cache
+            .delete_pattern(&format!("{}*", CACHE_KEY_CATEGORY_BY_ID))
+            .await;
+        let _ = self
+            .cache
+            .delete_pattern(&format!("{}*", CACHE_KEY_CATEGORY_BY_SLUG))
+            .await;
         let _ = self.cache.delete(CACHE_KEY_CATEGORY_TREE).await;
         let _ = self.cache.delete(CACHE_KEY_CATEGORY_LIST).await;
 
@@ -648,13 +793,17 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     async fn setup_test_service() -> (DynDatabasePool, CategoryService) {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         migrations::run_migrations(&pool)
             .await
             .expect("Failed to run migrations");
 
         let repo = SqlxCategoryRepository::boxed(pool.clone());
-        let cache = create_cache(&CacheConfig::default()).await.expect("Failed to create cache");
+        let cache = create_cache(&CacheConfig::default())
+            .await
+            .expect("Failed to create cache");
         let service = CategoryService::new(repo, cache, pool.clone());
 
         (pool, service)
@@ -705,10 +854,12 @@ mod tests {
     async fn test_create_category_success() {
         let (_pool, service) = setup_test_service().await;
 
-        let input = CreateCategoryInput::new("Test Category")
-            .with_description("A test category");
+        let input = CreateCategoryInput::new("Test Category").with_description("A test category");
 
-        let category = service.create(input).await.expect("Failed to create category");
+        let category = service
+            .create(input)
+            .await
+            .expect("Failed to create category");
 
         assert!(category.id > 0);
         assert_eq!(category.name, "Test Category");
@@ -721,10 +872,12 @@ mod tests {
     async fn test_create_category_with_custom_slug() {
         let (_pool, service) = setup_test_service().await;
 
-        let input = CreateCategoryInput::new("Test Category")
-            .with_slug("custom-slug");
+        let input = CreateCategoryInput::new("Test Category").with_slug("custom-slug");
 
-        let category = service.create(input).await.expect("Failed to create category");
+        let category = service
+            .create(input)
+            .await
+            .expect("Failed to create category");
 
         assert_eq!(category.slug, "custom-slug");
     }
@@ -735,12 +888,17 @@ mod tests {
 
         // Create parent
         let parent_input = CreateCategoryInput::new("Parent Category");
-        let parent = service.create(parent_input).await.expect("Failed to create parent");
+        let parent = service
+            .create(parent_input)
+            .await
+            .expect("Failed to create parent");
 
         // Create child
-        let child_input = CreateCategoryInput::new("Child Category")
-            .with_parent(parent.id);
-        let child = service.create(child_input).await.expect("Failed to create child");
+        let child_input = CreateCategoryInput::new("Child Category").with_parent(parent.id);
+        let child = service
+            .create(child_input)
+            .await
+            .expect("Failed to create child");
 
         assert_eq!(child.parent_id, Some(parent.id));
     }
@@ -750,27 +908,37 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         let input1 = CreateCategoryInput::new("Duplicate Name");
-        service.create(input1).await.expect("Failed to create first category");
+        service
+            .create(input1)
+            .await
+            .expect("Failed to create first category");
 
         let input2 = CreateCategoryInput::new("Duplicate Name");
         let result = service.create(input2).await;
 
-        assert!(matches!(result, Err(CategoryServiceError::DuplicateName(_))));
+        assert!(matches!(
+            result,
+            Err(CategoryServiceError::DuplicateName(_))
+        ));
     }
 
     #[tokio::test]
     async fn test_create_category_duplicate_slug_fails() {
         let (_pool, service) = setup_test_service().await;
 
-        let input1 = CreateCategoryInput::new("Category One")
-            .with_slug("same-slug");
-        service.create(input1).await.expect("Failed to create first category");
+        let input1 = CreateCategoryInput::new("Category One").with_slug("same-slug");
+        service
+            .create(input1)
+            .await
+            .expect("Failed to create first category");
 
-        let input2 = CreateCategoryInput::new("Category Two")
-            .with_slug("same-slug");
+        let input2 = CreateCategoryInput::new("Category Two").with_slug("same-slug");
         let result = service.create(input2).await;
 
-        assert!(matches!(result, Err(CategoryServiceError::DuplicateSlug(_))));
+        assert!(matches!(
+            result,
+            Err(CategoryServiceError::DuplicateSlug(_))
+        ));
     }
 
     #[tokio::test]
@@ -780,18 +948,23 @@ mod tests {
         let input = CreateCategoryInput::new("");
         let result = service.create(input).await;
 
-        assert!(matches!(result, Err(CategoryServiceError::ValidationError(_))));
+        assert!(matches!(
+            result,
+            Err(CategoryServiceError::ValidationError(_))
+        ));
     }
 
     #[tokio::test]
     async fn test_create_category_nonexistent_parent_fails() {
         let (_pool, service) = setup_test_service().await;
 
-        let input = CreateCategoryInput::new("Orphan Category")
-            .with_parent(99999);
+        let input = CreateCategoryInput::new("Orphan Category").with_parent(99999);
         let result = service.create(input).await;
 
-        assert!(matches!(result, Err(CategoryServiceError::ParentNotFound(_))));
+        assert!(matches!(
+            result,
+            Err(CategoryServiceError::ParentNotFound(_))
+        ));
     }
 
     // ========================================================================
@@ -803,9 +976,15 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         let input = CreateCategoryInput::new("Get By ID Test");
-        let created = service.create(input).await.expect("Failed to create category");
+        let created = service
+            .create(input)
+            .await
+            .expect("Failed to create category");
 
-        let found = service.get_by_id(created.id).await.expect("Failed to get category")
+        let found = service
+            .get_by_id(created.id)
+            .await
+            .expect("Failed to get category")
             .expect("Category not found");
 
         assert_eq!(found.id, created.id);
@@ -816,7 +995,10 @@ mod tests {
     async fn test_get_by_id_not_found() {
         let (_pool, service) = setup_test_service().await;
 
-        let result = service.get_by_id(99999).await.expect("Failed to get category");
+        let result = service
+            .get_by_id(99999)
+            .await
+            .expect("Failed to get category");
         assert!(result.is_none());
     }
 
@@ -825,9 +1007,15 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         let input = CreateCategoryInput::new("Get By Slug Test");
-        service.create(input).await.expect("Failed to create category");
+        service
+            .create(input)
+            .await
+            .expect("Failed to create category");
 
-        let found = service.get_by_slug("get-by-slug-test").await.expect("Failed to get category")
+        let found = service
+            .get_by_slug("get-by-slug-test")
+            .await
+            .expect("Failed to get category")
             .expect("Category not found");
 
         assert_eq!(found.slug, "get-by-slug-test");
@@ -837,7 +1025,10 @@ mod tests {
     async fn test_get_by_slug_not_found() {
         let (_pool, service) = setup_test_service().await;
 
-        let result = service.get_by_slug("nonexistent").await.expect("Failed to get category");
+        let result = service
+            .get_by_slug("nonexistent")
+            .await
+            .expect("Failed to get category");
         assert!(result.is_none());
     }
 
@@ -850,8 +1041,14 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         // Create some categories
-        service.create(CreateCategoryInput::new("Category A")).await.expect("Failed to create");
-        service.create(CreateCategoryInput::new("Category B")).await.expect("Failed to create");
+        service
+            .create(CreateCategoryInput::new("Category A"))
+            .await
+            .expect("Failed to create");
+        service
+            .create(CreateCategoryInput::new("Category B"))
+            .await
+            .expect("Failed to create");
 
         let categories = service.list().await.expect("Failed to list categories");
 
@@ -864,9 +1061,18 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         // Create a hierarchy
-        let parent = service.create(CreateCategoryInput::new("Parent")).await.expect("Failed to create parent");
-        service.create(CreateCategoryInput::new("Child 1").with_parent(parent.id)).await.expect("Failed to create child1");
-        service.create(CreateCategoryInput::new("Child 2").with_parent(parent.id)).await.expect("Failed to create child2");
+        let parent = service
+            .create(CreateCategoryInput::new("Parent"))
+            .await
+            .expect("Failed to create parent");
+        service
+            .create(CreateCategoryInput::new("Child 1").with_parent(parent.id))
+            .await
+            .expect("Failed to create child1");
+        service
+            .create(CreateCategoryInput::new("Child 2").with_parent(parent.id))
+            .await
+            .expect("Failed to create child2");
 
         let tree = service.list_tree().await.expect("Failed to get tree");
 
@@ -881,11 +1087,23 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         // Create a hierarchy: root -> child -> grandchild
-        let root = service.create(CreateCategoryInput::new("Root")).await.expect("Failed to create root");
-        let child = service.create(CreateCategoryInput::new("Child").with_parent(root.id)).await.expect("Failed to create child");
-        let grandchild = service.create(CreateCategoryInput::new("Grandchild").with_parent(child.id)).await.expect("Failed to create grandchild");
+        let root = service
+            .create(CreateCategoryInput::new("Root"))
+            .await
+            .expect("Failed to create root");
+        let child = service
+            .create(CreateCategoryInput::new("Child").with_parent(root.id))
+            .await
+            .expect("Failed to create child");
+        let grandchild = service
+            .create(CreateCategoryInput::new("Grandchild").with_parent(child.id))
+            .await
+            .expect("Failed to create grandchild");
 
-        let descendants = service.get_all_descendants(root.id).await.expect("Failed to get descendants");
+        let descendants = service
+            .get_all_descendants(root.id)
+            .await
+            .expect("Failed to get descendants");
 
         assert_eq!(descendants.len(), 3);
         assert!(descendants.contains(&root.id));
@@ -902,10 +1120,16 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         let input = CreateCategoryInput::new("Original Name");
-        let created = service.create(input).await.expect("Failed to create category");
+        let created = service
+            .create(input)
+            .await
+            .expect("Failed to create category");
 
         let update = UpdateCategoryInput::new().with_name("Updated Name");
-        let updated = service.update(created.id, update).await.expect("Failed to update category");
+        let updated = service
+            .update(created.id, update)
+            .await
+            .expect("Failed to update category");
 
         assert_eq!(updated.name, "Updated Name");
     }
@@ -915,10 +1139,16 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         let input = CreateCategoryInput::new("Test Category");
-        let created = service.create(input).await.expect("Failed to create category");
+        let created = service
+            .create(input)
+            .await
+            .expect("Failed to create category");
 
         let update = UpdateCategoryInput::new().with_slug("new-slug");
-        let updated = service.update(created.id, update).await.expect("Failed to update category");
+        let updated = service
+            .update(created.id, update)
+            .await
+            .expect("Failed to update category");
 
         assert_eq!(updated.slug, "new-slug");
     }
@@ -927,13 +1157,22 @@ mod tests {
     async fn test_update_category_duplicate_name_fails() {
         let (_pool, service) = setup_test_service().await;
 
-        service.create(CreateCategoryInput::new("Existing Name")).await.expect("Failed to create first");
-        let second = service.create(CreateCategoryInput::new("Second Category")).await.expect("Failed to create second");
+        service
+            .create(CreateCategoryInput::new("Existing Name"))
+            .await
+            .expect("Failed to create first");
+        let second = service
+            .create(CreateCategoryInput::new("Second Category"))
+            .await
+            .expect("Failed to create second");
 
         let update = UpdateCategoryInput::new().with_name("Existing Name");
         let result = service.update(second.id, update).await;
 
-        assert!(matches!(result, Err(CategoryServiceError::DuplicateName(_))));
+        assert!(matches!(
+            result,
+            Err(CategoryServiceError::DuplicateName(_))
+        ));
     }
 
     #[tokio::test]
@@ -951,27 +1190,42 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         // Create parent -> child hierarchy
-        let parent = service.create(CreateCategoryInput::new("Parent")).await.expect("Failed to create parent");
-        let child = service.create(CreateCategoryInput::new("Child").with_parent(parent.id)).await.expect("Failed to create child");
+        let parent = service
+            .create(CreateCategoryInput::new("Parent"))
+            .await
+            .expect("Failed to create parent");
+        let child = service
+            .create(CreateCategoryInput::new("Child").with_parent(parent.id))
+            .await
+            .expect("Failed to create child");
 
         // Try to make parent a child of child (circular reference)
         let update = UpdateCategoryInput::new().with_parent(Some(child.id));
         let result = service.update(parent.id, update).await;
 
-        assert!(matches!(result, Err(CategoryServiceError::CircularReference)));
+        assert!(matches!(
+            result,
+            Err(CategoryServiceError::CircularReference)
+        ));
     }
 
     #[tokio::test]
     async fn test_update_category_self_parent_fails() {
         let (_pool, service) = setup_test_service().await;
 
-        let category = service.create(CreateCategoryInput::new("Self Parent")).await.expect("Failed to create");
+        let category = service
+            .create(CreateCategoryInput::new("Self Parent"))
+            .await
+            .expect("Failed to create");
 
         // Try to make category its own parent
         let update = UpdateCategoryInput::new().with_parent(Some(category.id));
         let result = service.update(category.id, update).await;
 
-        assert!(matches!(result, Err(CategoryServiceError::CircularReference)));
+        assert!(matches!(
+            result,
+            Err(CategoryServiceError::CircularReference)
+        ));
     }
 
     // ========================================================================
@@ -983,11 +1237,20 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         let input = CreateCategoryInput::new("To Delete");
-        let created = service.create(input).await.expect("Failed to create category");
+        let created = service
+            .create(input)
+            .await
+            .expect("Failed to create category");
 
-        service.delete(created.id).await.expect("Failed to delete category");
+        service
+            .delete(created.id)
+            .await
+            .expect("Failed to delete category");
 
-        let found = service.get_by_id(created.id).await.expect("Failed to get category");
+        let found = service
+            .get_by_id(created.id)
+            .await
+            .expect("Failed to get category");
         assert!(found.is_none());
     }
 
@@ -1003,11 +1266,17 @@ mod tests {
     async fn test_delete_default_category_fails() {
         let (_pool, service) = setup_test_service().await;
 
-        let default = service.get_default().await.expect("Failed to get default")
+        let default = service
+            .get_default()
+            .await
+            .expect("Failed to get default")
             .expect("Default category not found");
 
         let result = service.delete(default.id).await;
-        assert!(matches!(result, Err(CategoryServiceError::CannotDeleteDefault)));
+        assert!(matches!(
+            result,
+            Err(CategoryServiceError::CannotDeleteDefault)
+        ));
     }
 
     #[tokio::test]
@@ -1015,15 +1284,30 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         // Create grandparent -> parent -> child hierarchy
-        let grandparent = service.create(CreateCategoryInput::new("Grandparent")).await.expect("Failed to create grandparent");
-        let parent = service.create(CreateCategoryInput::new("Parent").with_parent(grandparent.id)).await.expect("Failed to create parent");
-        let child = service.create(CreateCategoryInput::new("Child").with_parent(parent.id)).await.expect("Failed to create child");
+        let grandparent = service
+            .create(CreateCategoryInput::new("Grandparent"))
+            .await
+            .expect("Failed to create grandparent");
+        let parent = service
+            .create(CreateCategoryInput::new("Parent").with_parent(grandparent.id))
+            .await
+            .expect("Failed to create parent");
+        let child = service
+            .create(CreateCategoryInput::new("Child").with_parent(parent.id))
+            .await
+            .expect("Failed to create child");
 
         // Delete parent
-        service.delete(parent.id).await.expect("Failed to delete parent");
+        service
+            .delete(parent.id)
+            .await
+            .expect("Failed to delete parent");
 
         // Child should now have grandparent as parent
-        let updated_child = service.get_by_id(child.id).await.expect("Failed to get child")
+        let updated_child = service
+            .get_by_id(child.id)
+            .await
+            .expect("Failed to get child")
             .expect("Child not found");
         assert_eq!(updated_child.parent_id, Some(grandparent.id));
     }
@@ -1040,7 +1324,10 @@ mod tests {
         let _ = service.list().await;
 
         // Create new category
-        service.create(CreateCategoryInput::new("New Category")).await.expect("Failed to create");
+        service
+            .create(CreateCategoryInput::new("New Category"))
+            .await
+            .expect("Failed to create");
 
         // List should include new category (cache should be invalidated)
         let categories = service.list().await.expect("Failed to list");
@@ -1051,16 +1338,25 @@ mod tests {
     async fn test_cache_invalidation_on_update() {
         let (_pool, service) = setup_test_service().await;
 
-        let created = service.create(CreateCategoryInput::new("Original")).await.expect("Failed to create");
+        let created = service
+            .create(CreateCategoryInput::new("Original"))
+            .await
+            .expect("Failed to create");
 
         // Populate cache
         let _ = service.get_by_id(created.id).await;
 
         // Update category
-        service.update(created.id, UpdateCategoryInput::new().with_name("Updated")).await.expect("Failed to update");
+        service
+            .update(created.id, UpdateCategoryInput::new().with_name("Updated"))
+            .await
+            .expect("Failed to update");
 
         // Get should return updated name
-        let found = service.get_by_id(created.id).await.expect("Failed to get")
+        let found = service
+            .get_by_id(created.id)
+            .await
+            .expect("Failed to get")
             .expect("Category not found");
         assert_eq!(found.name, "Updated");
     }
@@ -1069,7 +1365,10 @@ mod tests {
     async fn test_cache_invalidation_on_delete() {
         let (_pool, service) = setup_test_service().await;
 
-        let created = service.create(CreateCategoryInput::new("To Delete")).await.expect("Failed to create");
+        let created = service
+            .create(CreateCategoryInput::new("To Delete"))
+            .await
+            .expect("Failed to create");
 
         // Populate cache
         let _ = service.get_by_id(created.id).await;
@@ -1096,13 +1395,17 @@ mod tests {
 
     /// Setup a fresh test service for property tests
     async fn setup_property_test_service() -> CategoryService {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         migrations::run_migrations(&pool)
             .await
             .expect("Failed to run migrations");
 
         let repo = SqlxCategoryRepository::boxed(pool.clone());
-        let cache = create_cache(&CacheConfig::default()).await.expect("Failed to create cache");
+        let cache = create_cache(&CacheConfig::default())
+            .await
+            .expect("Failed to create cache");
         CategoryService::new(repo, cache, pool)
     }
 

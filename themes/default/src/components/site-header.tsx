@@ -25,30 +25,20 @@ import { cn } from "@/lib/utils";
 
 interface NavItem {
   id: number;
-  parent_id?: number | null;
+  parentId?: number | null;
   title?: string;
   name?: string;
-  nav_type?: string;
+  type?: string;
   target?: string;
   url?: string;
-  open_new_tab?: boolean;
-  sort_order?: number;
+  openNewTab?: boolean;
   order?: number;
   visible?: boolean;
   children?: NavItem[];
 }
 
 type SDKNavItem = Awaited<ReturnType<NotevaSDKRef["site"]["getNav"]>>[number];
-
-interface NavResponseItem extends SDKNavItem {
-  parent_id?: number | null;
-  title?: string;
-  nav_type?: string;
-  open_new_tab?: boolean;
-  sort_order?: number;
-  visible?: boolean;
-  children?: NavResponseItem[];
-}
+type NavResponseItem = SDKNavItem;
 
 interface HeaderSiteInfo {
   name: string;
@@ -78,22 +68,21 @@ function getInitialSiteInfo(): HeaderSiteInfo {
 }
 
 function normalizeNavItem(item: NavResponseItem): NavItem {
-  const opensNewTab = item.open_new_tab ?? (item.target === "_blank");
+  const opensNewTab = item.openNewTab ?? false;
   const targetOrUrl = item.target === "_blank" ? item.url : item.target || item.url;
 
   return {
     id: item.id,
-    parent_id: item.parent_id ?? null,
+    parentId: item.parentId ?? null,
     title: item.title || item.name,
     name: item.name || item.title,
-    nav_type: item.nav_type,
+    type: item.type,
     target: targetOrUrl,
     url: item.url || targetOrUrl,
-    open_new_tab: opensNewTab,
-    sort_order: item.sort_order ?? item.order ?? 0,
-    order: item.order ?? item.sort_order,
+    openNewTab: opensNewTab,
+    order: item.order ?? 0,
     visible: item.visible ?? true,
-    children: item.children?.map(normalizeNavItem),
+    children: item.children?.map((child) => normalizeNavItem(child)),
   };
 }
 
@@ -134,8 +123,8 @@ export function SiteHeader() {
         if (!active) return;
 
         setSiteInfo({
-          name: info.name || info.site_name || "Noteva",
-          logo: info.logo || info.site_logo || "/logo.png",
+          name: info.name || "Noteva",
+          logo: info.logo || "/logo.png",
         });
         setNavItems((nav || []).map((item) => normalizeNavItem(item)));
         setUser(currentUser);
@@ -166,8 +155,8 @@ export function SiteHeader() {
   const rootNavItems = useMemo(
     () =>
       navItems
-        .filter((item) => !item.parent_id && item.visible !== false)
-        .sort((a, b) => (a.sort_order ?? a.order ?? 0) - (b.sort_order ?? b.order ?? 0)),
+        .filter((item) => !item.parentId && item.visible !== false)
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
     [navItems]
   );
 
@@ -195,7 +184,7 @@ export function SiteHeader() {
     const customTitle = item.title || item.name || "";
     const targetUrl = item.target || item.url || "";
 
-    if (item.nav_type === "builtin") {
+    if (item.type === "builtin") {
       const i18nKey = BUILTIN_I18N[targetUrl];
       if (i18nKey && (!customTitle || customTitle === targetUrl)) {
         return t(i18nKey);
@@ -207,9 +196,9 @@ export function SiteHeader() {
 
   const getNavHref = (item: NavItem): string | null => {
     const targetUrl = item.target || item.url || "";
-    if (item.nav_type === "builtin" && !targetUrl) return null;
+    if (item.type === "builtin" && !targetUrl) return null;
 
-    switch (item.nav_type) {
+    switch (item.type) {
       case "builtin":
         return BUILTIN_PATHS[targetUrl] || "/";
       case "page":
@@ -229,7 +218,7 @@ export function SiteHeader() {
 
   const navLinkClass = (active: boolean) =>
     cn(
-      "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+      "inline-flex h-9 items-center whitespace-nowrap rounded-full px-3 text-sm font-medium transition-colors",
       active
         ? "bg-foreground text-background shadow-sm"
         : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -250,19 +239,19 @@ export function SiteHeader() {
     const className = compact
       ? cn(
           "rounded-md px-3 py-2 text-sm transition-colors",
-          isActiveHref(href, item.nav_type)
+          isActiveHref(href, item.type)
             ? "bg-muted text-foreground"
             : "text-muted-foreground hover:bg-muted hover:text-foreground"
         )
-      : navLinkClass(isActiveHref(href, item.nav_type));
+      : navLinkClass(isActiveHref(href, item.type));
 
-    if (item.nav_type === "external") {
+    if (item.type === "external") {
       return (
         <a
           key={item.id}
           href={href}
-          target={item.open_new_tab ? "_blank" : "_self"}
-          rel={item.open_new_tab ? "noopener noreferrer" : undefined}
+          target={item.openNewTab ? "_blank" : "_self"}
+          rel={item.openNewTab ? "noopener noreferrer" : undefined}
           className={className}
         >
           {title}
@@ -282,8 +271,8 @@ export function SiteHeader() {
 
     const href = getNavHref(item);
     const active =
-      isActiveHref(href, item.nav_type) ||
-      item.children.some((child) => isActiveHref(getNavHref(child), child.nav_type));
+      isActiveHref(href, item.type) ||
+      item.children.some((child) => isActiveHref(getNavHref(child), child.type));
 
     return (
       <DropdownMenu key={item.id}>
@@ -320,10 +309,10 @@ export function SiteHeader() {
     <>
       <TopLoader />
       <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/85 shadow-sm shadow-black/[0.02] backdrop-blur-xl supports-[backdrop-filter]:bg-background/70">
-        <div className="container flex h-16 items-center gap-4">
+        <div className="flex h-16 w-full items-center gap-3 px-4 sm:px-5 lg:px-6 xl:px-8">
           <Link
             to="/"
-            className="group mr-2 flex min-w-0 items-center gap-2"
+            className="group mr-1 flex min-w-0 shrink-0 items-center gap-2"
             aria-label={siteInfo.name}
           >
             {siteInfo.logo && (
@@ -340,7 +329,7 @@ export function SiteHeader() {
             </span>
           </Link>
 
-          <nav className="hidden flex-1 items-center gap-1 md:flex">
+          <nav className="hidden min-w-0 flex-1 items-center gap-1 md:flex">
             {rootNavItems.length > 0
               ? rootNavItems.map(renderNavItemWithChildren)
               : defaultNavItems.map((item) => (
@@ -378,18 +367,18 @@ export function SiteHeader() {
                     {user.avatar ? (
                       <img
                         src={user.avatar}
-                        alt={user.display_name || user.username}
+                        alt={user.displayName || user.username}
                         width={24}
                         height={24}
                         className="size-6 rounded-full object-cover"
                       />
                     ) : (
                       <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                        {(user.display_name || user.username)?.[0]?.toUpperCase()}
+                        {(user.displayName || user.username)?.[0]?.toUpperCase()}
                       </span>
                     )}
                     <span className="hidden max-w-[7rem] truncate sm:inline">
-                      {user.display_name || user.username}
+                      {user.displayName || user.username}
                     </span>
                   </Button>
                 </DropdownMenuTrigger>
@@ -430,7 +419,7 @@ export function SiteHeader() {
               transition={{ duration: 0.18, ease: "easeOut" }}
               className="overflow-hidden border-t border-border/70 md:hidden"
             >
-              <nav className="container flex flex-col gap-2 py-4">
+              <nav className="flex w-full flex-col gap-2 px-4 py-4 sm:px-5">
                 <form onSubmit={handleSearch} className="mb-2">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

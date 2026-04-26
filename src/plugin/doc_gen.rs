@@ -3,7 +3,7 @@
 //! Reads the [`HookRegistry`] and produces a Markdown document describing every
 //! hook grouped by category.
 
-use crate::plugin::hook_registry::{HookRegistry, HookType, HookScope};
+use crate::plugin::hook_registry::{HookRegistry, HookScope, HookType};
 
 /// Category display names (Chinese) keyed by the internal category id returned
 /// from `HookRegistry::by_category()`.
@@ -88,10 +88,7 @@ pub fn generate_hook_docs(registry: &HookRegistry) -> String {
             doc.push_str(&format!("- **描述**: {}\n", hook.description));
             doc.push_str(&format!("- **触发位置**: {}\n", hook.trigger_point));
             doc.push_str(&format!("- **作用域**: {}\n", scope_label(&hook.scope)));
-            doc.push_str(&format!(
-                "- **可用版本**: {}\n",
-                hook.available_since
-            ));
+            doc.push_str(&format!("- **可用版本**: {}\n", hook.available_since));
             doc.push('\n');
 
             // Input schema

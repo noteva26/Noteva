@@ -74,12 +74,12 @@ export const useSiteStore = create<SiteState>((set, get) => ({
       
       const data = await noteva.site.getInfo();
       const settings: SiteSettings = {
-        site_name: data.name || data.site_name || defaultSettings.site_name,
-        site_description: data.description || data.site_description || defaultSettings.site_description,
-        site_subtitle: data.subtitle || data.site_subtitle || defaultSettings.site_subtitle,
-        site_logo: data.logo || data.site_logo || defaultSettings.site_logo,
-        site_footer: data.footer || data.site_footer || defaultSettings.site_footer,
-        email_verification_enabled: data.email_verification_enabled || "false",
+        site_name: data.name || defaultSettings.site_name,
+        site_description: data.description || defaultSettings.site_description,
+        site_subtitle: data.subtitle || defaultSettings.site_subtitle,
+        site_logo: data.logo || defaultSettings.site_logo,
+        site_footer: data.footer || defaultSettings.site_footer,
+        email_verification_enabled: String(data.emailVerificationEnabled ?? false),
       };
       set({ settings, loaded: true, loading: false });
     } catch {

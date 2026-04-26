@@ -21,7 +21,13 @@ import {
 } from "lucide-react";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
 import { toast } from "sonner";
-import { getArticleUrl, getNoteva, waitForNoteva } from "@/hooks/useNoteva";
+import {
+  getArticleUrl,
+  getCategoryUrl,
+  getTagUrl,
+  waitForNoteva,
+  type NotevaArticle,
+} from "@/hooks/useNoteva";
 import { TocSidebar } from "@/components/toc-sidebar";
 import { cn } from "@/lib/utils";
 
@@ -29,25 +35,7 @@ const Comments = lazy(() =>
   import("@/components/comments").then((module) => ({ default: module.Comments }))
 );
 
-interface Article {
-  id: number;
-  slug: string;
-  title: string;
-  content: string;
-  content_html?: string;
-  html?: string;
-  published_at?: string;
-  publishedAt?: string;
-  word_count?: number;
-  reading_time?: number;
-  prev?: { id: number; slug: string; title: string } | null;
-  next?: { id: number; slug: string; title: string } | null;
-  related?: { id: number; slug: string; title: string; thumbnail?: string }[];
-  category?: { id: number; name: string; slug: string };
-  tags?: { id: number; name: string; slug: string }[];
-  toc?: { level: number; text: string; id: string }[];
-  thumbnail?: string | null;
-}
+type Article = NotevaArticle;
 
 function CommentsFallback() {
   return (
@@ -90,7 +78,7 @@ export default function PostPage() {
         excerpt: article.content?.slice(0, 160)?.replace(/[#*`>\n]/g, "").trim(),
         thumbnail: article.thumbnail ?? undefined,
         slug: article.slug || String(article.id),
-        published_at: (article.published_at ?? article.publishedAt) ?? undefined,
+        publishedAt: article.publishedAt ?? undefined,
       }, siteInfo.name, window.location.origin);
     };
 
@@ -111,7 +99,7 @@ export default function PostPage() {
 
       try {
         const info = await Noteva.site.getInfo();
-        if (active) setSiteInfo({ name: info.name || info.site_name || "Noteva" });
+        if (active) setSiteInfo({ name: info.name || "Noteva" });
       } catch { }
     };
     void loadSiteInfo();
@@ -149,7 +137,7 @@ export default function PostPage() {
         if (!active) return;
 
         setArticle(data);
-        setLikeCount(Noteva.articles.getStats(data).likes);
+        setLikeCount(data.likeCount);
 
         try {
           const likeResult = await Noteva.interactions.checkLike("article", data.id);
@@ -180,7 +168,7 @@ export default function PostPage() {
     try {
       const result = await Noteva.interactions.like("article", article.id);
       setIsLiked(result.liked);
-      setLikeCount(result.like_count);
+      setLikeCount(result.likeCount);
       toast.success(result.liked ? t("comment.liked") : t("comment.unliked"));
     } catch { toast.error(t("comment.likeFailed")); }
   };
@@ -188,8 +176,6 @@ export default function PostPage() {
   const getDateLocale = () => {
     switch (locale) { case "zh-TW": return "zh-TW"; case "en": return "en-US"; default: return "zh-CN"; }
   };
-
-  const Noteva = getNoteva();
 
   if (loading) {
     return (
@@ -223,16 +209,14 @@ export default function PostPage() {
     );
   }
 
-  const stats = Noteva?.articles.getStats(article) || {
-    views: 0,
+  const stats = {
+    views: article.viewCount || 0,
     likes: likeCount,
-    comments: 0,
+    comments: article.commentCount || 0,
   };
-  const articleHtml =
-    Noteva?.articles.getHtml(article) || article.content_html || article.html || "";
-  const thumbnail = Noteva?.articles.getThumbnail(article) || article.thumbnail;
-  const publishedAt =
-    Noteva?.articles.getDate(article) || article.published_at || article.publishedAt || "";
+  const articleHtml = article.html || "";
+  const thumbnail = article.thumbnail;
+  const publishedAt = article.publishedAt || "";
   const hasReadableToc =
     (article.toc?.filter((item) => item.level >= 2 && item.level <= 3).length || 0) >= 2;
 
@@ -255,7 +239,7 @@ export default function PostPage() {
             <header className="mb-6">
               {article.category ? (
                 <Link
-                  to={`/categories?c=${article.category.slug}`}
+                  to={getCategoryUrl(article.category)}
                   className="mb-3 inline-flex text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                 >
                   {article.category.name}
@@ -272,15 +256,15 @@ export default function PostPage() {
                   </span>
                 ) : null}
                 {article.category && (
-                  <Link to={`/categories?c=${article.category.slug}`} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                  <Link to={getCategoryUrl(article.category)} className="flex items-center gap-1 hover:text-foreground transition-colors">
                     <Folder className="h-4 w-4" />{article.category.name}
                   </Link>
                 )}
-                {(article.word_count ?? 0) > 0 && (
-                  <span className="flex items-center gap-1"><BookOpen className="h-4 w-4" />{article.word_count}{t("article.words")}</span>
+                {(article.wordCount ?? 0) > 0 && (
+                  <span className="flex items-center gap-1"><BookOpen className="h-4 w-4" />{article.wordCount}{t("article.words")}</span>
                 )}
-                {(article.reading_time ?? 0) > 0 && (
-                  <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{article.reading_time}{t("article.minRead")}</span>
+                {(article.readingTime ?? 0) > 0 && (
+                  <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{article.readingTime}{t("article.minRead")}</span>
                 )}
                 <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{stats.views + 1}</span>
                 <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{stats.comments}</span>
@@ -310,12 +294,12 @@ export default function PostPage() {
             <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-2">
                 {article.category && (
-                  <Link to={`/categories?c=${article.category.slug}`}>
+                  <Link to={getCategoryUrl(article.category)}>
                     <Badge variant="outline" className="hover:bg-secondary"><Folder className="h-3 w-3 mr-1" />{article.category.name}</Badge>
                   </Link>
                 )}
                 {article.tags && article.tags.map((tag) => (
-                  <Link key={tag.id} to={`/tags?t=${tag.slug}`}>
+                  <Link key={tag.id} to={getTagUrl(tag)}>
                     <Badge variant="secondary" className="hover:bg-secondary/80"><Tag className="h-3 w-3 mr-1" />{tag.name}</Badge>
                   </Link>
                 ))}

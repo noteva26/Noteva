@@ -28,7 +28,9 @@ impl ArchiveTracker {
     fn track_entry(&mut self, entry_size: u64) -> Result<(), ApiError> {
         self.entries += 1;
         if self.entries > MAX_ARCHIVE_ENTRIES {
-            return Err(ApiError::validation_error("Archive contains too many entries"));
+            return Err(ApiError::validation_error(
+                "Archive contains too many entries",
+            ));
         }
         if entry_size > MAX_ARCHIVE_ENTRY_BYTES {
             return Err(ApiError::validation_error("Archive entry is too large"));
@@ -38,7 +40,9 @@ impl ArchiveTracker {
             .checked_add(entry_size)
             .ok_or_else(|| ApiError::validation_error("Archive is too large"))?;
         if self.unpacked_bytes > MAX_ARCHIVE_UNPACKED_BYTES {
-            return Err(ApiError::validation_error("Archive uncompressed size is too large"));
+            return Err(ApiError::validation_error(
+                "Archive uncompressed size is too large",
+            ));
         }
         Ok(())
     }
@@ -122,10 +126,13 @@ fn extract_tar_inner<R: Read>(reader: R, dest: &Path) -> Result<String, ApiError
         .entries()
         .map_err(|e| ApiError::validation_error(format!("Invalid TAR: {}", e)))?
     {
-        let mut entry = entry.map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
+        let mut entry =
+            entry.map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
         let entry_type = entry.header().entry_type();
         if !(entry_type.is_file() || entry_type.is_dir()) {
-            return Err(ApiError::validation_error("Archive special entries are not allowed"));
+            return Err(ApiError::validation_error(
+                "Archive special entries are not allowed",
+            ));
         }
 
         let path = entry
@@ -136,7 +143,11 @@ fn extract_tar_inner<R: Read>(reader: R, dest: &Path) -> Result<String, ApiError
             root_name = first_component_name(&safe_name);
         }
 
-        let size = if entry_type.is_dir() { 0 } else { entry.header().size().unwrap_or(0) };
+        let size = if entry_type.is_dir() {
+            0
+        } else {
+            entry.header().size().unwrap_or(0)
+        };
         tracker.track_entry(size)?;
         let outpath = dest.join(&safe_name);
 

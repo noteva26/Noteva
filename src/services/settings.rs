@@ -71,10 +71,10 @@ impl Default for SiteSettings {
 pub enum SettingsServiceError {
     #[error("Failed to load settings: {0}")]
     LoadError(String),
-    
+
     #[error("Failed to save settings: {0}")]
     SaveError(String),
-    
+
     #[error("Invalid setting value: {0}")]
     InvalidValue(String),
 }
@@ -97,7 +97,7 @@ impl SettingsService {
             all_settings_cache: RwLock::new(None),
         }
     }
-    
+
     /// Create from SQLx repository
     pub fn from_sqlx(repo: SqlxSettingsRepository) -> Self {
         Self::new(Arc::new(repo))
@@ -108,7 +108,7 @@ impl SettingsService {
         *self.site_settings_cache.write().await = None;
         *self.all_settings_cache.write().await = None;
     }
-    
+
     /// Get all site settings (cached)
     pub async fn get_site_settings(&self) -> Result<SiteSettings, SettingsServiceError> {
         // Check cache
@@ -126,29 +126,38 @@ impl SettingsService {
             keys::SITE_FOOTER,
             keys::POSTS_PER_PAGE,
         ];
-        
-        let settings = self.repo.get_many(keys).await
+
+        let settings = self
+            .repo
+            .get_many(keys)
+            .await
             .map_err(|e| SettingsServiceError::LoadError(e.to_string()))?;
-        
+
         let defaults = SiteSettings::default();
-        
+
         let result = SiteSettings {
-            site_name: settings.get(keys::SITE_NAME)
+            site_name: settings
+                .get(keys::SITE_NAME)
                 .cloned()
                 .unwrap_or(defaults.site_name),
-            site_description: settings.get(keys::SITE_DESCRIPTION)
+            site_description: settings
+                .get(keys::SITE_DESCRIPTION)
                 .cloned()
                 .unwrap_or(defaults.site_description),
-            site_subtitle: settings.get(keys::SITE_SUBTITLE)
+            site_subtitle: settings
+                .get(keys::SITE_SUBTITLE)
                 .cloned()
                 .unwrap_or(defaults.site_subtitle),
-            site_logo: settings.get(keys::SITE_LOGO)
+            site_logo: settings
+                .get(keys::SITE_LOGO)
                 .cloned()
                 .unwrap_or(defaults.site_logo),
-            site_footer: settings.get(keys::SITE_FOOTER)
+            site_footer: settings
+                .get(keys::SITE_FOOTER)
                 .cloned()
                 .unwrap_or(defaults.site_footer),
-            posts_per_page: settings.get(keys::POSTS_PER_PAGE)
+            posts_per_page: settings
+                .get(keys::POSTS_PER_PAGE)
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(defaults.posts_per_page),
         };
@@ -158,44 +167,63 @@ impl SettingsService {
 
         Ok(result)
     }
-    
+
     /// Update site settings
-    pub async fn update_site_settings(&self, settings: &SiteSettings) -> Result<(), SettingsServiceError> {
+    pub async fn update_site_settings(
+        &self,
+        settings: &SiteSettings,
+    ) -> Result<(), SettingsServiceError> {
         let mut map = HashMap::new();
         map.insert(keys::SITE_NAME.to_string(), settings.site_name.clone());
-        map.insert(keys::SITE_DESCRIPTION.to_string(), settings.site_description.clone());
-        map.insert(keys::SITE_SUBTITLE.to_string(), settings.site_subtitle.clone());
+        map.insert(
+            keys::SITE_DESCRIPTION.to_string(),
+            settings.site_description.clone(),
+        );
+        map.insert(
+            keys::SITE_SUBTITLE.to_string(),
+            settings.site_subtitle.clone(),
+        );
         map.insert(keys::SITE_LOGO.to_string(), settings.site_logo.clone());
         map.insert(keys::SITE_FOOTER.to_string(), settings.site_footer.clone());
-        map.insert(keys::POSTS_PER_PAGE.to_string(), settings.posts_per_page.to_string());
-        
-        self.repo.set_many(&map).await
+        map.insert(
+            keys::POSTS_PER_PAGE.to_string(),
+            settings.posts_per_page.to_string(),
+        );
+
+        self.repo
+            .set_many(&map)
+            .await
             .map_err(|e| SettingsServiceError::SaveError(e.to_string()))?;
-        
+
         self.invalidate_cache().await;
         Ok(())
     }
-    
+
     /// Get a single setting value
     pub async fn get(&self, key: &str) -> Result<Option<String>, SettingsServiceError> {
-        let setting = self.repo.get(key).await
+        let setting = self
+            .repo
+            .get(key)
+            .await
             .map_err(|e| SettingsServiceError::LoadError(e.to_string()))?;
         Ok(setting.map(|s| s.value))
     }
-    
+
     /// Set a single setting value (invalidates cache)
     pub async fn set(&self, key: &str, value: &str) -> Result<(), SettingsServiceError> {
-        self.repo.set(key, value).await
+        self.repo
+            .set(key, value)
+            .await
             .map_err(|e| SettingsServiceError::SaveError(e.to_string()))?;
         self.invalidate_cache().await;
         Ok(())
     }
-    
+
     /// Set a single setting (alias for set)
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), SettingsServiceError> {
         self.set(key, value).await
     }
-    
+
     /// Get all settings as a HashMap (cached)
     pub async fn get_all_settings(&self) -> Result<HashMap<String, String>, SettingsServiceError> {
         // Check cache
@@ -205,22 +233,23 @@ impl SettingsService {
             }
         }
 
-        let settings = self.repo.get_all().await
+        let settings = self
+            .repo
+            .get_all()
+            .await
             .map_err(|e| SettingsServiceError::LoadError(e.to_string()))?;
-        let result: HashMap<String, String> = settings.into_iter().map(|s| (s.key, s.value)).collect();
+        let result: HashMap<String, String> =
+            settings.into_iter().map(|s| (s.key, s.value)).collect();
 
         // Update cache
         *self.all_settings_cache.write().await = Some((Instant::now(), result.clone()));
 
         Ok(result)
     }
-
-
 }
 
-
 /// Generate article URL based on permalink structure
-/// 
+///
 /// Supported placeholders:
 /// - {id} - Article ID
 /// - {slug} - Article slug
@@ -235,7 +264,7 @@ pub fn generate_article_url(
 ) -> String {
     let now = chrono::Utc::now();
     let date = published_at.unwrap_or(&now);
-    
+
     structure
         .replace("{id}", &id.to_string())
         .replace("{slug}", slug)
@@ -270,7 +299,9 @@ mod tests {
 
     #[test]
     fn test_generate_article_url_full_date() {
-        let date = chrono::Utc.with_ymd_and_hms(2024, 12, 25, 12, 0, 0).unwrap();
+        let date = chrono::Utc
+            .with_ymd_and_hms(2024, 12, 25, 12, 0, 0)
+            .unwrap();
         let url = generate_article_url("/{year}/{month}/{day}/{slug}", 1, "christmas", Some(&date));
         assert_eq!(url, "/2024/12/25/christmas");
     }

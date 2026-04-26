@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://noteva.org/schemas/plugin.schema.json",
+  "title": "Noteva Plugin Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "name",
+    "version",
+    "description",
+    "author",
+    "repository",
+    "license",
+    "requires"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "author": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "repository": {
+      "type": "string",
+      "oneOf": [
+        {
+          "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\\.git)?/?$"
+        },
+        {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        }
+      ]
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "requires": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["noteva"],
+      "properties": {
+        "noteva": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plugins": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "frontend": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "system_init",
+              "body_end",
+              "route_change",
+              "content_render",
+              "article_view",
+              "comment_after_create",
+              "seo_meta_tags",
+              "api_request_before",
+              "api_request_after",
+              "api_error"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "editor": {
+          "type": "array",
+          "items": {
+            "const": "toolbar"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "enum": ["network", "storage", "read_articles", "read_comments", "write_articles"]
+      },
+      "uniqueItems": true
+    },
+    "shortcodes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+      },
+      "uniqueItems": true
+    },
+    "settings": {
+      "type": "boolean"
+    },
+    "api": {
+      "type": "boolean"
+    },
+    "database": {
+      "const": false
+    },
+    "activate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "on_start": {
+          "type": "boolean"
+        },
+        "interval_hours": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 720
+        }
+      }
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slug", "title"],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,95}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        }
+      }
+    }
+  }
+}

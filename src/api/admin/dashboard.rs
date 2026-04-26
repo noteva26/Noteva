@@ -2,11 +2,11 @@
 
 use axum::{extract::State, Json};
 use serde::Serialize;
-use sysinfo::{Pid, System};
 use std::process;
+use sysinfo::{Pid, System};
 
-use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 use super::update::APP_VERSION;
+use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 
 /// Response for dashboard stats
 #[derive(Debug, Serialize)]
@@ -95,31 +95,31 @@ pub async fn get_system_stats(
 ) -> Result<Json<SystemStatsResponse>, ApiError> {
     let mut sys = System::new_all();
     sys.refresh_all();
-    
+
     let pid = Pid::from_u32(process::id());
-    
+
     let memory_bytes = if let Some(proc) = sys.process(pid) {
         proc.memory()
     } else {
         0
     };
-    
+
     // Format memory
     let memory_formatted = format_bytes(memory_bytes);
-    
+
     // System-wide stats
     let system_total_memory = sys.total_memory();
     let system_used_memory = sys.used_memory();
-    
+
     // OS name
     let os_name = System::name().unwrap_or_else(|| "Unknown".to_string());
-    
+
     // Request stats from middleware
     let uptime_seconds = state.request_stats.uptime_seconds();
     let uptime_formatted = format_uptime(uptime_seconds);
     let total_requests = state.request_stats.total_requests();
     let avg_response_time_ms = state.request_stats.avg_response_time_us() / 1000.0;
-    
+
     Ok(Json(SystemStatsResponse {
         version: APP_VERSION.to_string(),
         memory_bytes,
@@ -139,7 +139,7 @@ fn format_uptime(seconds: u64) -> String {
     let days = seconds / 86400;
     let hours = (seconds % 86400) / 3600;
     let minutes = (seconds % 3600) / 60;
-    
+
     if days > 0 {
         format!("{}d {}h {}m", days, hours, minutes)
     } else if hours > 0 {
@@ -156,7 +156,7 @@ fn format_bytes(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
     const GB: u64 = MB * 1024;
-    
+
     if bytes >= GB {
         format!("{:.2} GB", bytes as f64 / GB as f64)
     } else if bytes >= MB {

@@ -62,7 +62,10 @@ mod tests {
 
     #[test]
     fn test_tag_new() {
-        let tag = Tag::new("rust-programming".to_string(), "Rust Programming".to_string());
+        let tag = Tag::new(
+            "rust-programming".to_string(),
+            "Rust Programming".to_string(),
+        );
 
         assert_eq!(tag.id, 0);
         assert_eq!(tag.slug, "rust-programming");

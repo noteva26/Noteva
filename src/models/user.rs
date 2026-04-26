@@ -50,12 +50,7 @@ impl User {
     ///
     /// Note: The password should already be hashed before calling this function.
     /// Use `services::password::hash_password()` to hash the password.
-    pub fn new(
-        username: String,
-        email: String,
-        password_hash: String,
-        role: UserRole,
-    ) -> Self {
+    pub fn new(username: String, email: String, password_hash: String, role: UserRole) -> Self {
         let now = Utc::now();
         Self {
             id: 0, // Will be set by the database
@@ -247,9 +242,24 @@ mod tests {
 
     #[test]
     fn test_user_is_admin() {
-        let admin = User::new("admin".to_string(), "admin@test.com".to_string(), "hash".to_string(), UserRole::Admin);
-        let editor = User::new("editor".to_string(), "editor@test.com".to_string(), "hash".to_string(), UserRole::Editor);
-        let author = User::new("author".to_string(), "author@test.com".to_string(), "hash".to_string(), UserRole::Author);
+        let admin = User::new(
+            "admin".to_string(),
+            "admin@test.com".to_string(),
+            "hash".to_string(),
+            UserRole::Admin,
+        );
+        let editor = User::new(
+            "editor".to_string(),
+            "editor@test.com".to_string(),
+            "hash".to_string(),
+            UserRole::Editor,
+        );
+        let author = User::new(
+            "author".to_string(),
+            "author@test.com".to_string(),
+            "hash".to_string(),
+            UserRole::Author,
+        );
 
         assert!(admin.is_admin());
         assert!(!editor.is_admin());
@@ -258,9 +268,24 @@ mod tests {
 
     #[test]
     fn test_user_is_editor() {
-        let admin = User::new("admin".to_string(), "admin@test.com".to_string(), "hash".to_string(), UserRole::Admin);
-        let editor = User::new("editor".to_string(), "editor@test.com".to_string(), "hash".to_string(), UserRole::Editor);
-        let author = User::new("author".to_string(), "author@test.com".to_string(), "hash".to_string(), UserRole::Author);
+        let admin = User::new(
+            "admin".to_string(),
+            "admin@test.com".to_string(),
+            "hash".to_string(),
+            UserRole::Admin,
+        );
+        let editor = User::new(
+            "editor".to_string(),
+            "editor@test.com".to_string(),
+            "hash".to_string(),
+            UserRole::Editor,
+        );
+        let author = User::new(
+            "author".to_string(),
+            "author@test.com".to_string(),
+            "hash".to_string(),
+            UserRole::Author,
+        );
 
         assert!(admin.is_editor());
         assert!(editor.is_editor());
@@ -269,10 +294,20 @@ mod tests {
 
     #[test]
     fn test_user_can_edit() {
-        let mut admin = User::new("admin".to_string(), "admin@test.com".to_string(), "hash".to_string(), UserRole::Admin);
+        let mut admin = User::new(
+            "admin".to_string(),
+            "admin@test.com".to_string(),
+            "hash".to_string(),
+            UserRole::Admin,
+        );
         admin.id = 1;
-        
-        let mut author = User::new("author".to_string(), "author@test.com".to_string(), "hash".to_string(), UserRole::Author);
+
+        let mut author = User::new(
+            "author".to_string(),
+            "author@test.com".to_string(),
+            "hash".to_string(),
+            UserRole::Author,
+        );
         author.id = 2;
 
         // Admin can edit anyone's content

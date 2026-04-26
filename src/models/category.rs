@@ -201,8 +201,20 @@ mod tests {
     #[test]
     fn test_category_tree_total_count() {
         let root = Category::new("root".to_string(), "Root".to_string(), None, None, 0);
-        let child1 = Category::new("child1".to_string(), "Child 1".to_string(), None, Some(1), 0);
-        let child2 = Category::new("child2".to_string(), "Child 2".to_string(), None, Some(1), 1);
+        let child1 = Category::new(
+            "child1".to_string(),
+            "Child 1".to_string(),
+            None,
+            Some(1),
+            0,
+        );
+        let child2 = Category::new(
+            "child2".to_string(),
+            "Child 2".to_string(),
+            None,
+            Some(1),
+            1,
+        );
         let grandchild = Category::new(
             "grandchild".to_string(),
             "Grandchild".to_string(),
@@ -226,9 +238,21 @@ mod tests {
     fn test_category_tree_flatten() {
         let mut root = Category::new("root".to_string(), "Root".to_string(), None, None, 0);
         root.id = 1;
-        let mut child1 = Category::new("child1".to_string(), "Child 1".to_string(), None, Some(1), 0);
+        let mut child1 = Category::new(
+            "child1".to_string(),
+            "Child 1".to_string(),
+            None,
+            Some(1),
+            0,
+        );
         child1.id = 2;
-        let mut child2 = Category::new("child2".to_string(), "Child 2".to_string(), None, Some(1), 1);
+        let mut child2 = Category::new(
+            "child2".to_string(),
+            "Child 2".to_string(),
+            None,
+            Some(1),
+            1,
+        );
         child2.id = 3;
 
         let tree = CategoryTree::with_children(
@@ -247,7 +271,13 @@ mod tests {
     fn test_category_tree_descendant_ids() {
         let mut root = Category::new("root".to_string(), "Root".to_string(), None, None, 0);
         root.id = 1;
-        let mut child1 = Category::new("child1".to_string(), "Child 1".to_string(), None, Some(1), 0);
+        let mut child1 = Category::new(
+            "child1".to_string(),
+            "Child 1".to_string(),
+            None,
+            Some(1),
+            0,
+        );
         child1.id = 2;
         let mut grandchild = Category::new(
             "grandchild".to_string(),

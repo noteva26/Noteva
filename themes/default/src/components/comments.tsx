@@ -24,17 +24,13 @@ const MAX_NESTING_DEPTH = 4;
 interface Comment {
   id: number;
   content: string;
-  created_at?: string;
   createdAt?: string;
   nickname?: string | null;
-  avatar_url?: string;
   avatarUrl?: string;
-  like_count?: number;
   likeCount?: number;
-  is_liked?: boolean;
   isLiked?: boolean;
-  is_author?: boolean;
-  user_id?: number | null;
+  isAuthor?: boolean;
+  userId?: number | null;
   replies?: Comment[];
   pending?: boolean;
 }
@@ -90,7 +86,7 @@ function addCommentToTree(
 }
 
 function getCommentDate(comment: Comment) {
-  const value = comment.created_at || comment.createdAt;
+  const value = comment.createdAt;
   return value ? new Date(value).toLocaleDateString() : "";
 }
 
@@ -233,15 +229,15 @@ export function Comments({ articleId, authorId }: CommentsProps) {
         comment: {
           id: -Date.now(),
           content: submitted.content,
-          created_at: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
           nickname: isAdmin
-            ? user?.display_name || user?.username || "Admin"
+            ? user?.displayName || user?.username || "Admin"
             : submitted.nickname,
-          avatar_url: user?.avatar,
-          like_count: 0,
-          is_liked: false,
-          is_author: isAdmin,
-          user_id: user?.id ?? null,
+          avatarUrl: user?.avatar,
+          likeCount: 0,
+          isLiked: false,
+          isAuthor: isAdmin,
+          userId: user?.id ?? null,
           replies: [],
           pending: true,
         },
@@ -260,8 +256,6 @@ export function Comments({ articleId, authorId }: CommentsProps) {
         setReplyTo(null);
         await loadComments();
 
-        Noteva.hooks.trigger("comment_after_create", { articleId, parentId });
-        Noteva.events.emit("comment:create", { articleId, parentId });
       } catch (error) {
         setComments((current) => [...current]);
         toast.error(getSubmitErrorMessage(error, t("comment.submitFailed")));
@@ -288,14 +282,14 @@ export function Comments({ articleId, authorId }: CommentsProps) {
   };
 
   const isAuthorComment = (comment: Comment) => {
-    if (comment.is_author) return true;
-    if (comment.user_id && authorId && comment.user_id === authorId) return true;
+    if (comment.isAuthor) return true;
+    if (comment.userId && authorId && comment.userId === authorId) return true;
     return false;
   };
 
   const renderComment = (comment: Comment, depth = 0) => {
-    const isLiked = comment.is_liked ?? comment.isLiked ?? false;
-    const likeCount = comment.like_count ?? comment.likeCount ?? 0;
+    const isLiked = comment.isLiked ?? false;
+    const likeCount = comment.likeCount ?? 0;
 
     return (
       <div
@@ -305,7 +299,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
       >
         <div className="flex gap-3">
           <img
-            src={comment.avatar_url || comment.avatarUrl || FALLBACK_AVATAR}
+            src={comment.avatarUrl || FALLBACK_AVATAR}
             alt={comment.nickname || "User"}
             className="h-10 w-10 rounded-full"
             onError={(event) => {
@@ -483,7 +477,7 @@ export function Comments({ articleId, authorId }: CommentsProps) {
           {isAdmin && (
             <p className="text-sm text-muted-foreground">
               {t("comment.postingAsAdmin", {
-                name: user?.display_name || user?.username || "Admin",
+                name: user?.displayName || user?.username || "Admin",
               })}
             </p>
           )}

@@ -7,6 +7,8 @@
 //! - POST /api/v1/auth/2fa/verify - Verify 2FA code during login
 //! - GET  /api/v1/auth/2fa/status - Check if 2FA is enabled
 
+use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
+use crate::services::password::verify_password;
 use axum::{
     extract::State,
     http::{header, HeaderMap, HeaderValue},
@@ -15,9 +17,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use totp_rs::{Algorithm, TOTP, Secret};
-use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
-use crate::services::password::verify_password;
+use totp_rs::{Algorithm, Secret, TOTP};
 
 /// Build the 2FA router (all routes require auth)
 pub fn router() -> Router<AppState> {
@@ -30,8 +30,7 @@ pub fn router() -> Router<AppState> {
 
 /// Build the public 2FA router (for login verification)
 pub fn public_router() -> Router<AppState> {
-    Router::new()
-        .route("/verify", post(verify_2fa))
+    Router::new().route("/verify", post(verify_2fa))
 }
 
 // ============================================================================
@@ -93,10 +92,12 @@ fn create_totp(secret_base32: &str, account_name: &str) -> Result<TOTP, ApiError
     let secret = Secret::Encoded(secret_base32.to_string());
     TOTP::new(
         Algorithm::SHA1,
-        6,     // digits
-        1,     // skew (allows ±1 time step)
-        30,    // step (30 seconds)
-        secret.to_bytes().map_err(|e| ApiError::internal_error(format!("Invalid secret: {}", e)))?,
+        6,  // digits
+        1,  // skew (allows ±1 time step)
+        30, // step (30 seconds)
+        secret
+            .to_bytes()
+            .map_err(|e| ApiError::internal_error(format!("Invalid secret: {}", e)))?,
         Some("Noteva".to_string()),
         account_name.to_string(),
     )
@@ -123,7 +124,8 @@ async fn setup_2fa(
     let totp = create_totp(&secret_base32, &user.0.username)?;
 
     // Generate QR code as data URI
-    let qr_code = totp.get_qr_base64()
+    let qr_code = totp
+        .get_qr_base64()
         .map_err(|e| ApiError::internal_error(format!("Failed to generate QR code: {}", e)))?;
     let qr_data_uri = format!("data:image/png;base64,{}", qr_code);
 
@@ -132,7 +134,10 @@ async fn setup_2fa(
     updated_user.totp_secret = Some(secret_base32.clone());
     // Keep totp_enabled as-is (don't enable yet)
 
-    state.user_service.update_user(updated_user).await
+    state
+        .user_service
+        .update_user(updated_user)
+        .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     Ok(Json(Setup2FAResponse {
@@ -149,22 +154,33 @@ async fn enable_2fa(
     user: AuthenticatedUser,
     Json(body): Json<Enable2FARequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let secret = user.0.totp_secret.as_deref()
+    let secret = user
+        .0
+        .totp_secret
+        .as_deref()
         .ok_or_else(|| ApiError::validation_error("2FA not set up. Call /2fa/setup first."))?;
 
     let totp = create_totp(secret, &user.0.username)?;
 
     // Verify the code
     let code = body.code.trim();
-    if !totp.check_current(code).map_err(|e| ApiError::internal_error(format!("TOTP check error: {}", e)))? {
-        return Err(ApiError::validation_error("Invalid verification code. Please try again."));
+    if !totp
+        .check_current(code)
+        .map_err(|e| ApiError::internal_error(format!("TOTP check error: {}", e)))?
+    {
+        return Err(ApiError::validation_error(
+            "Invalid verification code. Please try again.",
+        ));
     }
 
     // Enable 2FA
     let mut updated_user = user.0;
     updated_user.totp_enabled = true;
 
-    state.user_service.update_user(updated_user).await
+    state
+        .user_service
+        .update_user(updated_user)
+        .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     Ok(Json(serde_json::json!({
@@ -193,12 +209,18 @@ async fn disable_2fa(
     }
 
     // Verify TOTP code
-    let secret = user.0.totp_secret.as_deref()
+    let secret = user
+        .0
+        .totp_secret
+        .as_deref()
         .ok_or_else(|| ApiError::internal_error("2FA enabled but no secret stored"))?;
     let totp = create_totp(secret, &user.0.username)?;
 
     let code = body.code.trim();
-    if !totp.check_current(code).map_err(|e| ApiError::internal_error(format!("TOTP check error: {}", e)))? {
+    if !totp
+        .check_current(code)
+        .map_err(|e| ApiError::internal_error(format!("TOTP check error: {}", e)))?
+    {
         return Err(ApiError::validation_error("Invalid verification code."));
     }
 
@@ -207,7 +229,10 @@ async fn disable_2fa(
     updated_user.totp_enabled = false;
     updated_user.totp_secret = None;
 
-    state.user_service.update_user(updated_user).await
+    state
+        .user_service
+        .update_user(updated_user)
+        .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     Ok(Json(serde_json::json!({
@@ -217,9 +242,7 @@ async fn disable_2fa(
 }
 
 /// GET /api/v1/auth/2fa/status - Check if 2FA is enabled
-async fn get_2fa_status(
-    user: AuthenticatedUser,
-) -> Json<TwoFactorStatusResponse> {
+async fn get_2fa_status(user: AuthenticatedUser) -> Json<TwoFactorStatusResponse> {
     Json(TwoFactorStatusResponse {
         enabled: user.0.totp_enabled,
     })
@@ -236,30 +259,39 @@ async fn verify_2fa(
 ) -> Result<impl IntoResponse, ApiError> {
     // The challenge_token is a temporary session ID
     // Validate it to get the user
-    let user = state.user_service
+    let user = state
+        .user_service
         .validate_session(&body.challenge_token)
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?
         .ok_or_else(|| ApiError::unauthorized("Invalid or expired challenge token"))?;
 
     if !user.totp_enabled {
-        return Err(ApiError::validation_error("2FA is not enabled for this account"));
+        return Err(ApiError::validation_error(
+            "2FA is not enabled for this account",
+        ));
     }
 
-    let secret = user.totp_secret.as_deref()
+    let secret = user
+        .totp_secret
+        .as_deref()
         .ok_or_else(|| ApiError::internal_error("2FA enabled but no secret stored"))?;
 
     let totp = create_totp(secret, &user.username)?;
 
     let code = body.code.trim();
-    if !totp.check_current(code).map_err(|e| ApiError::internal_error(format!("TOTP check error: {}", e)))? {
+    if !totp
+        .check_current(code)
+        .map_err(|e| ApiError::internal_error(format!("TOTP check error: {}", e)))?
+    {
         return Err(ApiError::unauthorized("Invalid verification code"));
     }
 
     // 2FA verified! The challenge_token IS the real session, so we just
     // return it as-is along with the user info.
     // Detect HTTPS
-    let is_secure = headers.get("x-forwarded-proto")
+    let is_secure = headers
+        .get("x-forwarded-proto")
         .and_then(|h| h.to_str().ok())
         .map(|p| p == "https")
         .unwrap_or(false);

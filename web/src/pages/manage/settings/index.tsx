@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { motion } from "motion/react";
-import { adminApi, UpdateCheckResponse, authApi, localesApi, CustomLocaleItem } from "@/lib/api";
+import { adminApi, authApi, localesApi, CustomLocaleItem } from "@/lib/api";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
 import { Button } from "@/components/ui/button";
@@ -27,10 +27,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Settings, User, MessageSquare, Loader2, RefreshCw, Download, AlertCircle, CheckCircle2, Link, RotateCw, Code, Database, Upload, FileText, Type, Shield, ShieldCheck, ShieldOff, Globe, Trash2 } from "lucide-react";
+import { Settings, User, MessageSquare, Loader2, Download, AlertCircle, Link, Code, Database, Upload, FileText, Type, Shield, ShieldCheck, ShieldOff, Globe, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation, registerCustomLocale, unregisterCustomLocale } from "@/lib/i18n";
-import ReactMarkdown from "react-markdown";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
 import { getApiErrorMessage } from "@/lib/api-error";
 
@@ -498,7 +497,7 @@ function TwoFactorCard() {
 export default function SettingsPage() {
   const { user } = useAuthStore();
   const { updateSettings } = useSiteStore();
-  const { t, locale } = useTranslation();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [savingSite, startSavingSiteTransition] = useTransition();
   const [savingComment, startSavingCommentTransition] = useTransition();
@@ -538,13 +537,6 @@ export default function SettingsPage() {
     customCss: "",
     customJs: "",
   });
-
-  // Update check state
-  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null);
-  const [checkingUpdate, startCheckingUpdateTransition] = useTransition();
-  const [performingUpdate, startPerformingUpdateTransition] = useTransition();
-  const [updateRestarting, setUpdateRestarting] = useState(false);
-  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
 
   // Backup state
   const [backingUp, startBackupTransition] = useTransition();
@@ -719,71 +711,6 @@ export default function SettingsPage() {
     });
   };
 
-  const handleCheckUpdate = () => {
-    startCheckingUpdateTransition(async () => {
-      try {
-        const { data } = await adminApi.checkUpdate();
-        setUpdateInfo(data);
-        if (data.error) {
-          toast.error(data.error);
-        } else if (data.update_available) {
-          toast.success(t("settings.updateAvailable"));
-        } else {
-          toast.info(t("settings.noUpdate"));
-        }
-      } catch {
-        toast.error(t("settings.checkUpdateFailed"));
-      }
-    });
-  };
-
-  const handlePerformUpdate = () => {
-    if (!updateInfo?.latest_version) return;
-    setUpdateDialogOpen(true);
-  };
-
-  const doPerformUpdate = () => {
-    if (!updateInfo?.latest_version) return;
-    const latestVersion = updateInfo.latest_version;
-    setUpdateDialogOpen(false);
-    startPerformingUpdateTransition(async () => {
-      try {
-        await adminApi.performUpdate(latestVersion);
-        toast.success(t("settings.updateSuccess"));
-        setUpdateRestarting(true);
-      } catch (error) {
-        toast.error(getApiErrorMessage(error, t("settings.updateFailed")));
-      }
-    });
-  };
-
-  // Auto-refresh: poll server after update restart
-  useEffect(() => {
-    if (!updateRestarting) return;
-    let cancelled = false;
-    const poll = async () => {
-      // Wait a few seconds for server to actually shut down
-      await new Promise(r => setTimeout(r, 5000));
-      while (!cancelled) {
-        try {
-          await fetch("/api/v1/site/info", { cache: "no-store" });
-          // Server is back! Reload after a brief pause
-          if (!cancelled) {
-            toast.success(t("settings.updateRestartDone") || "Update complete! Reloading...");
-            await new Promise(r => setTimeout(r, 1500));
-            window.location.reload();
-          }
-          return;
-        } catch {
-          // Server still down, wait and retry
-          await new Promise(r => setTimeout(r, 3000));
-        }
-      }
-    };
-    poll();
-    return () => { cancelled = true; };
-  }, [updateRestarting]);
-
   const handleDownloadBackup = () => {
     startBackupTransition(async () => {
       try {
@@ -873,10 +800,6 @@ export default function SettingsPage() {
             <TabsTrigger value="account" className="gap-2">
               <User className="h-4 w-4" />
               {t("settings.account")}
-            </TabsTrigger>
-            <TabsTrigger value="update" className="gap-2">
-              <Download className="h-4 w-4" />
-              {t("settings.update")}
             </TabsTrigger>
             <TabsTrigger value="customCode" className="gap-2">
               <Code className="h-4 w-4" />
@@ -1222,125 +1145,6 @@ export default function SettingsPage() {
             <TwoFactorCard />
           </TabsContent>
 
-          <TabsContent value="update" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>{t("settings.systemUpdate")}</CardTitle>
-                <CardDescription>{t("settings.systemUpdateDesc")}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Check update button */}
-                <Button onClick={handleCheckUpdate} disabled={checkingUpdate}>
-                  {checkingUpdate ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                  )}
-                  {t("settings.checkUpdate")}
-                </Button>
-
-                {/* Update info */}
-                {updateInfo && (
-                  <div className="space-y-4 pt-4 border-t">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">{t("settings.currentVersion")}:</span>
-                      <span className="font-mono">v{updateInfo.current_version}</span>
-                    </div>
-
-                    {updateInfo.latest_version && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">{t("settings.latestVersion")}:</span>
-                        <span className="font-mono">v{updateInfo.latest_version}</span>
-                      </div>
-                    )}
-
-                    {updateInfo.update_available ? (
-                      <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                        <div className="flex items-start gap-3">
-                          <Download className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5" />
-                          <div className="space-y-2 flex-1">
-                            <p className="font-medium text-green-800 dark:text-green-200">
-                              {t("settings.newVersionAvailable")}
-                            </p>
-                            {updateInfo.release_date && (
-                              <p className="text-sm text-green-700 dark:text-green-300">
-                                {t("settings.releaseDate")}: {new Date(updateInfo.release_date).toLocaleDateString(locale)}
-                              </p>
-                            )}
-                            {updateInfo.release_notes && (
-                              <div className="mt-2 p-3 bg-white dark:bg-gray-800 rounded text-sm max-h-40 overflow-y-auto prose prose-sm dark:prose-invert prose-headings:text-base prose-headings:font-semibold prose-p:my-1 prose-ul:my-1 prose-li:my-0">
-                                <ReactMarkdown>{updateInfo.release_notes}</ReactMarkdown>
-                              </div>
-                            )}
-                            <div className="flex items-center gap-3 mt-3">
-                              <Button
-                                onClick={handlePerformUpdate}
-                                disabled={performingUpdate || updateRestarting}
-                                size="sm"
-                              >
-                                {performingUpdate ? (
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                ) : (
-                                  <RotateCw className="h-4 w-4 mr-2" />
-                                )}
-                                {performingUpdate ? t("settings.updating") : t("settings.performUpdate")}
-                              </Button>
-                              {updateInfo.release_url && (
-                                <a
-                                  href={updateInfo.release_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-2 text-sm text-green-700 dark:text-green-300 hover:underline"
-                                >
-                                  <Download className="h-4 w-4" />
-                                  {t("settings.downloadUpdate")}
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : updateInfo.error ? (
-                      <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-                        <div className="flex items-center gap-3">
-                          <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
-                          <p className="text-red-800 dark:text-red-200">{updateInfo.error}</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                        <div className="flex items-center gap-3">
-                          <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                          <p className="text-blue-800 dark:text-blue-200">{t("settings.upToDate")}</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Restarting notice */}
-                {updateRestarting && (
-                  <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
-                    <div className="flex items-center gap-3">
-                      <Loader2 className="h-5 w-5 text-amber-600 dark:text-amber-400 animate-spin" />
-                      <p className="text-amber-800 dark:text-amber-200">{t("settings.updateRestarting")}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Update instructions */}
-                <div className="pt-4 border-t">
-                  <h4 className="font-medium mb-2">{t("settings.howToUpdate")}</h4>
-                  <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-                    <li>{t("settings.updateStep1")}</li>
-                    <li>{t("settings.updateStep2")}</li>
-                    <li>{t("settings.updateStep3")}</li>
-                  </ol>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           <TabsContent value="customCode" className="space-y-4">
             <Card>
               <CardHeader>
@@ -1457,30 +1261,6 @@ export default function SettingsPage() {
           </TabsContent>
         </Tabs>
       </motion.div>
-
-      {/* Update Confirmation Dialog */}
-      <AlertDialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <RotateCw className="h-5 w-5 text-primary" />
-              {t("settings.systemUpdate")}
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2">
-                <p>{t("settings.confirmUpdate").replace("{version}", updateInfo?.latest_version || "")}</p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={doPerformUpdate}>
-              <RotateCw className="h-4 w-4 mr-2" />
-              {t("settings.performUpdate")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Restore Backup Confirmation Dialog */}
       <AlertDialog open={restoreDialogOpen} onOpenChange={setRestoreDialogOpen}>

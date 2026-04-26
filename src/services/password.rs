@@ -114,7 +114,10 @@ mod tests {
         let hash2 = hash_password(password).expect("Failed to hash password");
 
         // Different salts should produce different hashes
-        assert_ne!(hash1, hash2, "Same password should produce different hashes due to random salt");
+        assert_ne!(
+            hash1, hash2,
+            "Same password should produce different hashes due to random salt"
+        );
     }
 
     #[test]
@@ -175,7 +178,13 @@ mod tests {
         let password = "my_secret_password";
         let hash = hash_password(password).expect("Failed to hash password");
 
-        assert_ne!(password, hash, "Hash should not equal the original password");
-        assert!(!hash.contains(password), "Hash should not contain the original password");
+        assert_ne!(
+            password, hash,
+            "Hash should not equal the original password"
+        );
+        assert!(
+            !hash.contains(password),
+            "Hash should not contain the original password"
+        );
     }
 }

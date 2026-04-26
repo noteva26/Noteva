@@ -532,7 +532,7 @@ export interface ThemeResponse {
   description: string | null;
   version: string;
   author: string | null;
-  url: string | null;
+  repository: string;
   preview: string | null;
   active: boolean;
   requires_noteva: string;
@@ -619,8 +619,12 @@ export interface Plugin {
   version: string;
   description: string;
   author: string;
+  repository: string;
   enabled: boolean;
   has_settings: boolean;
+  has_wasm: boolean;
+  wasm_loaded: boolean;
+  backend_hooks: string[];
   shortcodes: string[];
   requires_noteva: string;
   compatible: boolean;
@@ -673,6 +677,8 @@ export interface PluginSettingsField {
   description?: string | Record<string, string>;
   placeholder?: string | Record<string, string>;
   secret?: boolean;
+  rows?: number;
+  maxLength?: number;
   options?: { value: string; label: string | Record<string, string> }[];
   min?: number;
   max?: number;
@@ -693,6 +699,7 @@ export interface PluginSettingsSection {
 }
 
 export interface PluginSettingsSchema {
+  schema?: number;
   sections: PluginSettingsSection[];
 }
 

@@ -194,7 +194,9 @@ mod tests {
     use uuid::Uuid;
 
     async fn setup_test_repo() -> (DynDatabasePool, SqlxSessionRepository) {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         migrations::run_migrations(&pool)
             .await
             .expect("Failed to run migrations");
@@ -241,7 +243,10 @@ mod tests {
         create_test_user(&pool, 1).await;
 
         let session = create_test_session(1, 7);
-        let created = repo.create(&session).await.expect("Failed to create session");
+        let created = repo
+            .create(&session)
+            .await
+            .expect("Failed to create session");
 
         assert_eq!(created.id, session.id);
         assert_eq!(created.user_id, 1);
@@ -253,7 +258,9 @@ mod tests {
         create_test_user(&pool, 1).await;
 
         let session = create_test_session(1, 7);
-        repo.create(&session).await.expect("Failed to create session");
+        repo.create(&session)
+            .await
+            .expect("Failed to create session");
 
         let found = repo
             .get_by_id(&session.id)
@@ -283,7 +290,9 @@ mod tests {
         create_test_user(&pool, 1).await;
 
         let session = create_test_session(1, 7);
-        repo.create(&session).await.expect("Failed to create session");
+        repo.create(&session)
+            .await
+            .expect("Failed to create session");
 
         repo.delete(&session.id)
             .await
@@ -307,9 +316,15 @@ mod tests {
         let session2 = create_test_session(1, 7);
         let session3 = create_test_session(2, 7); // Different user
 
-        repo.create(&session1).await.expect("Failed to create session");
-        repo.create(&session2).await.expect("Failed to create session");
-        repo.create(&session3).await.expect("Failed to create session");
+        repo.create(&session1)
+            .await
+            .expect("Failed to create session");
+        repo.create(&session2)
+            .await
+            .expect("Failed to create session");
+        repo.create(&session3)
+            .await
+            .expect("Failed to create session");
 
         // Delete all sessions for user 1
         repo.delete_by_user(1)

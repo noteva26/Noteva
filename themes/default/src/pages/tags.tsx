@@ -8,7 +8,12 @@ import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { waitForNoteva, type NotevaArticle, type NotevaTag } from "@/hooks/useNoteva";
+import {
+  getTagUrl,
+  waitForNoteva,
+  type NotevaArticle,
+  type NotevaTag,
+} from "@/hooks/useNoteva";
 import { useI18nStore, useTranslation } from "@/lib/i18n";
 
 const TAG_SKELETON_KEYS = [
@@ -205,7 +210,7 @@ export default function TagsPage() {
                   transition={{ delay: index * 0.025 }}
                 >
                   <Link
-                    to={`/tags?t=${tag.slug}`}
+                    to={getTagUrl(tag)}
                     className="inline-flex items-center gap-2 rounded-full border bg-card px-4 py-2 text-sm shadow-sm transition-colors hover:border-primary/60 hover:bg-muted/40 hover:text-primary"
                   >
                     <span className="text-muted-foreground">#</span>

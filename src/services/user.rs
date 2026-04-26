@@ -15,7 +15,7 @@
 
 use crate::db::repositories::{SessionRepository, UserRepository};
 use crate::models::{Session, User, UserRole};
-use crate::plugin::{HookManager, hook_names};
+use crate::plugin::{hook_names, HookManager};
 use crate::services::password::{hash_password, verify_password};
 use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
@@ -133,7 +133,7 @@ impl UserService {
     /// - `InternalError` for database errors
     ///
     /// Satisfies requirement 4.1: WHEN 第一个用户注册 THEN User_Service SHALL 自动将其设置为管理员角色
-    /// 
+    ///
     /// # Hooks
     /// - `user_register_before` - Triggered before registration, can modify input
     /// - `user_register_after` - Triggered after registration, receives created user
@@ -144,12 +144,19 @@ impl UserService {
             json!({
                 "username": input.username,
                 "email": input.email,
-            })
+            }),
         );
-        
+
         // Check if hook wants to block registration
-        if hook_data.get("blocked").and_then(|v| v.as_bool()).unwrap_or(false) {
-            let reason = hook_data.get("reason").and_then(|v| v.as_str()).unwrap_or("Registration blocked");
+        if hook_data
+            .get("blocked")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            let reason = hook_data
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Registration blocked");
             return Err(UserServiceError::ValidationError(reason.to_string()));
         }
 
@@ -193,8 +200,7 @@ impl UserService {
         };
 
         // Hash password
-        let password_hash =
-            hash_password(&input.password).context("Failed to hash password")?;
+        let password_hash = hash_password(&input.password).context("Failed to hash password")?;
 
         // Create user
         let user = User::new(input.username, input.email, password_hash, role);
@@ -213,7 +219,7 @@ impl UserService {
                 "username": created_user.username,
                 "email": created_user.email,
                 "role": format!("{:?}", created_user.role),
-            })
+            }),
         );
 
         Ok(created_user)
@@ -244,19 +250,31 @@ impl UserService {
     /// Satisfies requirements:
     /// - 4.3: WHEN 用户登录 THEN User_Service SHALL 验证凭据并返回会话令牌
     /// - 4.5: IF 登录凭据无效 THEN User_Service SHALL 返回认证错误
-    pub async fn login(&self, input: LoginInput, ip: Option<String>, user_agent: Option<String>) -> Result<Session, UserServiceError> {
+    pub async fn login(
+        &self,
+        input: LoginInput,
+        ip: Option<String>,
+        user_agent: Option<String>,
+    ) -> Result<Session, UserServiceError> {
         // Trigger user_login_before hook
         let hook_data = self.trigger_hook(
             hook_names::USER_LOGIN_BEFORE,
             json!({
                 "username_or_email": input.username_or_email,
                 "ip": ip,
-            })
+            }),
         );
-        
+
         // Check if hook wants to block login
-        if hook_data.get("blocked").and_then(|v| v.as_bool()).unwrap_or(false) {
-            let reason = hook_data.get("reason").and_then(|v| v.as_str()).unwrap_or("Login blocked");
+        if hook_data
+            .get("blocked")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            let reason = hook_data
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Login blocked");
             return Err(UserServiceError::AuthenticationError(reason.to_string()));
         }
 
@@ -272,7 +290,7 @@ impl UserService {
                         "username_or_email": input.username_or_email,
                         "reason": "user_not_found",
                         "ip": ip,
-                    })
+                    }),
                 );
                 UserServiceError::AuthenticationError("Invalid username or password".to_string())
             })?;
@@ -290,7 +308,7 @@ impl UserService {
                     "user_id": user.id,
                     "reason": "invalid_password",
                     "ip": ip,
-                })
+                }),
             );
             return Err(UserServiceError::AuthenticationError(
                 "Invalid username or password".to_string(),
@@ -307,7 +325,7 @@ impl UserService {
                     "user_id": user.id,
                     "reason": "user_banned",
                     "ip": ip,
-                })
+                }),
             );
             return Err(UserServiceError::AuthenticationError(
                 "Your account has been banned. Please contact the administrator.".to_string(),
@@ -326,7 +344,7 @@ impl UserService {
                 "session_id": session.id,
                 "ip": ip,
                 "user_agent": user_agent,
-            })
+            }),
         );
 
         Ok(session)
@@ -350,14 +368,18 @@ impl UserService {
     ///
     /// # Hooks
     /// - `user_logout` - Triggered when user logs out
-    pub async fn logout(&self, session_id: &str, user_id: Option<i64>) -> Result<(), UserServiceError> {
+    pub async fn logout(
+        &self,
+        session_id: &str,
+        user_id: Option<i64>,
+    ) -> Result<(), UserServiceError> {
         // Trigger user_logout hook
         self.trigger_hook(
             hook_names::USER_LOGOUT,
             json!({
                 "session_id": session_id,
                 "user_id": user_id,
-            })
+            }),
         );
 
         self.session_repo
@@ -415,7 +437,7 @@ impl UserService {
                 "role": format!("{:?}", updated.role),
             }),
         );
-        
+
         Ok(updated)
     }
 
@@ -615,7 +637,11 @@ pub struct RegisterInput {
 
 impl RegisterInput {
     /// Create a new registration input
-    pub fn new(username: impl Into<String>, email: impl Into<String>, password: impl Into<String>) -> Self {
+    pub fn new(
+        username: impl Into<String>,
+        email: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Self {
         Self {
             username: username.into(),
             email: email.into(),
@@ -648,7 +674,9 @@ mod tests {
     use crate::db::{create_test_pool, migrations, DynDatabasePool};
 
     async fn setup_test_service() -> (DynDatabasePool, UserService) {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         migrations::run_migrations(&pool)
             .await
             .expect("Failed to run migrations");
@@ -683,11 +711,17 @@ mod tests {
 
         // Register first user (admin)
         let input1 = RegisterInput::new("admin", "admin@example.com", "password123");
-        service.register(input1).await.expect("Failed to register first user");
+        service
+            .register(input1)
+            .await
+            .expect("Failed to register first user");
 
         // Register second user (should be author)
         let input2 = RegisterInput::new("author", "author@example.com", "password456");
-        let user = service.register(input2).await.expect("Failed to register second user");
+        let user = service
+            .register(input2)
+            .await
+            .expect("Failed to register second user");
 
         assert_eq!(user.role, UserRole::Author);
     }
@@ -697,7 +731,10 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         let input1 = RegisterInput::new("testuser", "user1@example.com", "password123");
-        service.register(input1).await.expect("Failed to register first user");
+        service
+            .register(input1)
+            .await
+            .expect("Failed to register first user");
 
         let input2 = RegisterInput::new("testuser", "user2@example.com", "password456");
         let result = service.register(input2).await;
@@ -710,7 +747,10 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         let input1 = RegisterInput::new("user1", "same@example.com", "password123");
-        service.register(input1).await.expect("Failed to register first user");
+        service
+            .register(input1)
+            .await
+            .expect("Failed to register first user");
 
         let input2 = RegisterInput::new("user2", "same@example.com", "password456");
         let result = service.register(input2).await;
@@ -768,11 +808,17 @@ mod tests {
 
         // Register user
         let register_input = RegisterInput::new("testuser", "test@example.com", "password123");
-        service.register(register_input).await.expect("Failed to register");
+        service
+            .register(register_input)
+            .await
+            .expect("Failed to register");
 
         // Login with username
         let login_input = LoginInput::new("testuser", "password123");
-        let session = service.login(login_input, None, None).await.expect("Failed to login");
+        let session = service
+            .login(login_input, None, None)
+            .await
+            .expect("Failed to login");
 
         assert!(!session.id.is_empty());
         assert!(!session.is_expired());
@@ -784,11 +830,17 @@ mod tests {
 
         // Register user
         let register_input = RegisterInput::new("testuser", "test@example.com", "password123");
-        service.register(register_input).await.expect("Failed to register");
+        service
+            .register(register_input)
+            .await
+            .expect("Failed to register");
 
         // Login with email
         let login_input = LoginInput::new("test@example.com", "password123");
-        let session = service.login(login_input, None, None).await.expect("Failed to login");
+        let session = service
+            .login(login_input, None, None)
+            .await
+            .expect("Failed to login");
 
         assert!(!session.id.is_empty());
         assert!(!session.is_expired());
@@ -800,13 +852,19 @@ mod tests {
 
         // Register user
         let register_input = RegisterInput::new("testuser", "test@example.com", "password123");
-        service.register(register_input).await.expect("Failed to register");
+        service
+            .register(register_input)
+            .await
+            .expect("Failed to register");
 
         // Login with wrong password (Requirement 4.5)
         let login_input = LoginInput::new("testuser", "wrongpassword");
         let result = service.login(login_input, None, None).await;
 
-        assert!(matches!(result, Err(UserServiceError::AuthenticationError(_))));
+        assert!(matches!(
+            result,
+            Err(UserServiceError::AuthenticationError(_))
+        ));
     }
 
     #[tokio::test]
@@ -817,7 +875,10 @@ mod tests {
         let login_input = LoginInput::new("nonexistent", "password123");
         let result = service.login(login_input, None, None).await;
 
-        assert!(matches!(result, Err(UserServiceError::AuthenticationError(_))));
+        assert!(matches!(
+            result,
+            Err(UserServiceError::AuthenticationError(_))
+        ));
     }
 
     // ========================================================================
@@ -830,10 +891,16 @@ mod tests {
 
         // Register and login
         let register_input = RegisterInput::new("testuser", "test@example.com", "password123");
-        let registered_user = service.register(register_input).await.expect("Failed to register");
+        let registered_user = service
+            .register(register_input)
+            .await
+            .expect("Failed to register");
 
         let login_input = LoginInput::new("testuser", "password123");
-        let session = service.login(login_input, None, None).await.expect("Failed to login");
+        let session = service
+            .login(login_input, None, None)
+            .await
+            .expect("Failed to login");
 
         // Validate session (Requirement 4.7)
         let user = service
@@ -861,7 +928,9 @@ mod tests {
     #[tokio::test]
     async fn test_validate_expired_session_returns_none() {
         // Create service with very short session expiration
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         migrations::run_migrations(&pool)
             .await
             .expect("Failed to run migrations");
@@ -874,10 +943,16 @@ mod tests {
 
         // Register and login
         let register_input = RegisterInput::new("testuser", "test@example.com", "password123");
-        service.register(register_input).await.expect("Failed to register");
+        service
+            .register(register_input)
+            .await
+            .expect("Failed to register");
 
         let login_input = LoginInput::new("testuser", "password123");
-        let session = service.login(login_input, None, None).await.expect("Failed to login");
+        let session = service
+            .login(login_input, None, None)
+            .await
+            .expect("Failed to login");
 
         // Session should be expired immediately (Requirement 4.4)
         let result = service
@@ -898,13 +973,22 @@ mod tests {
 
         // Register and login
         let register_input = RegisterInput::new("testuser", "test@example.com", "password123");
-        service.register(register_input).await.expect("Failed to register");
+        service
+            .register(register_input)
+            .await
+            .expect("Failed to register");
 
         let login_input = LoginInput::new("testuser", "password123");
-        let session = service.login(login_input, None, None).await.expect("Failed to login");
+        let session = service
+            .login(login_input, None, None)
+            .await
+            .expect("Failed to login");
 
         // Logout
-        service.logout(&session.id, None).await.expect("Failed to logout");
+        service
+            .logout(&session.id, None)
+            .await
+            .expect("Failed to logout");
 
         // Session should no longer be valid
         let result = service
@@ -933,7 +1017,10 @@ mod tests {
         let (_pool, service) = setup_test_service().await;
 
         let register_input = RegisterInput::new("testuser", "test@example.com", "password123");
-        let registered = service.register(register_input).await.expect("Failed to register");
+        let registered = service
+            .register(register_input)
+            .await
+            .expect("Failed to register");
 
         let user = service
             .get_by_id(registered.id)
@@ -971,7 +1058,9 @@ mod tests {
     #[tokio::test]
     async fn test_cleanup_expired_sessions() {
         // Create service with expired sessions
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         migrations::run_migrations(&pool)
             .await
             .expect("Failed to run migrations");
@@ -984,10 +1073,16 @@ mod tests {
 
         // Register and login (creates expired session)
         let register_input = RegisterInput::new("testuser", "test@example.com", "password123");
-        service.register(register_input).await.expect("Failed to register");
+        service
+            .register(register_input)
+            .await
+            .expect("Failed to register");
 
         let login_input = LoginInput::new("testuser", "password123");
-        service.login(login_input, None, None).await.expect("Failed to login");
+        service
+            .login(login_input, None, None)
+            .await
+            .expect("Failed to login");
 
         // Cleanup expired sessions
         let count = service
@@ -1004,18 +1099,35 @@ mod tests {
 
         // Register user
         let register_input = RegisterInput::new("testuser", "test@example.com", "password123");
-        service.register(register_input).await.expect("Failed to register");
+        service
+            .register(register_input)
+            .await
+            .expect("Failed to register");
 
         // Login multiple times (creates multiple sessions)
         let login_input1 = LoginInput::new("testuser", "password123");
-        let session1 = service.login(login_input1, None, None).await.expect("Failed to login");
+        let session1 = service
+            .login(login_input1, None, None)
+            .await
+            .expect("Failed to login");
 
         let login_input2 = LoginInput::new("testuser", "password123");
-        let session2 = service.login(login_input2, None, None).await.expect("Failed to login");
+        let session2 = service
+            .login(login_input2, None, None)
+            .await
+            .expect("Failed to login");
 
         // Both sessions should be valid
-        assert!(service.validate_session(&session1.id).await.unwrap().is_some());
-        assert!(service.validate_session(&session2.id).await.unwrap().is_some());
+        assert!(service
+            .validate_session(&session1.id)
+            .await
+            .unwrap()
+            .is_some());
+        assert!(service
+            .validate_session(&session2.id)
+            .await
+            .unwrap()
+            .is_some());
 
         // Sessions should be different
         assert_ne!(session1.id, session2.id);
@@ -1027,7 +1139,10 @@ mod tests {
 
         let password = "my_secret_password";
         let register_input = RegisterInput::new("testuser", "test@example.com", password);
-        let user = service.register(register_input).await.expect("Failed to register");
+        let user = service
+            .register(register_input)
+            .await
+            .expect("Failed to register");
 
         // Password should be hashed, not stored in plaintext
         assert_ne!(user.password_hash, password);
@@ -1053,7 +1168,9 @@ mod property_tests {
 
     /// Helper to create a unique test service for each property test iteration
     async fn setup_property_test_service() -> UserService {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         migrations::run_migrations(&pool)
             .await
             .expect("Failed to run migrations");
@@ -1065,7 +1182,9 @@ mod property_tests {
 
     /// Helper to create a service with custom session expiration
     async fn setup_property_test_service_with_expiration(days: i64) -> UserService {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         migrations::run_migrations(&pool)
             .await
             .expect("Failed to run migrations");

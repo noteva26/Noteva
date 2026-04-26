@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   Calendar,
@@ -11,7 +10,13 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getArticleUrl, getNoteva, type NotevaArticle } from "@/hooks/useNoteva";
+import {
+  getArticleUrl,
+  getCategoryUrl,
+  getTagUrl,
+  highlightSearchText,
+  type NotevaArticle,
+} from "@/hooks/useNoteva";
 import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -41,30 +46,6 @@ function formatArticleDate(value: string, locale: string) {
   });
 }
 
-function highlightText(text: string, query?: string): ReactNode {
-  const keyword = query?.trim();
-  if (!keyword) return text;
-
-  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(${escaped})`, "gi");
-  const parts = text.split(regex);
-
-  if (parts.length <= 1) return text;
-
-  return parts.map((part, index) =>
-    part.toLowerCase() === keyword.toLowerCase() ? (
-      <mark
-        key={`${part}-${index}`}
-        className="rounded-sm bg-yellow-200 px-0.5 text-inherit dark:bg-yellow-700/60"
-      >
-        {part}
-      </mark>
-    ) : (
-      part
-    )
-  );
-}
-
 export function ArticleSummaryCard({
   article,
   dateLocale,
@@ -76,26 +57,19 @@ export function ArticleSummaryCard({
   onWarmRoute,
 }: ArticleSummaryCardProps) {
   const { t } = useTranslation();
-  const noteva = getNoteva();
   const articleUrl = getArticleUrl(article);
-  const stats = noteva?.articles.getStats(article) || {
+  const stats = {
     views: article.viewCount || 0,
     likes: article.likeCount || 0,
     comments: article.commentCount || 0,
   };
-  const thumbnail =
-    noteva?.articles.getThumbnail(article) ||
-    article.thumbnail ||
-    article.coverImage ||
-    "";
-  const publishedAt =
-    noteva?.articles.getDate(article) || article.publishedAt || article.createdAt;
-  const excerpt =
-    noteva?.articles.getExcerpt(article, 180) ||
-    article.excerpt ||
-    stripMarkup(article.content).trim().slice(0, 180);
-  const isPinned = noteva?.articles.isPinned(article) ?? Boolean(article.isPinned);
+  const thumbnail = article.thumbnail || article.coverImage || "";
+  const publishedAt = article.publishedAt || article.createdAt;
+  const excerpt = article.excerpt || stripMarkup(article.content).trim().slice(0, 180);
+  const isPinned = Boolean(article.isPinned);
   const formattedDate = publishedAt ? formatArticleDate(publishedAt, dateLocale) : "";
+  const highlightedTitle = highlightSearchText(article.title, highlightQuery);
+  const highlightedExcerpt = highlightSearchText(excerpt, highlightQuery);
 
   return (
     <Card className={cn("article-card group overflow-hidden", className)} data-article-id={article.id}>
@@ -117,7 +91,7 @@ export function ArticleSummaryCard({
         ) : null}
 
         <div className="min-w-0">
-          <CardHeader className="space-y-3 pb-3">
+          <CardHeader className="space-y-3 pb-2">
             <div className="flex min-w-0 items-start gap-2">
               {isPinned ? (
                 <Badge variant="destructive" className="mt-0.5 shrink-0 gap-1">
@@ -125,14 +99,14 @@ export function ArticleSummaryCard({
                   {t("article.pinned")}
                 </Badge>
               ) : null}
-              <CardTitle className="min-w-0 flex-1 text-xl leading-snug md:text-2xl">
+              <CardTitle className="min-w-0 flex-1 text-lg leading-snug md:text-xl">
                 <Link
                   to={articleUrl}
                   className="decoration-primary/40 underline-offset-4 transition-colors hover:text-primary hover:underline"
                   onFocus={onWarmRoute}
                   onMouseEnter={onWarmRoute}
                 >
-                  {highlightText(article.title, highlightQuery)}
+                  <span dangerouslySetInnerHTML={{ __html: highlightedTitle }} />
                 </Link>
               </CardTitle>
             </div>
@@ -161,14 +135,15 @@ export function ArticleSummaryCard({
 
           <CardContent>
             {excerpt ? (
-              <p className="mb-4 line-clamp-2 leading-7 text-muted-foreground">
-                {highlightText(excerpt, highlightQuery)}
-              </p>
+              <p
+                className="mb-4 line-clamp-2 text-[15px] leading-7 text-muted-foreground"
+                dangerouslySetInnerHTML={{ __html: highlightedExcerpt }}
+              />
             ) : null}
 
             <div className="flex flex-wrap items-center gap-2">
               {showCategory && article.category ? (
-                <Link to={`/categories?c=${article.category.slug}`}>
+                <Link to={getCategoryUrl(article.category)}>
                   <Badge variant="outline" className="hover:bg-secondary">
                     <Folder className="mr-1 h-3 w-3" />
                     {article.category.name}
@@ -178,7 +153,7 @@ export function ArticleSummaryCard({
 
               {showTags
                 ? article.tags?.slice(0, 3).map((tag) => (
-                    <Link key={tag.id} to={`/tags?t=${tag.slug}`}>
+                    <Link key={tag.id} to={getTagUrl(tag)}>
                       <Badge variant="secondary" className="hover:bg-secondary/80">
                         <Tag className="mr-1 h-3 w-3" />
                         {tag.name}

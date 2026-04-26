@@ -1,13 +1,12 @@
 //! Email service for sending verification codes
 
+use crate::db::repositories::SettingsRepository;
 use anyhow::{anyhow, Result};
 use lettre::{
-    message::header::ContentType,
-    transport::smtp::authentication::Credentials,
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
+    message::header::ContentType, transport::smtp::authentication::Credentials, AsyncSmtpTransport,
+    AsyncTransport, Message, Tokio1Executor,
 };
 use std::sync::Arc;
-use crate::db::repositories::SettingsRepository;
 
 /// Email service for sending emails
 pub struct EmailService {
@@ -30,26 +29,41 @@ impl EmailService {
     /// Send verification code email
     pub async fn send_verification_code(&self, to_email: &str, code: &str) -> Result<()> {
         // Get SMTP settings
-        let smtp_host = self.get_setting("smtp_host").await
-            .map_err(|_| anyhow!("SMTP host not configured. Please configure SMTP settings first."))?;
-        
+        let smtp_host = self.get_setting("smtp_host").await.map_err(|_| {
+            anyhow!("SMTP host not configured. Please configure SMTP settings first.")
+        })?;
+
         if smtp_host.is_empty() {
-            return Err(anyhow!("SMTP host not configured. Please configure SMTP settings first."));
+            return Err(anyhow!(
+                "SMTP host not configured. Please configure SMTP settings first."
+            ));
         }
-        
-        let smtp_port: u16 = self.get_setting("smtp_port").await
+
+        let smtp_port: u16 = self
+            .get_setting("smtp_port")
+            .await
             .unwrap_or_else(|_| "587".to_string())
             .parse()
             .unwrap_or(587);
-        let smtp_username = self.get_setting("smtp_username").await
+        let smtp_username = self
+            .get_setting("smtp_username")
+            .await
             .map_err(|_| anyhow!("SMTP username not configured"))?;
-        let smtp_password = self.get_setting("smtp_password").await
+        let smtp_password = self
+            .get_setting("smtp_password")
+            .await
             .map_err(|_| anyhow!("SMTP password not configured"))?;
-        let smtp_from = self.get_setting("smtp_from").await
+        let smtp_from = self
+            .get_setting("smtp_from")
+            .await
             .map_err(|_| anyhow!("SMTP from address not configured"))?;
-        let smtp_from_name = self.get_setting("smtp_from_name").await
+        let smtp_from_name = self
+            .get_setting("smtp_from_name")
+            .await
             .unwrap_or_else(|_| "Noteva".to_string());
-        let site_name = self.get_setting("site_name").await
+        let site_name = self
+            .get_setting("site_name")
+            .await
             .unwrap_or_else(|_| "Noteva".to_string());
 
         // Build email
@@ -61,8 +75,13 @@ impl EmailService {
         );
 
         let email = Message::builder()
-            .from(from.parse().map_err(|e| anyhow!("Invalid from address: {}", e))?)
-            .to(to_email.parse().map_err(|e| anyhow!("Invalid to address: {}", e))?)
+            .from(
+                from.parse()
+                    .map_err(|e| anyhow!("Invalid from address: {}", e))?,
+            )
+            .to(to_email
+                .parse()
+                .map_err(|e| anyhow!("Invalid to address: {}", e))?)
             .subject(subject)
             .header(ContentType::TEXT_PLAIN)
             .body(body)
@@ -70,15 +89,18 @@ impl EmailService {
 
         // Build SMTP transport
         let creds = Credentials::new(smtp_username, smtp_password);
-        
-        let mailer: AsyncSmtpTransport<Tokio1Executor> = AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)
-            .map_err(|e| anyhow!("Failed to create SMTP transport: {}", e))?
-            .credentials(creds)
-            .port(smtp_port)
-            .build();
+
+        let mailer: AsyncSmtpTransport<Tokio1Executor> =
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)
+                .map_err(|e| anyhow!("Failed to create SMTP transport: {}", e))?
+                .credentials(creds)
+                .port(smtp_port)
+                .build();
 
         // Send email
-        mailer.send(email).await
+        mailer
+            .send(email)
+            .await
             .map_err(|e| anyhow!("Failed to send email: {}", e))?;
 
         Ok(())
@@ -86,10 +108,13 @@ impl EmailService {
 
     /// Send test email
     pub async fn send_test_email(&self, to_email: &str) -> Result<()> {
-        let site_name = self.get_setting("site_name").await
+        let site_name = self
+            .get_setting("site_name")
+            .await
             .unwrap_or_else(|_| "Noteva".to_string());
-        
-        self.send_verification_code(to_email, &format!("TEST-{}", site_name)).await
+
+        self.send_verification_code(to_email, &format!("TEST-{}", site_name))
+            .await
     }
 
     async fn get_setting(&self, key: &str) -> Result<String> {

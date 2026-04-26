@@ -1,13 +1,13 @@
 //! Comment service
 
-use std::sync::Arc;
-use std::time::Duration;
-use anyhow::Result;
-use serde_json::json;
 use crate::cache::{Cache, CacheLayer};
 use crate::db::repositories::{CommentRepository, SettingsRepository};
 use crate::models::{CommentStatus, CommentWithMeta, CreateCommentInput, LikeTargetType};
-use crate::plugin::{HookManager, hook_names};
+use crate::plugin::{hook_names, HookManager};
+use anyhow::Result;
+use serde_json::json;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Default cache TTL for comments (5 minutes - comments change frequently)
 const COMMENT_CACHE_TTL_SECS: u64 = 300;
@@ -29,7 +29,7 @@ pub struct CommentService {
 
 impl CommentService {
     pub fn new(repo: Arc<dyn CommentRepository>, cache: Arc<Cache>) -> Self {
-        Self { 
+        Self {
             repo,
             settings_repo: None,
             hook_manager: None,
@@ -38,7 +38,11 @@ impl CommentService {
         }
     }
 
-    pub fn with_hooks(repo: Arc<dyn CommentRepository>, cache: Arc<Cache>, hook_manager: Arc<HookManager>) -> Self {
+    pub fn with_hooks(
+        repo: Arc<dyn CommentRepository>,
+        cache: Arc<Cache>,
+        hook_manager: Arc<HookManager>,
+    ) -> Self {
         Self {
             repo,
             settings_repo: None,
@@ -73,7 +77,7 @@ impl CommentService {
     }
 
     /// Create a comment
-    /// 
+    ///
     /// # Hooks
     /// - `comment_before_create` - Triggered before creating, can modify input
     /// - `comment_after_create` - Triggered after creating, receives created comment
@@ -105,14 +109,14 @@ impl CommentService {
                 "user_id": user_id,
                 "ip": ip.as_deref(),
                 "user_agent": user_agent.as_deref(),
-            })
+            }),
         );
-        
+
         // Apply hook modifications
         if let Some(content) = hook_data.get("content").and_then(|v| v.as_str()) {
             input.content = content.to_string();
         }
-        
+
         // Trigger comment_content_filter hook
         let filter_data = self.trigger_hook(
             hook_names::COMMENT_CONTENT_FILTER,
@@ -124,25 +128,31 @@ impl CommentService {
                 "user_agent": user_agent.as_deref(),
                 "nickname": input.nickname,
                 "email": input.email,
-            })
+            }),
         );
-        
+
         // Apply content filter
         if let Some(filtered) = filter_data.get("content").and_then(|v| v.as_str()) {
             input.content = filtered.to_string();
         }
-        
+
         // Check if filter wants to override status (e.g. mark as pending for moderation)
-        let filter_status = filter_data.get("status").and_then(|v| v.as_str()).map(String::from);
-        let filter_reason = filter_data.get("filter_reason").and_then(|v| v.as_str()).map(String::from);
-        
+        let filter_status = filter_data
+            .get("status")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let filter_reason = filter_data
+            .get("filter_reason")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
         if let Some(ref reason) = filter_reason {
             tracing::info!("Comment filtered by plugin: reason={}", reason);
         }
 
         // Determine comment status based on moderation settings
         let mut status = self.determine_comment_status(&input.content).await;
-        
+
         // Plugin filter can override status to "pending" for moderation
         if let Some(ref fs) = filter_status {
             if fs == "pending" || fs == "spam" {
@@ -150,7 +160,16 @@ impl CommentService {
             }
         }
 
-        let comment = self.repo.create_with_status(input.clone(), user_id, ip.clone(), user_agent.clone(), status).await?;
+        let comment = self
+            .repo
+            .create_with_status(
+                input.clone(),
+                user_id,
+                ip.clone(),
+                user_agent.clone(),
+                status,
+            )
+            .await?;
 
         // Invalidate cache - CRITICAL: must clear comment cache for this article
         let cache_key = format!("{}{}", CACHE_KEY_COMMENT_BY_ARTICLE, input.article_id);
@@ -171,7 +190,7 @@ impl CommentService {
                 "ip": ip.as_deref(),
                 "user_agent": user_agent.as_deref(),
                 "created_at": comment.created_at.to_rfc3339(),
-            })
+            }),
         );
 
         Ok(comment)
@@ -186,15 +205,17 @@ impl CommentService {
                     return CommentStatus::Pending;
                 }
             }
-            
+
             // Check for moderation keywords
             if let Ok(Some(setting)) = settings_repo.get("moderation_keywords").await {
                 if !setting.value.is_empty() {
-                    let keywords: Vec<&str> = setting.value.split(',')
+                    let keywords: Vec<&str> = setting
+                        .value
+                        .split(',')
                         .map(|s| s.trim())
                         .filter(|s| !s.is_empty())
                         .collect();
-                    
+
                     let content_lower = content.to_lowercase();
                     for keyword in keywords {
                         if content_lower.contains(&keyword.to_lowercase()) {
@@ -204,12 +225,16 @@ impl CommentService {
                 }
             }
         }
-        
+
         CommentStatus::Approved
     }
 
     /// Get comments for an article
-    pub async fn get_by_article(&self, article_id: i64, fingerprint: Option<&str>) -> Result<Vec<CommentWithMeta>> {
+    pub async fn get_by_article(
+        &self,
+        article_id: i64,
+        fingerprint: Option<&str>,
+    ) -> Result<Vec<CommentWithMeta>> {
         // Try cache first
         let cache_key = format!("{}{}", CACHE_KEY_COMMENT_BY_ARTICLE, article_id);
         if let Ok(Some(comments)) = self.cache.get::<Vec<CommentWithMeta>>(&cache_key).await {
@@ -226,68 +251,83 @@ impl CommentService {
     }
 
     /// Get pending comments for moderation
-    pub async fn list_pending(&self, page: i64, per_page: i64) -> Result<(Vec<CommentWithMeta>, i64)> {
+    pub async fn list_pending(
+        &self,
+        page: i64,
+        per_page: i64,
+    ) -> Result<(Vec<CommentWithMeta>, i64)> {
         self.repo.list_pending(page, per_page).await
     }
 
     /// List all comments with optional status filter (for admin management)
-    pub async fn list_all(&self, status: Option<&str>, page: i64, per_page: i64) -> Result<(Vec<CommentWithMeta>, i64)> {
+    pub async fn list_all(
+        &self,
+        status: Option<&str>,
+        page: i64,
+        per_page: i64,
+    ) -> Result<(Vec<CommentWithMeta>, i64)> {
         self.repo.list_all(status, page, per_page).await
     }
 
     /// Approve a comment
     pub async fn approve(&self, id: i64) -> Result<bool> {
         let result = self.repo.update_status(id, CommentStatus::Approved).await?;
-        
+
         // Invalidate all comment caches
-        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_COMMENT_BY_ARTICLE)).await;
+        let _ = self
+            .cache
+            .delete_pattern(&format!("{}*", CACHE_KEY_COMMENT_BY_ARTICLE))
+            .await;
 
         // Hook: comment_approve
         self.trigger_hook(
             "comment_approve",
             serde_json::json!({ "id": id, "approved": result }),
         );
-        
+
         Ok(result)
     }
 
     /// Reject a comment (mark as spam)
     pub async fn reject(&self, id: i64) -> Result<bool> {
         let result = self.repo.update_status(id, CommentStatus::Spam).await?;
-        
+
         // Invalidate all comment caches
-        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_COMMENT_BY_ARTICLE)).await;
+        let _ = self
+            .cache
+            .delete_pattern(&format!("{}*", CACHE_KEY_COMMENT_BY_ARTICLE))
+            .await;
 
         // Hook: comment_reject
         self.trigger_hook(
             "comment_reject",
             serde_json::json!({ "id": id, "rejected": result }),
         );
-        
+
         Ok(result)
     }
 
     /// Delete a comment
-    /// 
+    ///
     /// # Hooks
     /// - `comment_before_delete` - Triggered before deleting
     /// - `comment_after_delete` - Triggered after deleting
     pub async fn delete(&self, id: i64) -> Result<bool> {
         // Trigger comment_before_delete hook
-        self.trigger_hook(
-            hook_names::COMMENT_BEFORE_DELETE,
-            json!({ "id": id })
-        );
+        self.trigger_hook(hook_names::COMMENT_BEFORE_DELETE, json!({ "id": id }));
 
         let result = self.repo.delete(id).await?;
 
         // Invalidate all comment caches - CRITICAL: we don't know which article this comment belongs to
-        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_COMMENT_BY_ARTICLE)).await;
+        let _ = self
+            .cache
+            .delete_pattern(&format!("{}*", CACHE_KEY_COMMENT_BY_ARTICLE))
+            .await;
 
         // Trigger comment_after_delete hook
         self.trigger_hook(
             hook_names::COMMENT_AFTER_DELETE,
-            json!({ "id": id, "success": result })
+            json!({ "id": id, "success": result }),
         );
 
         Ok(result)
@@ -301,7 +341,9 @@ impl CommentService {
         user_id: Option<i64>,
         fingerprint: Option<String>,
     ) -> Result<bool> {
-        self.repo.add_like(target_type, target_id, user_id, fingerprint).await
+        self.repo
+            .add_like(target_type, target_id, user_id, fingerprint)
+            .await
     }
 
     /// Unlike an article or comment
@@ -312,7 +354,9 @@ impl CommentService {
         user_id: Option<i64>,
         fingerprint: Option<String>,
     ) -> Result<bool> {
-        self.repo.remove_like(target_type, target_id, user_id, fingerprint).await
+        self.repo
+            .remove_like(target_type, target_id, user_id, fingerprint)
+            .await
     }
 
     /// Check if liked
@@ -323,7 +367,9 @@ impl CommentService {
         user_id: Option<i64>,
         fingerprint: Option<&str>,
     ) -> Result<bool> {
-        self.repo.is_liked(target_type, target_id, user_id, fingerprint).await
+        self.repo
+            .is_liked(target_type, target_id, user_id, fingerprint)
+            .await
     }
 
     /// Increment view count

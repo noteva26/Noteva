@@ -135,7 +135,8 @@ impl TagService {
         }
 
         // Get from database
-        let tag = self.repo
+        let tag = self
+            .repo
             .get_by_slug(slug)
             .await
             .context("Failed to get tag by slug")?;
@@ -163,7 +164,8 @@ impl TagService {
         }
 
         // Get from database
-        let tag = self.repo
+        let tag = self
+            .repo
             .get_by_id(id)
             .await
             .context("Failed to get tag by ID")?;
@@ -189,13 +191,13 @@ impl TagService {
         }
 
         // Get from database
-        let tags = self.repo
-            .list()
-            .await
-            .context("Failed to list tags")?;
+        let tags = self.repo.list().await.context("Failed to list tags")?;
 
         // Cache the result
-        let _ = self.cache.set(CACHE_KEY_TAG_LIST, &tags, self.cache_ttl).await;
+        let _ = self
+            .cache
+            .set(CACHE_KEY_TAG_LIST, &tags, self.cache_ttl)
+            .await;
 
         Ok(tags)
     }
@@ -221,7 +223,8 @@ impl TagService {
         }
 
         // Get from database
-        let cloud = self.repo
+        let cloud = self
+            .repo
             .get_with_counts(limit)
             .await
             .context("Failed to get tag cloud")?;
@@ -275,14 +278,21 @@ impl TagService {
     /// * `article_id` - Article ID
     ///
     /// Satisfies requirement 3.1: WHEN 用户为文章添加标�?THEN Tag_Service SHALL 创建或复用已有标签并建立关联
-    pub async fn add_to_article(&self, tag_id: i64, article_id: i64) -> Result<(), TagServiceError> {
+    pub async fn add_to_article(
+        &self,
+        tag_id: i64,
+        article_id: i64,
+    ) -> Result<(), TagServiceError> {
         self.repo
             .add_to_article(tag_id, article_id)
             .await
             .context("Failed to add tag to article")?;
 
         // Invalidate tag cloud cache - CRITICAL: tag counts changed
-        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_TAG_CLOUD)).await;
+        let _ = self
+            .cache
+            .delete_pattern(&format!("{}*", CACHE_KEY_TAG_CLOUD))
+            .await;
 
         Ok(())
     }
@@ -307,7 +317,10 @@ impl TagService {
             .context("Failed to remove tag from article")?;
 
         // Invalidate tag cloud cache - CRITICAL: tag counts changed
-        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_TAG_CLOUD)).await;
+        let _ = self
+            .cache
+            .delete_pattern(&format!("{}*", CACHE_KEY_TAG_CLOUD))
+            .await;
 
         Ok(())
     }
@@ -327,7 +340,7 @@ impl TagService {
             .context("Failed to check tag existence")?;
         Ok(tag.is_some())
     }
-    
+
     /// Get tags for an article
     ///
     /// # Arguments
@@ -350,7 +363,10 @@ impl TagService {
     ///
     /// # Returns
     /// HashMap of article_id -> Vec<Tag>
-    pub async fn get_by_article_ids(&self, article_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<Tag>>, TagServiceError> {
+    pub async fn get_by_article_ids(
+        &self,
+        article_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, Vec<Tag>>, TagServiceError> {
         self.repo
             .get_by_article_ids(article_ids)
             .await
@@ -363,10 +379,19 @@ impl TagService {
     /// CRITICAL: This must be called whenever tags are created, updated, or deleted
     async fn invalidate_cache(&self) -> Result<(), TagServiceError> {
         // Delete all tag caches
-        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_TAG_BY_ID)).await;
-        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_TAG_BY_SLUG)).await;
+        let _ = self
+            .cache
+            .delete_pattern(&format!("{}*", CACHE_KEY_TAG_BY_ID))
+            .await;
+        let _ = self
+            .cache
+            .delete_pattern(&format!("{}*", CACHE_KEY_TAG_BY_SLUG))
+            .await;
         let _ = self.cache.delete(CACHE_KEY_TAG_LIST).await;
-        let _ = self.cache.delete_pattern(&format!("{}*", CACHE_KEY_TAG_CLOUD)).await;
+        let _ = self
+            .cache
+            .delete_pattern(&format!("{}*", CACHE_KEY_TAG_CLOUD))
+            .await;
         Ok(())
     }
 }
@@ -651,10 +676,7 @@ mod tests {
 
         // Create 5 tags
         for i in 1..=5 {
-            service
-                .create_or_get(&format!("Tag {}", i))
-                .await
-                .unwrap();
+            service.create_or_get(&format!("Tag {}", i)).await.unwrap();
         }
 
         // Request only 3
@@ -682,10 +704,7 @@ mod tests {
         service.delete(tag.id).await.expect("Failed to delete tag");
 
         // Verify tag is gone
-        let found = service
-            .get_by_id(tag.id)
-            .await
-            .expect("Failed to get tag");
+        let found = service.get_by_id(tag.id).await.expect("Failed to get tag");
         assert!(found.is_none());
     }
 

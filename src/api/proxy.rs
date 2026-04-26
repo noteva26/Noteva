@@ -5,9 +5,7 @@
 //! intentionally disabled because it lets public requests decide where backend
 //! secrets are sent.
 
-use axum::{
-    response::Json,
-};
+use axum::response::Json;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

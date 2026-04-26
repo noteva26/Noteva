@@ -8,22 +8,22 @@
 //! pooled and reused across requests, with compiled WASM modules cached in
 //! each worker for fast subsequent invocations.
 
+use serde_json::Value;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-use serde_json::Value;
 use tokio::sync::RwLock;
 use tracing::{debug, error, warn};
 
-use super::hooks::{HookManager, PRIORITY_DEFAULT};
 use super::hook_registry::validate_plugin_hooks;
+use super::hooks::{HookManager, PRIORITY_DEFAULT};
 use super::loader::{Plugin, PluginManager};
 use super::plugin_db;
-use super::{PluginError, PluginHandle, PluginManifest, Permission, PluginRuntime};
-use crate::db::DynDatabasePool;
+use super::{Permission, PluginError, PluginHandle, PluginManifest, PluginRuntime};
 use crate::db::repositories::{
     ArticleRepository, CommentRepository, PluginDataRepository, SqlxArticleRepository,
     SqlxCommentRepository, SqlxPluginDataRepository,
 };
+use crate::db::DynDatabasePool;
 
 /// Mapping from plugin_id to its WASM handle
 #[derive(Debug, Default)]
@@ -39,7 +39,9 @@ struct WasmPluginEntry {
 
 impl WasmPluginRegistry {
     pub fn new() -> Self {
-        Self { entries: std::collections::HashMap::new() }
+        Self {
+            entries: std::collections::HashMap::new(),
+        }
     }
 
     pub fn has_plugin(&self, plugin_id: &str) -> bool {
@@ -71,7 +73,8 @@ fn sanitize_plugin_log(line: &str) -> String {
         let scheme_end = url_start.find("://").unwrap() + 3;
         let after_scheme = &url_start[scheme_end..];
         // Find end of host (first / or space or end)
-        let host_end = after_scheme.find(|c: char| c == '/' || c == '?' || c == ' ' || c == '"' || c == '\'' || c == ')')
+        let host_end = after_scheme
+            .find(|c: char| c == '/' || c == '?' || c == ' ' || c == '"' || c == '\'' || c == ')')
             .unwrap_or(after_scheme.len());
         let host = &after_scheme[..host_end];
         sanitized.push_str(&url_start[..scheme_end]);
@@ -80,7 +83,8 @@ fn sanitize_plugin_log(line: &str) -> String {
         // Skip past the full URL
         let url_end = scheme_end + host_end;
         let remaining = &url_start[url_end..];
-        let url_tail = remaining.find(|c: char| c == ' ' || c == '"' || c == '\'' || c == ')' || c == ']' || c == '}')
+        let url_tail = remaining
+            .find(|c: char| c == ' ' || c == '"' || c == '\'' || c == ')' || c == ']' || c == '}')
             .unwrap_or(remaining.len());
         rest = &remaining[url_tail..];
     }
@@ -91,7 +95,8 @@ fn sanitize_plugin_log(line: &str) -> String {
     let key_patterns = ["sk-", "key-", "Key-", "KEY-"];
     for pat in &key_patterns {
         while let Some(pos) = result.find(pat) {
-            let end = result[pos..].find(|c: char| c == '"' || c == '\'' || c == ' ' || c == ',' || c == '}')
+            let end = result[pos..]
+                .find(|c: char| c == '"' || c == '\'' || c == ' ' || c == ',' || c == '}')
                 .map(|e| pos + e)
                 .unwrap_or(result.len());
             let visible = (pos + pat.len()).min(pos + pat.len() + 4).min(end);
@@ -103,7 +108,8 @@ fn sanitize_plugin_log(line: &str) -> String {
     // Mask "Bearer <token>" → "Bearer ***"
     if let Some(pos) = result.find("Bearer ") {
         let token_start = pos + 7;
-        let token_end = result[token_start..].find(|c: char| c == '"' || c == '\'' || c == ' ' || c == ',')
+        let token_end = result[token_start..]
+            .find(|c: char| c == '"' || c == '\'' || c == ' ' || c == ',')
             .map(|e| token_start + e)
             .unwrap_or(result.len());
         if token_end > token_start {
@@ -117,13 +123,21 @@ fn sanitize_plugin_log(line: &str) -> String {
 fn find_worker_exe() -> String {
     if let Ok(current_exe) = std::env::current_exe() {
         let dir = current_exe.parent().unwrap_or(std::path::Path::new("."));
-        let worker_name = if cfg!(windows) { "wasm-worker.exe" } else { "wasm-worker" };
+        let worker_name = if cfg!(windows) {
+            "wasm-worker.exe"
+        } else {
+            "wasm-worker"
+        };
         let worker_path = dir.join(worker_name);
         if worker_path.exists() {
             return worker_path.to_string_lossy().to_string();
         }
     }
-    if cfg!(windows) { "wasm-worker.exe".to_string() } else { "wasm-worker".to_string() }
+    if cfg!(windows) {
+        "wasm-worker.exe".to_string()
+    } else {
+        "wasm-worker".to_string()
+    }
 }
 
 /// A persistent wasm-worker subprocess with stdin/stdout handles.
@@ -135,8 +149,8 @@ struct Worker {
 
 impl Worker {
     fn spawn() -> Option<Self> {
+        use std::io::{BufReader, BufWriter};
         use std::process::{Command, Stdio};
-        use std::io::{BufWriter, BufReader};
 
         let worker_exe = find_worker_exe();
         let mut child = Command::new(&worker_exe)
@@ -195,18 +209,28 @@ impl Worker {
     }
 
     fn send_request(&mut self, request: &serde_json::Value) -> Option<serde_json::Value> {
-        use std::io::{Write, BufRead};
+        use std::io::{BufRead, Write};
 
         let request_str = request.to_string();
         // Write request as a single line
-        if self.stdin.write_all(request_str.as_bytes()).is_err() { return None; }
-        if self.stdin.write_all(b"\n").is_err() { return None; }
-        if self.stdin.flush().is_err() { return None; }
+        if self.stdin.write_all(request_str.as_bytes()).is_err() {
+            return None;
+        }
+        if self.stdin.write_all(b"\n").is_err() {
+            return None;
+        }
+        if self.stdin.flush().is_err() {
+            return None;
+        }
 
         // Read one line of response
         let mut response_line = String::new();
-        if self.stdout.read_line(&mut response_line).is_err() { return None; }
-        if response_line.is_empty() { return None; }
+        if self.stdout.read_line(&mut response_line).is_err() {
+            return None;
+        }
+        if response_line.is_empty() {
+            return None;
+        }
 
         serde_json::from_str(response_line.trim()).ok()
     }
@@ -243,7 +267,10 @@ impl WorkerPool {
         } else {
             tracing::debug!("WorkerPool: spawned {} persistent workers", actual);
         }
-        Self { workers: StdMutex::new(workers), pool_size }
+        Self {
+            workers: StdMutex::new(workers),
+            pool_size,
+        }
     }
 
     /// Take an available worker from the pool (or spawn a new one).
@@ -264,7 +291,9 @@ impl WorkerPool {
 
     /// Return a worker to the pool after use.
     fn release(&self, mut worker: Worker) {
-        if !worker.is_alive() { return; }
+        if !worker.is_alive() {
+            return;
+        }
         if let Ok(mut pool) = self.workers.lock() {
             if pool.len() < self.pool_size {
                 pool.push(worker);
@@ -276,8 +305,17 @@ impl WorkerPool {
     }
 
     /// Execute a request on a pooled worker with timeout.
-    fn execute(&self, request: &serde_json::Value, timeout: std::time::Duration) -> SubprocessResult {
-        let empty = SubprocessResult { output: None, storage_ops: vec![], meta_ops: vec![], db_ops: vec![] };
+    fn execute(
+        &self,
+        request: &serde_json::Value,
+        timeout: std::time::Duration,
+    ) -> SubprocessResult {
+        let empty = SubprocessResult {
+            output: None,
+            storage_ops: vec![],
+            meta_ops: vec![],
+            db_ops: vec![],
+        };
 
         let mut worker = match self.acquire() {
             Some(w) => w,
@@ -336,15 +374,23 @@ impl Drop for WorkerPool {
 }
 
 /// Global worker pool, initialized once.
-static WORKER_POOL: once_cell::sync::Lazy<WorkerPool> = once_cell::sync::Lazy::new(|| {
-    WorkerPool::new(4)
-});
+static WORKER_POOL: once_cell::sync::Lazy<WorkerPool> =
+    once_cell::sync::Lazy::new(|| WorkerPool::new(4));
 
 /// In-memory cache for plugin data, keyed by plugin_id.
 /// Avoids querying the database on every hook invocation.
 /// Invalidated when storage ops are executed for a plugin.
-static PLUGIN_DATA_CACHE: once_cell::sync::Lazy<StdMutex<std::collections::HashMap<String, (std::time::Instant, std::collections::HashMap<String, String>)>>> =
-    once_cell::sync::Lazy::new(|| StdMutex::new(std::collections::HashMap::new()));
+static PLUGIN_DATA_CACHE: once_cell::sync::Lazy<
+    StdMutex<
+        std::collections::HashMap<
+            String,
+            (
+                std::time::Instant,
+                std::collections::HashMap<String, String>,
+            ),
+        >,
+    >,
+> = once_cell::sync::Lazy::new(|| StdMutex::new(std::collections::HashMap::new()));
 
 /// Plugin data cache TTL (5 minutes)
 const PLUGIN_DATA_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(300);
@@ -363,10 +409,18 @@ struct SubprocessResult {
 
 /// Parse the JSON response from a wasm-worker into a SubprocessResult.
 fn parse_subprocess_response(response: &serde_json::Value) -> SubprocessResult {
-    let empty = SubprocessResult { output: None, storage_ops: vec![], meta_ops: vec![], db_ops: vec![] };
+    let empty = SubprocessResult {
+        output: None,
+        storage_ops: vec![],
+        meta_ops: vec![],
+        db_ops: vec![],
+    };
 
     if response.get("success").and_then(|v| v.as_bool()) != Some(true) {
-        let raw_err = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let raw_err = response
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         // Clean up WASM backtrace noise — only show the first meaningful line
         let clean_err = if let Some(pos) = raw_err.find("\n") {
             raw_err[..pos].trim()
@@ -386,12 +440,14 @@ fn parse_subprocess_response(response: &serde_json::Value) -> SubprocessResult {
         .get("storage_ops")
         .and_then(|v| v.as_array())
         .map(|arr| {
-            arr.iter().filter_map(|op| {
-                let op_type = op.get("op")?.as_str()?.to_string();
-                let key = op.get("key")?.as_str()?.to_string();
-                let value = op.get("value").and_then(|v| v.as_str()).map(String::from);
-                Some((op_type, key, value))
-            }).collect()
+            arr.iter()
+                .filter_map(|op| {
+                    let op_type = op.get("op")?.as_str()?.to_string();
+                    let key = op.get("key")?.as_str()?.to_string();
+                    let value = op.get("value").and_then(|v| v.as_str()).map(String::from);
+                    Some((op_type, key, value))
+                })
+                .collect()
         })
         .unwrap_or_default();
 
@@ -400,11 +456,13 @@ fn parse_subprocess_response(response: &serde_json::Value) -> SubprocessResult {
         .get("meta_ops")
         .and_then(|v| v.as_array())
         .map(|arr| {
-            arr.iter().filter_map(|op| {
-                let article_id = op.get("article_id")?.as_i64()?;
-                let data = op.get("data")?.as_str()?.to_string();
-                Some((article_id, data))
-            }).collect()
+            arr.iter()
+                .filter_map(|op| {
+                    let article_id = op.get("article_id")?.as_i64()?;
+                    let data = op.get("data")?.as_str()?.to_string();
+                    Some((article_id, data))
+                })
+                .collect()
         })
         .unwrap_or_default();
 
@@ -413,23 +471,33 @@ fn parse_subprocess_response(response: &serde_json::Value) -> SubprocessResult {
         .get("db_ops")
         .and_then(|v| v.as_array())
         .map(|arr| {
-            arr.iter().filter_map(|op| {
-                let op_type = op.get("op")?.as_str()?.to_string();
-                let sql = op.get("sql")?.as_str()?.to_string();
-                let params = op.get("params")?.as_str()?.to_string();
-                Some((op_type, sql, params))
-            }).collect()
+            arr.iter()
+                .filter_map(|op| {
+                    let op_type = op.get("op")?.as_str()?.to_string();
+                    let sql = op.get("sql")?.as_str()?.to_string();
+                    let params = op.get("params")?.as_str()?.to_string();
+                    Some((op_type, sql, params))
+                })
+                .collect()
         })
         .unwrap_or_default();
 
     // Decode output
-    let output_b64 = response.get("output").and_then(|v| v.as_str()).unwrap_or("");
+    let output_b64 = response
+        .get("output")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let output = match base64_decode(output_b64) {
         Ok(bytes) if !bytes.is_empty() => Some(bytes),
         _ => None,
     };
 
-    SubprocessResult { output, storage_ops, meta_ops, db_ops }
+    SubprocessResult {
+        output,
+        storage_ops,
+        meta_ops,
+        db_ops,
+    }
 }
 
 /// Execute a WASM hook function via a pooled persistent worker.
@@ -485,7 +553,9 @@ fn execute_storage_ops(
     plugin_id: &str,
     ops: &[(String, String, Option<String>)],
 ) {
-    if ops.is_empty() { return; }
+    if ops.is_empty() {
+        return;
+    }
 
     let repo = SqlxPluginDataRepository::new(pool.clone());
 
@@ -504,16 +574,19 @@ fn execute_storage_ops(
                                 handle.block_on(repo.set(pid, key, val))
                             }) {
                                 Ok(_) => tracing::debug!("Storage set OK: {}:{}", pid, key),
-                                Err(e) => tracing::error!("Storage set FAILED: {}:{} - {}", pid, key, e),
+                                Err(e) => {
+                                    tracing::error!("Storage set FAILED: {}:{} - {}", pid, key, e)
+                                }
                             }
                         }
                     }
                     "delete" => {
-                        match tokio::task::block_in_place(|| {
-                            handle.block_on(repo.delete(pid, key))
-                        }) {
+                        match tokio::task::block_in_place(|| handle.block_on(repo.delete(pid, key)))
+                        {
                             Ok(_) => tracing::debug!("Storage delete OK: {}:{}", pid, key),
-                            Err(e) => tracing::error!("Storage delete FAILED: {}:{} - {}", pid, key, e),
+                            Err(e) => {
+                                tracing::error!("Storage delete FAILED: {}:{} - {}", pid, key, e)
+                            }
                         }
                     }
                     _ => {}
@@ -549,12 +622,10 @@ fn execute_storage_ops(
 }
 
 /// Execute meta update operations returned by the WASM subprocess.
-fn execute_meta_ops(
-    pool: &DynDatabasePool,
-    plugin_id: &str,
-    ops: &[(i64, String)],
-) {
-    if ops.is_empty() { return; }
+fn execute_meta_ops(pool: &DynDatabasePool, plugin_id: &str, ops: &[(i64, String)]) {
+    if ops.is_empty() {
+        return;
+    }
 
     let repo = SqlxArticleRepository::new(pool.clone());
 
@@ -571,7 +642,11 @@ fn execute_meta_ops(
                 match tokio::task::block_in_place(|| {
                     handle.block_on(repo.update_meta(*article_id, plugin_id, &data))
                 }) {
-                    Ok(_) => tracing::debug!("Meta update OK: article {} by plugin {}", article_id, plugin_id),
+                    Ok(_) => tracing::debug!(
+                        "Meta update OK: article {} by plugin {}",
+                        article_id,
+                        plugin_id
+                    ),
                     Err(e) => tracing::error!("Meta update FAILED: article {} - {}", article_id, e),
                 }
             }
@@ -601,7 +676,9 @@ fn execute_db_ops(
     plugin_id: &str,
     ops: &[(String, String, String)], // (op, sql, params_json)
 ) {
-    if ops.is_empty() { return; }
+    if ops.is_empty() {
+        return;
+    }
 
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => {
@@ -609,18 +686,30 @@ fn execute_db_ops(
                 match op.as_str() {
                     "query" => {
                         match tokio::task::block_in_place(|| {
-                            handle.block_on(plugin_db::execute_plugin_query(pool, plugin_id, sql, params))
+                            handle.block_on(plugin_db::execute_plugin_query(
+                                pool, plugin_id, sql, params,
+                            ))
                         }) {
                             Ok(_) => tracing::debug!("DB query OK: plugin {}", plugin_id),
-                            Err(e) => tracing::error!("DB query FAILED: plugin {} - {}", plugin_id, e),
+                            Err(e) => {
+                                tracing::error!("DB query FAILED: plugin {} - {}", plugin_id, e)
+                            }
                         }
                     }
                     "execute" => {
                         match tokio::task::block_in_place(|| {
-                            handle.block_on(plugin_db::execute_plugin_statement(pool, plugin_id, sql, params))
+                            handle.block_on(plugin_db::execute_plugin_statement(
+                                pool, plugin_id, sql, params,
+                            ))
                         }) {
-                            Ok(rows) => tracing::debug!("DB execute OK: plugin {}, {} rows affected", plugin_id, rows),
-                            Err(e) => tracing::error!("DB execute FAILED: plugin {} - {}", plugin_id, e),
+                            Ok(rows) => tracing::debug!(
+                                "DB execute OK: plugin {}, {} rows affected",
+                                plugin_id,
+                                rows
+                            ),
+                            Err(e) => {
+                                tracing::error!("DB execute FAILED: plugin {} - {}", plugin_id, e)
+                            }
                         }
                     }
                     _ => {
@@ -639,8 +728,16 @@ fn execute_db_ops(
             };
             for (op, sql, params) in ops {
                 match op.as_str() {
-                    "query" => { let _ = rt.block_on(plugin_db::execute_plugin_query(pool, plugin_id, sql, params)); }
-                    "execute" => { let _ = rt.block_on(plugin_db::execute_plugin_statement(pool, plugin_id, sql, params)); }
+                    "query" => {
+                        let _ = rt.block_on(plugin_db::execute_plugin_query(
+                            pool, plugin_id, sql, params,
+                        ));
+                    }
+                    "execute" => {
+                        let _ = rt.block_on(plugin_db::execute_plugin_statement(
+                            pool, plugin_id, sql, params,
+                        ));
+                    }
                     _ => {}
                 }
             }
@@ -666,17 +763,11 @@ fn load_plugin_data_sync(
     let repo = SqlxPluginDataRepository::new(pool.clone());
 
     let data = match tokio::runtime::Handle::try_current() {
-        Ok(handle) => {
-            tokio::task::block_in_place(|| {
-                handle.block_on(repo.get_all(plugin_id))
-            })
-        }
-        Err(_) => {
-            match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt.block_on(repo.get_all(plugin_id)),
-                Err(_) => return std::collections::HashMap::new(),
-            }
-        }
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(repo.get_all(plugin_id))),
+        Err(_) => match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt.block_on(repo.get_all(plugin_id)),
+            Err(_) => return std::collections::HashMap::new(),
+        },
     };
 
     match data {
@@ -685,7 +776,10 @@ fn load_plugin_data_sync(
                 entries.into_iter().map(|e| (e.key, e.value)).collect();
             // Update cache
             if let Ok(mut cache) = PLUGIN_DATA_CACHE.lock() {
-                cache.insert(plugin_id.to_string(), (std::time::Instant::now(), result.clone()));
+                cache.insert(
+                    plugin_id.to_string(),
+                    (std::time::Instant::now(), result.clone()),
+                );
             }
             result
         }
@@ -705,35 +799,34 @@ fn invalidate_plugin_data_cache(plugin_id: &str) {
 
 /// Load published articles from the database (for host_query_articles).
 /// Returns simplified article data (id, title, slug, content, status).
-fn load_articles_sync(
-    pool: &DynDatabasePool,
-) -> Vec<Value> {
+fn load_articles_sync(pool: &DynDatabasePool) -> Vec<Value> {
     let repo = SqlxArticleRepository::new(pool.clone());
 
     let articles = match tokio::runtime::Handle::try_current() {
-        Ok(handle) => {
-            tokio::task::block_in_place(|| {
-                handle.block_on(repo.list_published(0, 10000, crate::models::ArticleSortBy::default()))
-            })
-        }
-        Err(_) => {
-            match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt.block_on(repo.list_published(0, 10000, crate::models::ArticleSortBy::default())),
-                Err(_) => return vec![],
+        Ok(handle) => tokio::task::block_in_place(|| {
+            handle.block_on(repo.list_published(0, 10000, crate::models::ArticleSortBy::default()))
+        }),
+        Err(_) => match tokio::runtime::Runtime::new() {
+            Ok(rt) => {
+                rt.block_on(repo.list_published(0, 10000, crate::models::ArticleSortBy::default()))
             }
-        }
+            Err(_) => return vec![],
+        },
     };
 
     match articles {
-        Ok(list) => list.iter().map(|a| {
-            serde_json::json!({
-                "id": a.id,
-                "title": a.title,
-                "slug": a.slug,
-                "content": a.content,
-                "status": format!("{:?}", a.status),
+        Ok(list) => list
+            .iter()
+            .map(|a| {
+                serde_json::json!({
+                    "id": a.id,
+                    "title": a.title,
+                    "slug": a.slug,
+                    "content": a.content,
+                    "status": format!("{:?}", a.status),
+                })
             })
-        }).collect(),
+            .collect(),
         Err(e) => {
             tracing::warn!("Failed to load articles for WASM plugin: {}", e);
             vec![]
@@ -743,25 +836,27 @@ fn load_articles_sync(
 
 /// Load approved comments grouped by article_id (for host_get_comments).
 /// Returns a map of article_id -> Vec<comment> as serde_json::Value.
-fn load_comments_sync(
-    pool: &DynDatabasePool,
-) -> Value {
+fn load_comments_sync(pool: &DynDatabasePool) -> Value {
     let repo = SqlxCommentRepository::new(pool.clone());
 
     // Get all published article IDs first, then load comments for each
     let article_repo = SqlxArticleRepository::new(pool.clone());
     let articles = match tokio::runtime::Handle::try_current() {
-        Ok(handle) => {
-            tokio::task::block_in_place(|| {
-                handle.block_on(article_repo.list_published(0, 10000, crate::models::ArticleSortBy::default()))
-            })
-        }
-        Err(_) => {
-            match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt.block_on(article_repo.list_published(0, 10000, crate::models::ArticleSortBy::default())),
-                Err(_) => return serde_json::json!({}),
-            }
-        }
+        Ok(handle) => tokio::task::block_in_place(|| {
+            handle.block_on(article_repo.list_published(
+                0,
+                10000,
+                crate::models::ArticleSortBy::default(),
+            ))
+        }),
+        Err(_) => match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt.block_on(article_repo.list_published(
+                0,
+                10000,
+                crate::models::ArticleSortBy::default(),
+            )),
+            Err(_) => return serde_json::json!({}),
+        },
     };
 
     let article_ids: Vec<i64> = match articles {
@@ -772,25 +867,26 @@ fn load_comments_sync(
     let mut map = serde_json::Map::new();
     for article_id in article_ids {
         let comments = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                tokio::task::block_in_place(|| {
-                    handle.block_on(repo.get_by_article(article_id, None))
-                })
-            }
+            Ok(handle) => tokio::task::block_in_place(|| {
+                handle.block_on(repo.get_by_article(article_id, None))
+            }),
             Err(_) => continue,
         };
         if let Ok(list) = comments {
-            let arr: Vec<Value> = list.iter().map(|c| {
-                serde_json::json!({
-                    "id": c.id,
-                    "article_id": c.article_id,
-                    "parent_id": c.parent_id,
-                    "nickname": c.nickname,
-                    "content": c.content,
-                    "status": format!("{}", c.status),
-                    "created_at": c.created_at.to_rfc3339(),
+            let arr: Vec<Value> = list
+                .iter()
+                .map(|c| {
+                    serde_json::json!({
+                        "id": c.id,
+                        "article_id": c.article_id,
+                        "parent_id": c.parent_id,
+                        "nickname": c.nickname,
+                        "content": c.content,
+                        "status": format!("{}", c.status),
+                        "created_at": c.created_at.to_rfc3339(),
+                    })
                 })
-            }).collect();
+                .collect();
             if !arr.is_empty() {
                 map.insert(article_id.to_string(), Value::Array(arr));
             }
@@ -808,7 +904,9 @@ pub async fn load_wasm_plugin(
     pool: &DynDatabasePool,
 ) -> Result<(), PluginError> {
     let wasm_path = plugin.path.join("backend.wasm");
-    if !wasm_path.exists() { return Ok(()); }
+    if !wasm_path.exists() {
+        return Ok(());
+    }
 
     let plugin_id = plugin.metadata.id.clone();
     let backend_hooks = plugin.metadata.hooks.backend.clone();
@@ -816,18 +914,17 @@ pub async fn load_wasm_plugin(
 
     // Validate declared hooks against the registry (warnings only, never blocks loading)
     let hook_registry = hook_manager.registry();
-    let validation_warnings = validate_plugin_hooks(
-        hook_registry,
-        &plugin_id,
-        &backend_hooks,
-        frontend_hooks,
-    );
+    let validation_warnings =
+        validate_plugin_hooks(hook_registry, &plugin_id, &backend_hooks, frontend_hooks);
     for w in &validation_warnings {
         debug!("{}", w);
     }
 
     if backend_hooks.is_empty() {
-        warn!("Plugin '{}' has backend.wasm but no hooks.backend declared, skipping", plugin_id);
+        warn!(
+            "Plugin '{}' has backend.wasm but no hooks.backend declared, skipping",
+            plugin_id
+        );
         return Ok(());
     }
 
@@ -842,8 +939,12 @@ pub async fn load_wasm_plugin(
         version: plugin.metadata.version.clone(),
         description: Some(plugin.metadata.description.clone()),
         author: Some(plugin.metadata.author.clone()),
-        permissions: plugin.metadata.permissions.iter()
-            .filter_map(|p| Permission::from_str(p)).collect(),
+        permissions: plugin
+            .metadata
+            .permissions
+            .iter()
+            .filter_map(|p| Permission::from_str(p))
+            .collect(),
     };
 
     let handle = {
@@ -851,8 +952,12 @@ pub async fn load_wasm_plugin(
         rt.load_plugin_bytes(&wasm_bytes, manifest)?
     };
 
-    debug!("WASM module loaded for plugin '{}' (handle: {:?}), registering {} backend hooks",
-        plugin_id, handle, backend_hooks.len());
+    debug!(
+        "WASM module loaded for plugin '{}' (handle: {:?}), registering {} backend hooks",
+        plugin_id,
+        handle,
+        backend_hooks.len()
+    );
 
     let wasm_abs_path = std::fs::canonicalize(&wasm_path)
         .map(|p| p.to_string_lossy().to_string())
@@ -865,8 +970,11 @@ pub async fn load_wasm_plugin(
         perms_with_storage.push("storage".to_string());
     }
 
-    let plugin_settings: serde_json::Map<String, Value> = plugin.settings
-        .iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let plugin_settings: serde_json::Map<String, Value> = plugin
+        .settings
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
 
     let db_pool = pool.clone();
     let has_database = plugin_permissions.contains(&"database".to_string());
@@ -886,7 +994,11 @@ pub async fn load_wasm_plugin(
         hook_manager.register(
             hook_name,
             move |data: &mut Value| {
-                tracing::debug!("WASM hook '{}' triggered for plugin '{}'", hook_fn_name, pid);
+                tracing::debug!(
+                    "WASM hook '{}' triggered for plugin '{}'",
+                    hook_fn_name,
+                    pid
+                );
 
                 // Inject plugin settings into hook data
                 if let Value::Object(ref mut map) = data {
@@ -923,21 +1035,35 @@ pub async fn load_wasm_plugin(
 
                 // Execute WASM in subprocess
                 let result = execute_wasm_subprocess(
-                    &wasm_file, &hook_fn, &input_bytes, &perms, &pid, &plugin_data,
-                    articles.as_ref(), comments.as_ref(),
+                    &wasm_file,
+                    &hook_fn,
+                    &input_bytes,
+                    &perms,
+                    &pid,
+                    &plugin_data,
+                    articles.as_ref(),
+                    comments.as_ref(),
                 );
 
                 // Execute any storage operations the plugin requested
                 if !result.storage_ops.is_empty() {
                     execute_storage_ops(&pool, &pid, &result.storage_ops);
                     invalidate_plugin_data_cache(&pid);
-                    tracing::debug!("Plugin '{}' executed {} storage ops", pid, result.storage_ops.len());
+                    tracing::debug!(
+                        "Plugin '{}' executed {} storage ops",
+                        pid,
+                        result.storage_ops.len()
+                    );
                 }
 
                 // Execute any meta update operations the plugin requested
                 if !result.meta_ops.is_empty() {
                     execute_meta_ops(&pool, &pid, &result.meta_ops);
-                    tracing::debug!("Plugin '{}' executed {} meta ops", pid, result.meta_ops.len());
+                    tracing::debug!(
+                        "Plugin '{}' executed {} meta ops",
+                        pid,
+                        result.meta_ops.len()
+                    );
                 }
 
                 // Execute any database operations the plugin requested
@@ -947,25 +1073,35 @@ pub async fn load_wasm_plugin(
                 }
 
                 // Return hook output
-                result.output.and_then(|bytes| {
-                    serde_json::from_slice::<Value>(&bytes).ok()
-                })
+                result
+                    .output
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
             },
             PRIORITY_DEFAULT,
             Some(plugin_id.clone()),
         );
 
-        debug!("  Registered WASM hook: {} -> {}", hook_name, hook_fn_name_log);
+        debug!(
+            "  Registered WASM hook: {} -> {}",
+            hook_name, hook_fn_name_log
+        );
     }
 
     {
         let mut reg = registry.write().await;
-        reg.entries.insert(plugin_id.clone(), WasmPluginEntry {
-            handle, _hooks: backend_hooks,
-        });
+        reg.entries.insert(
+            plugin_id.clone(),
+            WasmPluginEntry {
+                handle,
+                _hooks: backend_hooks,
+            },
+        );
     }
 
-    debug!("WASM plugin '{}' fully loaded and hooked (subprocess isolation)", plugin_id);
+    debug!(
+        "WASM plugin '{}' fully loaded and hooked (subprocess isolation)",
+        plugin_id
+    );
     Ok(())
 }
 
@@ -1058,15 +1194,22 @@ pub fn execute_plugin_api_request(
     let output = result.output?;
     let response: serde_json::Value = serde_json::from_slice(&output).ok()?;
 
-    let status = response.get("status").and_then(|v| v.as_u64()).unwrap_or(200) as u16;
-    let content_type = response.get("content_type")
+    let status = response
+        .get("status")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(200) as u16;
+    let content_type = response
+        .get("content_type")
         .and_then(|v| v.as_str())
         .unwrap_or("application/json")
         .to_string();
     let body = if let Some(b) = response.get("body").and_then(|v| v.as_str()) {
         b.as_bytes().to_vec()
     } else {
-        response.get("body").map(|v| v.to_string().into_bytes()).unwrap_or_default()
+        response
+            .get("body")
+            .map(|v| v.to_string().into_bytes())
+            .unwrap_or_default()
     };
 
     Some((status, content_type, body))
@@ -1084,26 +1227,45 @@ fn base64_encode(data: &[u8]) -> String {
         let triple = (b0 << 16) | (b1 << 8) | b2;
         result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
         result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
-        if chunk.len() > 1 { result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char); }
-        else { result.push('='); }
-        if chunk.len() > 2 { result.push(CHARS[(triple & 0x3F) as usize] as char); }
-        else { result.push('='); }
+        if chunk.len() > 1 {
+            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(triple & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
     }
     result
 }
 
 fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    if input.is_empty() { return Ok(vec![]); }
+    if input.is_empty() {
+        return Ok(vec![]);
+    }
     let mut result = Vec::new();
-    let chars: Vec<u8> = input.bytes().filter(|&b| b != b'\n' && b != b'\r').collect();
-    if chars.len() % 4 != 0 { return Err("Invalid base64 length".to_string()); }
+    let chars: Vec<u8> = input
+        .bytes()
+        .filter(|&b| b != b'\n' && b != b'\r')
+        .collect();
+    if chars.len() % 4 != 0 {
+        return Err("Invalid base64 length".to_string());
+    }
     for chunk in chars.chunks(4) {
         let vals: Vec<u32> = chunk.iter().map(|&c| decode_b64_char(c)).collect();
-        if vals.iter().any(|&v| v == 255) { return Err("Invalid base64 character".to_string()); }
+        if vals.iter().any(|&v| v == 255) {
+            return Err("Invalid base64 character".to_string());
+        }
         let triple = (vals[0] << 18) | (vals[1] << 12) | (vals[2] << 6) | vals[3];
         result.push(((triple >> 16) & 0xFF) as u8);
-        if chunk[2] != b'=' { result.push(((triple >> 8) & 0xFF) as u8); }
-        if chunk[3] != b'=' { result.push((triple & 0xFF) as u8); }
+        if chunk[2] != b'=' {
+            result.push(((triple >> 8) & 0xFF) as u8);
+        }
+        if chunk[3] != b'=' {
+            result.push((triple & 0xFF) as u8);
+        }
     }
     Ok(result)
 }
@@ -1113,7 +1275,9 @@ fn decode_b64_char(c: u8) -> u32 {
         b'A'..=b'Z' => (c - b'A') as u32,
         b'a'..=b'z' => (c - b'a' + 26) as u32,
         b'0'..=b'9' => (c - b'0' + 52) as u32,
-        b'+' => 62, b'/' => 63, b'=' => 0,
+        b'+' => 62,
+        b'/' => 63,
+        b'=' => 0,
         _ => 255,
     }
 }

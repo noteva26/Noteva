@@ -16,13 +16,13 @@
 //! ```
 
 use pulldown_cmark::{html, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use regex::Regex;
 use std::sync::Arc;
 use syntect::highlighting::ThemeSet;
 use syntect::html::highlighted_html_for_string;
 use syntect::parsing::SyntaxSet;
-use regex::Regex;
 
-use crate::plugin::{ShortcodeManager, ShortcodeContext, HookManager, hook_names};
+use crate::plugin::{hook_names, HookManager, ShortcodeContext, ShortcodeManager};
 use crate::services::emoji;
 
 /// Options for rendering markdown with shortcodes
@@ -173,9 +173,9 @@ impl MarkdownRenderer {
         // Trigger markdown_before_parse hook
         let hook_data = self.trigger_hook(
             hook_names::MARKDOWN_BEFORE_PARSE,
-            serde_json::json!({ "content": markdown })
+            serde_json::json!({ "content": markdown }),
         );
-        
+
         // Get potentially modified content from hook
         let content = hook_data
             .get("content")
@@ -211,16 +211,16 @@ impl MarkdownRenderer {
         // Trigger markdown_after_parse hook
         let hook_data = self.trigger_hook(
             hook_names::MARKDOWN_AFTER_PARSE,
-            serde_json::json!({ "html": html_output })
+            serde_json::json!({ "html": html_output }),
         );
-        
+
         // Get potentially modified HTML from hook
         let html_after_hook = hook_data
             .get("html")
             .and_then(|v| v.as_str())
             .unwrap_or(&html_output)
             .to_string();
-        
+
         // Process emoji (shortcodes and Unicode)
         emoji::process_all_emoji(&html_after_hook)
     }
@@ -271,7 +271,11 @@ impl MarkdownRenderer {
                             *count += 1;
                             suffixed
                         };
-                        toc.push(TocEntry { level: heading_level, text, id });
+                        toc.push(TocEntry {
+                            level: heading_level,
+                            text,
+                            id,
+                        });
                     }
                 }
                 _ => {}
@@ -285,10 +289,17 @@ impl MarkdownRenderer {
     fn heading_to_id(text: &str) -> String {
         text.chars()
             .map(|c| {
-                if c.is_alphanumeric() { c.to_ascii_lowercase() }
-                else if c == ' ' || c == '-' || c == '_' { '-' }
-                else if c > '\x7f' { c } // keep CJK characters
-                else { '-' }
+                if c.is_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else if c == ' ' || c == '-' || c == '_' {
+                    '-'
+                } else if c > '\x7f' {
+                    c
+                }
+                // keep CJK characters
+                else {
+                    '-'
+                }
             })
             .collect::<String>()
             .split('-')
@@ -334,10 +345,13 @@ impl MarkdownRenderer {
     ///
     /// Convenience method that uses default shortcode context.
     pub fn render_with_shortcodes(&self, markdown: &str) -> String {
-        self.render_with_options(markdown, &RenderOptions {
-            shortcode_context: ShortcodeContext::default(),
-            process_shortcodes: true,
-        })
+        self.render_with_options(
+            markdown,
+            &RenderOptions {
+                shortcode_context: ShortcodeContext::default(),
+                process_shortcodes: true,
+            },
+        )
     }
 
     /// Renders Markdown text to HTML with shortcode processing for a specific article.
@@ -348,15 +362,18 @@ impl MarkdownRenderer {
     /// * `article_id` - The ID of the article being rendered.
     /// * `user_id` - Optional user ID if the viewer is logged in.
     pub fn render_article(&self, markdown: &str, article_id: i64, user_id: Option<i64>) -> String {
-        self.render_with_options(markdown, &RenderOptions {
-            shortcode_context: ShortcodeContext {
-                article_id: Some(article_id),
-                user_id,
-                is_preview: false,
-                ..Default::default()
+        self.render_with_options(
+            markdown,
+            &RenderOptions {
+                shortcode_context: ShortcodeContext {
+                    article_id: Some(article_id),
+                    user_id,
+                    is_preview: false,
+                    ..Default::default()
+                },
+                process_shortcodes: true,
             },
-            process_shortcodes: true,
-        })
+        )
     }
 
     /// Renders Markdown text to HTML in preview mode.
@@ -364,13 +381,16 @@ impl MarkdownRenderer {
     /// Preview mode may affect how certain shortcodes render (e.g., hiding
     /// premium content placeholders).
     pub fn render_preview(&self, markdown: &str) -> String {
-        self.render_with_options(markdown, &RenderOptions {
-            shortcode_context: ShortcodeContext {
-                is_preview: true,
-                ..Default::default()
+        self.render_with_options(
+            markdown,
+            &RenderOptions {
+                shortcode_context: ShortcodeContext {
+                    is_preview: true,
+                    ..Default::default()
+                },
+                process_shortcodes: true,
             },
-            process_shortcodes: true,
-        })
+        )
     }
 
     /// Processes parser events, applying syntax highlighting to code blocks.
@@ -411,7 +431,9 @@ impl MarkdownRenderer {
                     };
                     // Emit heading with id attribute
                     let tag = format!("h{}", heading_level);
-                    events.push(Event::Html(format!("<{} id=\"{}\">", tag, html_escape(&id)).into()));
+                    events.push(Event::Html(
+                        format!("<{} id=\"{}\">", tag, html_escape(&id)).into(),
+                    ));
                     for ev in heading_events.drain(..) {
                         events.push(ev);
                     }
@@ -513,10 +535,7 @@ impl MarkdownRenderer {
 
     /// Renders a plain code block without syntax highlighting.
     fn plain_code_block(&self, code: &str) -> String {
-        format!(
-            "<pre><code>{}</code></pre>",
-            html_escape(code)
-        )
+        format!("<pre><code>{}</code></pre>", html_escape(code))
     }
 
     /// Renders a plain code block with a language class.
@@ -605,11 +624,14 @@ impl MarkdownRenderer {
     fn restore_math_expressions(html: &str, placeholders: &[(String, bool)]) -> String {
         let mut result = html.to_string();
         for (idx, (expr, is_block)) in placeholders.iter().enumerate() {
-            let tag = if *is_block { "MATH_BLOCK" } else { "MATH_INLINE" };
+            let tag = if *is_block {
+                "MATH_BLOCK"
+            } else {
+                "MATH_INLINE"
+            };
             let placeholder = format!("\x00{}_{}\x00", tag, idx);
             // The placeholder may have been HTML-escaped by pulldown-cmark
-            let escaped_placeholder = placeholder
-                .replace('\x00', "&#0;");
+            let escaped_placeholder = placeholder.replace('\x00', "&#0;");
             let replacement = if *is_block {
                 format!("<div class=\"math-block\">{}</div>", html_escape(expr))
             } else {
@@ -904,20 +926,20 @@ fn hello() {
     #[test]
     fn test_render_with_shortcode_manager() {
         use crate::plugin::shortcode::builtins;
-        
+
         let mut shortcode_manager = ShortcodeManager::new();
         builtins::register_builtins(&mut shortcode_manager);
-        
+
         let renderer = MarkdownRenderer::with_shortcode_manager(Arc::new(shortcode_manager));
-        
+
         let markdown = r#"# Title
 
 [note type="info"]This is an info note[/note]
 
 Some **bold** text."#;
-        
+
         let html = renderer.render_with_shortcodes(markdown);
-        
+
         assert!(html.contains("<h1"));
         assert!(html.contains("shortcode-note"));
         assert!(html.contains("shortcode-note-info"));
@@ -930,12 +952,12 @@ Some **bold** text."#;
         shortcode_manager.register("article-id", |_sc, ctx| {
             format!("Article ID: {:?}", ctx.article_id)
         });
-        
+
         let renderer = MarkdownRenderer::with_shortcode_manager(Arc::new(shortcode_manager));
-        
+
         let markdown = "The article is [article-id][/article-id]";
         let html = renderer.render_article(markdown, 42, Some(1));
-        
+
         assert!(html.contains("Article ID: Some(42)"));
     }
 
@@ -949,12 +971,12 @@ Some **bold** text."#;
                 "NORMAL MODE".to_string()
             }
         });
-        
+
         let renderer = MarkdownRenderer::with_shortcode_manager(Arc::new(shortcode_manager));
-        
+
         let markdown = "[preview-check][/preview-check]";
         let html = renderer.render_preview(markdown);
-        
+
         assert!(html.contains("PREVIEW MODE"));
     }
 
@@ -962,15 +984,18 @@ Some **bold** text."#;
     fn test_render_without_shortcode_processing() {
         let mut shortcode_manager = ShortcodeManager::new();
         shortcode_manager.register("test", |_sc, _ctx| "PROCESSED".to_string());
-        
+
         let renderer = MarkdownRenderer::with_shortcode_manager(Arc::new(shortcode_manager));
-        
+
         let markdown = "[test][/test]";
-        let html = renderer.render_with_options(markdown, &RenderOptions {
-            process_shortcodes: false,
-            ..Default::default()
-        });
-        
+        let html = renderer.render_with_options(
+            markdown,
+            &RenderOptions {
+                process_shortcodes: false,
+                ..Default::default()
+            },
+        );
+
         // Shortcode should not be processed
         assert!(html.contains("[test]"));
         assert!(!html.contains("PROCESSED"));

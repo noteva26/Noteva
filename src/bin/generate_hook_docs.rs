@@ -7,8 +7,8 @@
 use std::fs;
 use std::path::Path;
 
-use noteva::plugin::hook_registry::HookRegistry;
 use noteva::plugin::doc_gen::generate_hook_docs;
+use noteva::plugin::hook_registry::HookRegistry;
 
 fn main() {
     let registry = HookRegistry::load_embedded();
@@ -22,5 +22,9 @@ fn main() {
     let out_path = out_dir.join("hook-contracts.md");
     fs::write(&out_path, &markdown).expect("failed to write hook-contracts.md");
 
-    println!("Generated {} ({} bytes)", out_path.display(), markdown.len());
+    println!(
+        "Generated {} ({} bytes)",
+        out_path.display(),
+        markdown.len()
+    );
 }

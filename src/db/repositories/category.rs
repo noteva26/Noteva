@@ -153,10 +153,7 @@ fn build_category_tree(categories: Vec<Category>) -> Vec<CategoryTree> {
     // Create a map of parent_id -> children
     let mut children_map: HashMap<Option<i64>, Vec<i64>> = HashMap::new();
     for (id, cat) in &category_map {
-        children_map
-            .entry(cat.parent_id)
-            .or_default()
-            .push(*id);
+        children_map.entry(cat.parent_id).or_default().push(*id);
     }
 
     // Sort children by sort_order
@@ -655,14 +652,15 @@ fn row_to_category_mysql(row: &sqlx::mysql::MySqlRow) -> Result<Category> {
     })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db::{create_test_pool, migrations};
 
     async fn setup_test_repo() -> (DynDatabasePool, SqlxCategoryRepository) {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         migrations::run_migrations(&pool)
             .await
             .expect("Failed to run migrations");
@@ -685,7 +683,10 @@ mod tests {
         let (_pool, repo) = setup_test_repo().await;
         let category = create_test_category("test-category", "Test Category", None);
 
-        let created = repo.create(&category).await.expect("Failed to create category");
+        let created = repo
+            .create(&category)
+            .await
+            .expect("Failed to create category");
 
         assert!(created.id > 0);
         assert_eq!(created.slug, "test-category");
@@ -696,7 +697,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_category_with_parent() {
         let (_pool, repo) = setup_test_repo().await;
-        
+
         // Create parent category
         let parent = create_test_category("parent", "Parent Category", None);
         let created_parent = repo.create(&parent).await.expect("Failed to create parent");
@@ -712,7 +713,10 @@ mod tests {
     async fn test_get_category_by_id() {
         let (_pool, repo) = setup_test_repo().await;
         let category = create_test_category("get-by-id", "Get By ID", None);
-        let created = repo.create(&category).await.expect("Failed to create category");
+        let created = repo
+            .create(&category)
+            .await
+            .expect("Failed to create category");
 
         let found = repo
             .get_by_id(created.id)
@@ -737,7 +741,9 @@ mod tests {
     async fn test_get_category_by_slug() {
         let (_pool, repo) = setup_test_repo().await;
         let category = create_test_category("unique-slug", "Unique Slug", None);
-        repo.create(&category).await.expect("Failed to create category");
+        repo.create(&category)
+            .await
+            .expect("Failed to create category");
 
         let found = repo
             .get_by_slug("unique-slug")
@@ -764,7 +770,9 @@ mod tests {
     async fn test_get_category_by_name() {
         let (_pool, repo) = setup_test_repo().await;
         let category = create_test_category("name-test", "Unique Name", None);
-        repo.create(&category).await.expect("Failed to create category");
+        repo.create(&category)
+            .await
+            .expect("Failed to create category");
 
         let found = repo
             .get_by_name("Unique Name")
@@ -809,9 +817,13 @@ mod tests {
         repo.create(&create_test_category("child2", "Child 2", Some(root.id)))
             .await
             .expect("Failed to create child2");
-        repo.create(&create_test_category("grandchild", "Grandchild", Some(child1.id)))
-            .await
-            .expect("Failed to create grandchild");
+        repo.create(&create_test_category(
+            "grandchild",
+            "Grandchild",
+            Some(child1.id),
+        ))
+        .await
+        .expect("Failed to create grandchild");
 
         let tree = repo.list_tree().await.expect("Failed to list tree");
 
@@ -823,7 +835,10 @@ mod tests {
         assert_eq!(root_tree.children.len(), 2);
 
         // Find child1 and verify it has grandchild
-        let child1_tree = root_tree.children.iter().find(|t| t.category.slug == "child1");
+        let child1_tree = root_tree
+            .children
+            .iter()
+            .find(|t| t.category.slug == "child1");
         assert!(child1_tree.is_some());
         assert_eq!(child1_tree.unwrap().children.len(), 1);
     }
@@ -866,7 +881,11 @@ mod tests {
             .await
             .expect("Failed to create child");
         let grandchild = repo
-            .create(&create_test_category("grandchild", "Grandchild", Some(child.id)))
+            .create(&create_test_category(
+                "grandchild",
+                "Grandchild",
+                Some(child.id),
+            ))
             .await
             .expect("Failed to create grandchild");
 
@@ -906,12 +925,18 @@ mod tests {
     async fn test_update_category() {
         let (_pool, repo) = setup_test_repo().await;
         let category = create_test_category("update-me", "Update Me", None);
-        let mut created = repo.create(&category).await.expect("Failed to create category");
+        let mut created = repo
+            .create(&category)
+            .await
+            .expect("Failed to create category");
 
         created.name = "Updated Name".to_string();
         created.description = Some("Updated description".to_string());
 
-        let updated = repo.update(&created).await.expect("Failed to update category");
+        let updated = repo
+            .update(&created)
+            .await
+            .expect("Failed to update category");
 
         assert_eq!(updated.name, "Updated Name");
         assert_eq!(updated.description, Some("Updated description".to_string()));
@@ -921,11 +946,19 @@ mod tests {
     async fn test_delete_category() {
         let (_pool, repo) = setup_test_repo().await;
         let category = create_test_category("delete-me", "Delete Me", None);
-        let created = repo.create(&category).await.expect("Failed to create category");
+        let created = repo
+            .create(&category)
+            .await
+            .expect("Failed to create category");
 
-        repo.delete(created.id).await.expect("Failed to delete category");
+        repo.delete(created.id)
+            .await
+            .expect("Failed to delete category");
 
-        let found = repo.get_by_id(created.id).await.expect("Failed to get category");
+        let found = repo
+            .get_by_id(created.id)
+            .await
+            .expect("Failed to get category");
         assert!(found.is_none());
     }
 
@@ -933,7 +966,9 @@ mod tests {
     async fn test_exists_by_name() {
         let (_pool, repo) = setup_test_repo().await;
         let category = create_test_category("exists-test", "Exists Test", None);
-        repo.create(&category).await.expect("Failed to create category");
+        repo.create(&category)
+            .await
+            .expect("Failed to create category");
 
         let exists = repo
             .exists_by_name("Exists Test")
@@ -952,7 +987,9 @@ mod tests {
     async fn test_exists_by_slug() {
         let (_pool, repo) = setup_test_repo().await;
         let category = create_test_category("slug-exists", "Slug Exists", None);
-        repo.create(&category).await.expect("Failed to create category");
+        repo.create(&category)
+            .await
+            .expect("Failed to create category");
 
         let exists = repo
             .exists_by_slug("slug-exists")
@@ -986,7 +1023,9 @@ mod tests {
         let cat1 = create_test_category("duplicate-slug", "Category 1", None);
         let cat2 = create_test_category("duplicate-slug", "Category 2", None);
 
-        repo.create(&cat1).await.expect("Failed to create first category");
+        repo.create(&cat1)
+            .await
+            .expect("Failed to create first category");
         let result = repo.create(&cat2).await;
 
         assert!(result.is_err(), "Should fail due to duplicate slug");
@@ -1045,11 +1084,29 @@ mod tests {
     async fn test_build_category_tree_hierarchy() {
         let mut root = Category::new("root".to_string(), "Root".to_string(), None, None, 0);
         root.id = 1;
-        let mut child1 = Category::new("child1".to_string(), "Child 1".to_string(), None, Some(1), 0);
+        let mut child1 = Category::new(
+            "child1".to_string(),
+            "Child 1".to_string(),
+            None,
+            Some(1),
+            0,
+        );
         child1.id = 2;
-        let mut child2 = Category::new("child2".to_string(), "Child 2".to_string(), None, Some(1), 1);
+        let mut child2 = Category::new(
+            "child2".to_string(),
+            "Child 2".to_string(),
+            None,
+            Some(1),
+            1,
+        );
         child2.id = 3;
-        let mut grandchild = Category::new("grandchild".to_string(), "Grandchild".to_string(), None, Some(2), 0);
+        let mut grandchild = Category::new(
+            "grandchild".to_string(),
+            "Grandchild".to_string(),
+            None,
+            Some(2),
+            0,
+        );
         grandchild.id = 4;
 
         let tree = build_category_tree(vec![root, child1, child2, grandchild]);
@@ -1057,9 +1114,13 @@ mod tests {
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].category.slug, "root");
         assert_eq!(tree[0].children.len(), 2);
-        
+
         // child1 should have grandchild
-        let child1_tree = tree[0].children.iter().find(|c| c.category.slug == "child1").unwrap();
+        let child1_tree = tree[0]
+            .children
+            .iter()
+            .find(|c| c.category.slug == "child1")
+            .unwrap();
         assert_eq!(child1_tree.children.len(), 1);
         assert_eq!(child1_tree.children[0].category.slug, "grandchild");
     }

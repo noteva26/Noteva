@@ -380,6 +380,25 @@
     "2faDisableRequired": "请输入密码和验证码",
     "2faDisabled": "两步验证已关闭"
   },
+  "version": {
+    "title": "版本",
+    "openMenu": "版本状态",
+    "current": "当前",
+    "latest": "最新",
+    "notChecked": "未检查",
+    "checking": "检查中...",
+    "upToDate": "已是最新",
+    "updateAvailable": "有新版本",
+    "checkFailed": "检查失败",
+    "restarting": "重启中...",
+    "checkNow": "立即检查",
+    "checkedAt": "检查于 {time}",
+    "viewRelease": "查看发布",
+    "stableHint": "可直接在后台检查 GitHub 发布版本。",
+    "updateHint": "检测到新的 Noteva 版本，可直接更新。",
+    "confirmTitle": "更新 Noteva",
+    "confirmDescription": "确定更新到 v{version} 吗？程序会替换当前二进制并自动重启，后台可能短暂不可用。"
+  },
   "theme": {
     "light": "浅色",
     "dark": "深色",
@@ -728,7 +747,7 @@
     "pluginInstalled": "插件「{name}」安装成功",
     "pluginInstalledFrom": "插件「{name}」安装成功（来自 {repo}）",
     "pluginUpdated": "插件「{name}」已从 {from} 更新到 {to}",
-    "No usable theme files found in repository. Requires theme.json, and theme must be pre-compiled (not source code)": "仓库中没有可用的主题文件，需要 theme.json 且必须是编译好的",
+    "No usable theme files found in repository. Requires theme.json and dist/index.html": "仓库中没有可用的主题文件，需要 theme.json 和 dist/index.html",
     "No usable plugin files found in repository. Requires plugin.json, and WASM plugins must include compiled .wasm files": "仓库中没有可用的插件文件，需要 plugin.json 且 WASM 插件必须包含 .wasm 文件"
   }
 }

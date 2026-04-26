@@ -19,7 +19,7 @@ use crate::db::repositories::{ArticleRepository, TagRepository};
 use crate::models::{
     Article, ArticleSortBy, CreateArticleInput, ListParams, PagedResult, UpdateArticleInput,
 };
-use crate::plugin::{HookManager, hook_names};
+use crate::plugin::{hook_names, HookManager};
 use crate::services::markdown::MarkdownRenderer;
 use anyhow::Context;
 use serde_json::json;
@@ -56,7 +56,6 @@ pub enum ArticleServiceError {
     #[error("Internal error: {0}")]
     InternalError(#[from] anyhow::Error),
 }
-
 
 /// Article service for managing blog articles
 ///
@@ -180,9 +179,9 @@ impl ArticleService {
                 "author_id": input.author_id,
                 "category_id": input.category_id,
                 "tag_ids": tag_ids,
-            })
+            }),
         );
-        
+
         // Apply hook modifications
         if let Some(title) = hook_data.get("title").and_then(|v| v.as_str()) {
             input.title = title.to_string();
@@ -213,22 +212,27 @@ impl ArticleService {
         }
 
         // Render markdown to HTML with shortcode processing
-        let _content_html = self.markdown_renderer.render_article(&input.content, 0, None);
-        
+        let _content_html = self
+            .markdown_renderer
+            .render_article(&input.content, 0, None);
+
         // Trigger article_content_filter hook
         let filter_data = self.trigger_hook(
             hook_names::ARTICLE_CONTENT_FILTER,
             json!({
                 "content": &input.content,
                 "article_id": 0,
-            })
+            }),
         );
-        
-        let filtered_content = filter_data.get("content")
+
+        let filtered_content = filter_data
+            .get("content")
             .and_then(|v| v.as_str())
             .unwrap_or(&input.content);
-        
-        let final_content_html = self.markdown_renderer.render_article(filtered_content, 0, None);
+
+        let final_content_html = self
+            .markdown_renderer
+            .render_article(filtered_content, 0, None);
         input.content_html = Some(final_content_html);
 
         // Create article
@@ -259,7 +263,7 @@ impl ArticleService {
                 "author_id": article.author_id,
                 "category_id": article.category_id,
                 "status": format!("{:?}", article.status),
-            })
+            }),
         );
 
         Ok(article)
@@ -348,7 +352,11 @@ impl ArticleService {
             .await
             .context("Failed to list articles")?;
 
-        let total = self.repo.count().await.context("Failed to count articles")?;
+        let total = self
+            .repo
+            .count()
+            .await
+            .context("Failed to count articles")?;
 
         Ok(PagedResult::new(articles, total, params))
     }
@@ -371,7 +379,13 @@ impl ArticleService {
         let limit = params.limit();
 
         // Try cache first (include sort variant in cache key)
-        let cache_key = format!("{}:published:{}:{}:{}", CACHE_KEY_ARTICLE_LIST, offset, limit, sort_by.cache_key());
+        let cache_key = format!(
+            "{}:published:{}:{}:{}",
+            CACHE_KEY_ARTICLE_LIST,
+            offset,
+            limit,
+            sort_by.cache_key()
+        );
         if let Ok(Some(cached)) = self.cache.get::<PagedResult<Article>>(&cache_key).await {
             return Ok(cached);
         }
@@ -391,7 +405,14 @@ impl ArticleService {
         let result = PagedResult::new(articles, total, params);
 
         // Cache the result (lists use shorter TTL for freshness)
-        let _ = self.cache.set(&cache_key, &result, Duration::from_secs(ARTICLE_LIST_CACHE_TTL_SECS)).await;
+        let _ = self
+            .cache
+            .set(
+                &cache_key,
+                &result,
+                Duration::from_secs(ARTICLE_LIST_CACHE_TTL_SECS),
+            )
+            .await;
 
         Ok(result)
     }
@@ -549,9 +570,9 @@ impl ArticleService {
                     "slug": existing.slug,
                     "status": format!("{:?}", existing.status),
                 }
-            })
+            }),
         );
-        
+
         // Apply hook modifications
         if let Some(title) = hook_data.get("title").and_then(|v| v.as_str()) {
             input.title = Some(title.to_string());
@@ -585,14 +606,17 @@ impl ArticleService {
                 json!({
                     "content": content,
                     "article_id": id,
-                })
+                }),
             );
-            
-            let filtered_content = filter_data.get("content")
+
+            let filtered_content = filter_data
+                .get("content")
                 .and_then(|v| v.as_str())
                 .unwrap_or(content);
-            
-            let content_html = self.markdown_renderer.render_article(filtered_content, id, None);
+
+            let content_html = self
+                .markdown_renderer
+                .render_article(filtered_content, id, None);
             input.content_html = Some(content_html);
         }
 
@@ -630,7 +654,7 @@ impl ArticleService {
                 "title": updated.title,
                 "slug": updated.slug,
                 "status": format!("{:?}", updated.status),
-            })
+            }),
         );
 
         // Trigger article_status_change hook if status actually changed
@@ -646,7 +670,7 @@ impl ArticleService {
                     "old_status": old_status,
                     "new_status": new_status,
                     "trigger": "manual",
-                })
+                }),
             );
         }
 
@@ -686,7 +710,7 @@ impl ArticleService {
                 "id": id,
                 "title": existing.title,
                 "slug": existing.slug,
-            })
+            }),
         );
 
         // Delete article (tag associations are removed via CASCADE)
@@ -705,7 +729,7 @@ impl ArticleService {
                 "id": id,
                 "title": existing.title,
                 "slug": existing.slug,
-            })
+            }),
         );
 
         Ok(())
@@ -744,7 +768,8 @@ impl ArticleService {
         article_id: Option<i64>,
         user_id: Option<i64>,
     ) -> String {
-        self.markdown_renderer.render_article(content, article_id.unwrap_or(0), user_id)
+        self.markdown_renderer
+            .render_article(content, article_id.unwrap_or(0), user_id)
     }
 
     /// Count total articles (all statuses)
@@ -773,7 +798,11 @@ impl ArticleService {
 
     /// Get adjacent (prev/next) published articles for navigation.
     /// Returns (prev_article, next_article) where prev is newer and next is older.
-    pub async fn get_adjacent(&self, article_id: i64, published_at: chrono::DateTime<chrono::Utc>) -> Result<(Option<Article>, Option<Article>), ArticleServiceError> {
+    pub async fn get_adjacent(
+        &self,
+        article_id: i64,
+        published_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(Option<Article>, Option<Article>), ArticleServiceError> {
         self.repo
             .get_adjacent(article_id, published_at)
             .await
@@ -792,7 +821,12 @@ impl ArticleService {
     }
 
     /// Get related articles (same category, excluding self, published only).
-    pub async fn get_related(&self, article_id: i64, category_id: i64, limit: i64) -> Result<Vec<Article>, ArticleServiceError> {
+    pub async fn get_related(
+        &self,
+        article_id: i64,
+        category_id: i64,
+        limit: i64,
+    ) -> Result<Vec<Article>, ArticleServiceError> {
         self.repo
             .get_related(article_id, category_id, limit)
             .await
@@ -913,7 +947,6 @@ impl ArticleService {
     }
 }
 
-
 /// Generate a URL-friendly slug from a title
 ///
 /// Converts the title to lowercase, replaces spaces and special characters
@@ -956,9 +989,6 @@ pub fn generate_slug(title: &str) -> String {
     // Trim trailing hyphen
     result.trim_end_matches('-').to_string()
 }
-
-
-
 
 #[cfg(test)]
 mod tests;

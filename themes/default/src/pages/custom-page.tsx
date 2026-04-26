@@ -7,13 +7,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
-import { waitForNoteva } from "@/hooks/useNoteva";
+import { waitForNoteva, type NotevaSDKRef } from "@/hooks/useNoteva";
 import PluginSlot from "@/components/plugin-slot";
 
-interface Page {
-  id: number; slug: string; title: string; content: string;
-  content_html?: string; html?: string; status?: string;
-}
+type Page = Awaited<ReturnType<NotevaSDKRef["pages"]["get"]>>;
 
 export default function CustomPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -33,7 +30,7 @@ export default function CustomPage() {
       if (!active || !Noteva) return;
       try {
         const info = await Noteva.site.getInfo();
-        if (active) setSiteInfo({ name: info.name || info.site_name || "Noteva" });
+        if (active) setSiteInfo({ name: info.name || "Noteva" });
       } catch { }
     };
     void loadSiteInfo();
@@ -80,8 +77,6 @@ export default function CustomPage() {
     };
   }, [slug]);
 
-  const getHtml = (p: Page) => p.content_html || p.html || "";
-
   if (loading) {
     return (
       <div className="theme-page-shell relative flex min-h-screen flex-col">
@@ -124,7 +119,7 @@ export default function CustomPage() {
           <Card className="article-card overflow-hidden">
             <CardContent className="prose prose-lg dark:prose-invert max-w-none p-6 md:p-9">
               <PluginSlot name="page_content_top" />
-              <div className="page-content" dangerouslySetInnerHTML={{ __html: getHtml(page) }} />
+              <div className="page-content" dangerouslySetInnerHTML={{ __html: page.html }} />
               <PluginSlot name="page_content_bottom" />
             </CardContent>
           </Card>

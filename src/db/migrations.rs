@@ -820,10 +820,7 @@ pub async fn run_migrations(pool: &DynDatabasePool) -> Result<usize> {
 }
 
 fn validate_applied_migrations(applied: &[MigrationRecord]) -> Result<()> {
-    let known: HashMap<i32, &str> = MIGRATIONS
-        .iter()
-        .map(|m| (m.version, m.name))
-        .collect();
+    let known: HashMap<i32, &str> = MIGRATIONS.iter().map(|m| (m.version, m.name)).collect();
 
     for record in applied {
         let version = record.version as i32;
@@ -894,10 +891,9 @@ async fn get_applied_migrations(pool: &DynDatabasePool) -> Result<Vec<MigrationR
 }
 
 async fn get_applied_migrations_sqlite(pool: &SqlitePool) -> Result<Vec<MigrationRecord>> {
-    let rows =
-        sqlx::query("SELECT version, name, applied_at FROM _migrations ORDER BY version")
-            .fetch_all(pool)
-            .await?;
+    let rows = sqlx::query("SELECT version, name, applied_at FROM _migrations ORDER BY version")
+        .fetch_all(pool)
+        .await?;
 
     let mut records = Vec::new();
     for row in rows {
@@ -912,10 +908,9 @@ async fn get_applied_migrations_sqlite(pool: &SqlitePool) -> Result<Vec<Migratio
 }
 
 async fn get_applied_migrations_mysql(pool: &MySqlPool) -> Result<Vec<MigrationRecord>> {
-    let rows =
-        sqlx::query("SELECT version, name, applied_at FROM _migrations ORDER BY version")
-            .fetch_all(pool)
-            .await?;
+    let rows = sqlx::query("SELECT version, name, applied_at FROM _migrations ORDER BY version")
+        .fetch_all(pool)
+        .await?;
 
     let mut records = Vec::new();
     for row in rows {
@@ -935,17 +930,17 @@ async fn apply_migration(pool: &DynDatabasePool, migration: &Migration) -> Resul
         DatabaseDriver::Sqlite => {
             apply_migration_sqlite(pool.as_sqlite().unwrap(), migration).await
         }
-        DatabaseDriver::Mysql => {
-            apply_migration_mysql(pool.as_mysql().unwrap(), migration).await
-        }
+        DatabaseDriver::Mysql => apply_migration_mysql(pool.as_mysql().unwrap(), migration).await,
     }
 }
 
 async fn apply_migration_sqlite(pool: &SqlitePool, migration: &Migration) -> Result<()> {
-    let mut tx = pool
-        .begin()
-        .await
-        .with_context(|| format!("Failed to start SQLite migration transaction {}", migration.version))?;
+    let mut tx = pool.begin().await.with_context(|| {
+        format!(
+            "Failed to start SQLite migration transaction {}",
+            migration.version
+        )
+    })?;
 
     for statement in split_sql_statements(migration.up_sqlite) {
         let statement = statement.trim();
@@ -971,10 +966,12 @@ async fn apply_migration_sqlite(pool: &SqlitePool, migration: &Migration) -> Res
 }
 
 async fn apply_migration_mysql(pool: &MySqlPool, migration: &Migration) -> Result<()> {
-    let mut tx = pool
-        .begin()
-        .await
-        .with_context(|| format!("Failed to start MySQL migration transaction {}", migration.version))?;
+    let mut tx = pool.begin().await.with_context(|| {
+        format!(
+            "Failed to start MySQL migration transaction {}",
+            migration.version
+        )
+    })?;
 
     for statement in split_sql_statements(migration.up_mysql) {
         let statement = statement.trim();
@@ -1064,7 +1061,9 @@ pub fn split_sql_statements(sql: &str) -> Vec<&str> {
                             // Make sure it's a word boundary (not part of another word)
                             let upper = so_far.to_uppercase();
                             let before_begin = &upper[..upper.len() - 5];
-                            if before_begin.is_empty() || before_begin.ends_with(|c: char| c.is_whitespace()) {
+                            if before_begin.is_empty()
+                                || before_begin.ends_with(|c: char| c.is_whitespace())
+                            {
                                 begin_depth = 1;
                             }
                         }
@@ -1131,21 +1130,31 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_migrations() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
 
-        let count = run_migrations(&pool).await.expect("Failed to run migrations");
+        let count = run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
         assert_eq!(count, MIGRATIONS.len());
 
         // Running again should apply 0 migrations
-        let count = run_migrations(&pool).await.expect("Failed to run migrations");
+        let count = run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
         assert_eq!(count, 0);
     }
 
     #[tokio::test]
     async fn test_sqlite_migration_failure_rolls_back_statement_group() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         let sqlite = pool.as_sqlite().expect("sqlite test pool");
-        create_migrations_table(&pool).await.expect("create migrations table");
+        create_migrations_table(&pool)
+            .await
+            .expect("create migrations table");
 
         let migration = Migration {
             version: 999,
@@ -1171,8 +1180,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_migration_history_gap_is_rejected() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        create_migrations_table(&pool).await.expect("create migrations table");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        create_migrations_table(&pool)
+            .await
+            .expect("create migrations table");
 
         pool.execute("INSERT INTO _migrations (version, name) VALUES (2, 'create_sessions')")
             .await
@@ -1184,36 +1197,48 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_up_to_date() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
 
         // Before migrations
         let up_to_date = is_up_to_date(&pool).await.expect("Failed to check");
         assert!(!up_to_date);
 
         // After migrations
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
         let up_to_date = is_up_to_date(&pool).await.expect("Failed to check");
         assert!(up_to_date);
     }
 
     #[tokio::test]
     async fn test_pending_count() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
 
         // Before migrations
         let pending = pending_count(&pool).await.expect("Failed to check");
         assert_eq!(pending, MIGRATIONS.len());
 
         // After migrations
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
         let pending = pending_count(&pool).await.expect("Failed to check");
         assert_eq!(pending, 0);
     }
 
     #[tokio::test]
     async fn test_users_table_created() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
 
         // Verify users table exists and has correct structure
         let sqlite_pool = pool.as_sqlite().unwrap();
@@ -1232,22 +1257,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_sessions_table_created() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
 
         let sqlite_pool = pool.as_sqlite().unwrap();
 
         // First create a user
-        sqlx::query(
-            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
-        )
-        .bind("testuser")
-        .bind("test@example.com")
-        .bind("hash123")
-        .bind("admin")
-        .execute(sqlite_pool)
-        .await
-        .expect("Failed to create user");
+        sqlx::query("INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)")
+            .bind("testuser")
+            .bind("test@example.com")
+            .bind("hash123")
+            .bind("admin")
+            .execute(sqlite_pool)
+            .await
+            .expect("Failed to create user");
 
         // Then create a session
         let result = sqlx::query(
@@ -1263,8 +1290,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_categories_table_created() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
 
         let sqlite_pool = pool.as_sqlite().unwrap();
 
@@ -1281,8 +1312,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_tags_table_created() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
 
         let sqlite_pool = pool.as_sqlite().unwrap();
 
@@ -1297,22 +1332,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_articles_table_created() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
 
         let sqlite_pool = pool.as_sqlite().unwrap();
 
         // First create a user
-        sqlx::query(
-            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
-        )
-        .bind("author")
-        .bind("author@example.com")
-        .bind("hash123")
-        .bind("author")
-        .execute(sqlite_pool)
-        .await
-        .expect("Failed to create user");
+        sqlx::query("INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)")
+            .bind("author")
+            .bind("author@example.com")
+            .bind("hash123")
+            .bind("author")
+            .execute(sqlite_pool)
+            .await
+            .expect("Failed to create user");
 
         // Create an article
         let result = sqlx::query(
@@ -1333,22 +1370,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_article_tags_table_created() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
 
         let sqlite_pool = pool.as_sqlite().unwrap();
 
         // Create user
-        sqlx::query(
-            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
-        )
-        .bind("author")
-        .bind("author@example.com")
-        .bind("hash123")
-        .bind("author")
-        .execute(sqlite_pool)
-        .await
-        .expect("Failed to create user");
+        sqlx::query("INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)")
+            .bind("author")
+            .bind("author@example.com")
+            .bind("hash123")
+            .bind("author")
+            .execute(sqlite_pool)
+            .await
+            .expect("Failed to create user");
 
         // Create article
         sqlx::query(
@@ -1385,8 +1424,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_settings_table_created() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
 
         let sqlite_pool = pool.as_sqlite().unwrap();
 
@@ -1402,8 +1445,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_foreign_key_constraints() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
 
         let sqlite_pool = pool.as_sqlite().unwrap();
 
@@ -1421,22 +1468,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_unique_constraints() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
 
         let sqlite_pool = pool.as_sqlite().unwrap();
 
         // Create first user
-        sqlx::query(
-            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
-        )
-        .bind("testuser")
-        .bind("test@example.com")
-        .bind("hash123")
-        .bind("admin")
-        .execute(sqlite_pool)
-        .await
-        .expect("Failed to create first user");
+        sqlx::query("INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)")
+            .bind("testuser")
+            .bind("test@example.com")
+            .bind("hash123")
+            .bind("admin")
+            .execute(sqlite_pool)
+            .await
+            .expect("Failed to create first user");
 
         // Try to create user with same username (should fail)
         let result = sqlx::query(
@@ -1454,8 +1503,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_category_parent_self_reference() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
 
         let sqlite_pool = pool.as_sqlite().unwrap();
 
@@ -1475,35 +1528,36 @@ mod tests {
         let parent_id: i64 = row.get("id");
 
         // Create a child category
-        let result =
-            sqlx::query("INSERT INTO categories (slug, name, parent_id) VALUES (?, ?, ?)")
-                .bind("child-cat")
-                .bind("Child Category")
-                .bind(parent_id)
-                .execute(sqlite_pool)
-                .await;
+        let result = sqlx::query("INSERT INTO categories (slug, name, parent_id) VALUES (?, ?, ?)")
+            .bind("child-cat")
+            .bind("Child Category")
+            .bind(parent_id)
+            .execute(sqlite_pool)
+            .await;
 
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_article_status_values() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
-        run_migrations(&pool).await.expect("Failed to run migrations");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
+        run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
 
         let sqlite_pool = pool.as_sqlite().unwrap();
 
         // Create a user
-        sqlx::query(
-            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
-        )
-        .bind("author")
-        .bind("author@example.com")
-        .bind("hash123")
-        .bind("author")
-        .execute(sqlite_pool)
-        .await
-        .expect("Failed to create user");
+        sqlx::query("INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)")
+            .bind("author")
+            .bind("author@example.com")
+            .bind("hash123")
+            .bind("author")
+            .execute(sqlite_pool)
+            .await
+            .expect("Failed to create user");
 
         // Test different status values
         for (i, status) in ["draft", "published", "archived"].iter().enumerate() {
@@ -1520,7 +1574,11 @@ mod tests {
             .execute(sqlite_pool)
             .await;
 
-            assert!(result.is_ok(), "Failed to create article with status: {}", status);
+            assert!(
+                result.is_ok(),
+                "Failed to create article with status: {}",
+                status
+            );
         }
     }
 

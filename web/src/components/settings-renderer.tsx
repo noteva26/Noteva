@@ -180,7 +180,8 @@ export function SettingsField({ field, value, onChange }: SettingsFieldProps) {
           id={field.id}
           value={String(fieldValue)}
           onChange={(event) => onChange(event.target.value)}
-          rows={4}
+          rows={field.rows ?? 4}
+          maxLength={field.maxLength}
         />
       );
     case "select":
@@ -236,6 +237,7 @@ export function SettingsField({ field, value, onChange }: SettingsFieldProps) {
           type={field.secret ? "password" : "text"}
           value={String(fieldValue)}
           onChange={(event) => onChange(event.target.value)}
+          maxLength={field.maxLength}
           placeholder={field.secret ? "********" : undefined}
           onFocus={(event) => {
             if (field.secret && event.target.value === "********") {

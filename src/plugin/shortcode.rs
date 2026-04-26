@@ -2,8 +2,8 @@
 //!
 //! Parses and renders shortcodes like [name attr="value"]content[/name]
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::debug;
 
 /// Parsed shortcode
@@ -54,7 +54,7 @@ impl ShortcodeManager {
             handlers: HashMap::new(),
         }
     }
-    
+
     /// Register a shortcode handler
     pub fn register<F>(&mut self, name: &str, handler: F)
     where
@@ -63,12 +63,12 @@ impl ShortcodeManager {
         debug!("Registered shortcode: [{}]", name);
         self.handlers.insert(name.to_string(), Box::new(handler));
     }
-    
+
     /// Unregister a shortcode handler
     pub fn unregister(&mut self, name: &str) {
         self.handlers.remove(name);
     }
-    
+
     /// Check if a shortcode is registered
     pub fn has_handler(&self, name: &str) -> bool {
         self.handlers.contains_key(name)
@@ -80,7 +80,7 @@ impl ShortcodeManager {
         let chars: Vec<char> = content.chars().collect();
         let len = chars.len();
         let mut i = 0;
-        
+
         while i < len {
             // Look for opening bracket
             if chars[i] == '[' {
@@ -92,80 +92,80 @@ impl ShortcodeManager {
             }
             i += 1;
         }
-        
+
         shortcodes
     }
-    
+
     /// Try to parse a shortcode starting at position
     fn parse_shortcode_at(&self, chars: &[char], start: usize) -> Option<(Shortcode, usize)> {
         let len = chars.len();
         if start >= len || chars[start] != '[' {
             return None;
         }
-        
+
         // Find the end of opening tag
         let mut i = start + 1;
-        
+
         // Skip whitespace
         while i < len && chars[i].is_whitespace() {
             i += 1;
         }
-        
+
         // Parse name
         let name_start = i;
         while i < len && (chars[i].is_alphanumeric() || chars[i] == '-' || chars[i] == '_') {
             i += 1;
         }
-        
+
         if i == name_start {
             return None; // No name found
         }
-        
+
         let name: String = chars[name_start..i].iter().collect();
-        
+
         // Parse attributes until ] or /]
         let mut attrs = HashMap::new();
         let mut is_self_closing = false;
-        
+
         while i < len && chars[i] != ']' {
             // Skip whitespace
             while i < len && chars[i].is_whitespace() {
                 i += 1;
             }
-            
+
             if i >= len {
                 return None;
             }
-            
+
             // Check for self-closing
             if chars[i] == '/' {
                 is_self_closing = true;
                 i += 1;
                 continue;
             }
-            
+
             if chars[i] == ']' {
                 break;
             }
-            
+
             // Parse attribute name
             let attr_name_start = i;
             while i < len && (chars[i].is_alphanumeric() || chars[i] == '-' || chars[i] == '_') {
                 i += 1;
             }
-            
+
             if i == attr_name_start {
                 i += 1; // Skip unknown char
                 continue;
             }
-            
+
             let attr_name: String = chars[attr_name_start..i].iter().collect();
-            
+
             // Skip whitespace and =
             while i < len && (chars[i].is_whitespace() || chars[i] == '=') {
                 i += 1;
             }
-            
+
             // Parse attribute value (quoted)
             if i < len && (chars[i] == '"' || chars[i] == '\'') {
                 let quote = chars[i];
@@ -181,29 +181,32 @@ impl ShortcodeManager {
                 }
             }
         }
-        
+
         if i >= len {
             return None;
         }
-        
+
         i += 1; // Skip ]
-        
+
         let opening_tag_end = i;
-        
+
         if is_self_closing {
             let original: String = chars[start..opening_tag_end].iter().collect();
-            return Some((Shortcode {
-                name,
-                attrs,
-                content: String::new(),
-                original,
-            }, opening_tag_end));
+            return Some((
+                Shortcode {
+                    name,
+                    attrs,
+                    content: String::new(),
+                    original,
+                },
+                opening_tag_end,
+            ));
         }
-        
+
         // Find closing tag [/name]
         let closing_tag = format!("[/{}]", name);
         let content_start = i;
-        
+
         // Search for closing tag
         while i < len {
             if chars[i] == '[' && chars.get(i + 1) == Some(&'/') {
@@ -212,26 +215,29 @@ impl ShortcodeManager {
                     let content: String = chars[content_start..i].iter().collect();
                     let end_pos = i + closing_tag.len();
                     let original: String = chars[start..end_pos].iter().collect();
-                    
-                    return Some((Shortcode {
-                        name,
-                        attrs,
-                        content,
-                        original,
-                    }, end_pos));
+
+                    return Some((
+                        Shortcode {
+                            name,
+                            attrs,
+                            content,
+                            original,
+                        },
+                        end_pos,
+                    ));
                 }
             }
             i += 1;
         }
-        
+
         None // No closing tag found
     }
-    
+
     /// Render all shortcodes in content
     pub fn render(&self, content: &str, context: &ShortcodeContext) -> String {
         let mut result = content.to_string();
         let shortcodes = self.parse(content);
-        
+
         for shortcode in shortcodes {
             if let Some(handler) = self.handlers.get(&shortcode.name) {
                 let rendered = handler(&shortcode, context);
@@ -239,18 +245,23 @@ impl ShortcodeManager {
             }
             // If no handler, leave shortcode as-is
         }
-        
+
         result
     }
-    
+
     /// Render shortcodes with a custom fallback for unknown shortcodes
-    pub fn render_with_fallback<F>(&self, content: &str, context: &ShortcodeContext, fallback: F) -> String
+    pub fn render_with_fallback<F>(
+        &self,
+        content: &str,
+        context: &ShortcodeContext,
+        fallback: F,
+    ) -> String
     where
         F: Fn(&Shortcode) -> String,
     {
         let mut result = content.to_string();
         let shortcodes = self.parse(content);
-        
+
         for shortcode in shortcodes {
             let rendered = if let Some(handler) = self.handlers.get(&shortcode.name) {
                 handler(&shortcode, context)
@@ -259,7 +270,7 @@ impl ShortcodeManager {
             };
             result = result.replace(&shortcode.original, &rendered);
         }
-        
+
         result
     }
 }
@@ -267,7 +278,7 @@ impl ShortcodeManager {
 /// Built-in shortcodes
 pub mod builtins {
     use super::*;
-    
+
     /// Register built-in shortcodes
     pub fn register_builtins(manager: &mut ShortcodeManager) {
         // [note type="info"]content[/note] - Note/callout box
@@ -279,16 +290,15 @@ pub mod builtins {
                 "success" => "shortcode-note shortcode-note-success",
                 _ => "shortcode-note shortcode-note-info",
             };
-            format!(
-                r#"<div class="{}">{}</div>"#,
-                class,
-                shortcode.content
-            )
+            format!(r#"<div class="{}">{}</div>"#, class, shortcode.content)
         });
-        
+
         // [collapse title="Click to expand"]content[/collapse] - Collapsible section
         manager.register("collapse", |shortcode, _ctx| {
-            let title = shortcode.attrs.get("title").map_or("Details", |s| s.as_str());
+            let title = shortcode
+                .attrs
+                .get("title")
+                .map_or("Details", |s| s.as_str());
             format!(
                 r#"<details class="shortcode-collapse">
 <summary>{}</summary>
@@ -298,12 +308,18 @@ pub mod builtins {
                 shortcode.content
             )
         });
-        
+
         // [button url="..." target="_blank"]text[/button] - Button
         manager.register("button", |shortcode, _ctx| {
             let url = shortcode.attrs.get("url").map_or("#", |s| s.as_str());
-            let target = shortcode.attrs.get("target").map_or("_self", |s| s.as_str());
-            let style = shortcode.attrs.get("style").map_or("primary", |s| s.as_str());
+            let target = shortcode
+                .attrs
+                .get("target")
+                .map_or("_self", |s| s.as_str());
+            let style = shortcode
+                .attrs
+                .get("style")
+                .map_or("primary", |s| s.as_str());
             format!(
                 r#"<a href="{}" target="{}" class="shortcode-button shortcode-button-{}">{}</a>"#,
                 html_escape(url),
@@ -312,7 +328,7 @@ pub mod builtins {
                 shortcode.content
             )
         });
-        
+
         // [code lang="rust"]code[/code] - Code block with language
         manager.register("code", |shortcode, _ctx| {
             let lang = shortcode.attrs.get("lang").map_or("", |s| s.as_str());
@@ -322,12 +338,12 @@ pub mod builtins {
                 html_escape(&shortcode.content)
             )
         });
-        
+
         // [quote author="Name" source="Book"]quote[/quote] - Quote with attribution
         manager.register("quote", |shortcode, _ctx| {
             let author = shortcode.attrs.get("author");
             let source = shortcode.attrs.get("source");
-            
+
             let mut footer = String::new();
             if let Some(a) = author {
                 footer.push_str(&format!("— {}", html_escape(a)));
@@ -335,9 +351,12 @@ pub mod builtins {
             if let Some(s) = source {
                 footer.push_str(&format!(", <cite>{}</cite>", html_escape(s)));
             }
-            
+
             if footer.is_empty() {
-                format!(r#"<blockquote class="shortcode-quote">{}</blockquote>"#, shortcode.content)
+                format!(
+                    r#"<blockquote class="shortcode-quote">{}</blockquote>"#,
+                    shortcode.content
+                )
             } else {
                 format!(
                     r#"<blockquote class="shortcode-quote">{}<footer>{}</footer></blockquote>"#,
@@ -345,7 +364,7 @@ pub mod builtins {
                 )
             }
         });
-        
+
         // [video url="..." /] or [video src="..." poster="..." /] - Video embed
         manager.register("video", |shortcode, _ctx| {
             let url = shortcode.attrs.get("src")
@@ -377,7 +396,7 @@ pub mod builtins {
                 )
             }
         });
-        
+
         // [audio src="..." /] - Audio player
         manager.register("audio", |shortcode, _ctx| {
             let url = shortcode.attrs.get("src")
@@ -399,14 +418,16 @@ pub mod builtins {
                 )
             }
         });
-        
+
         // [hide-until-reply]content[/hide-until-reply] - Hidden content until user replies
         // Note: The actual unlock logic is handled by the frontend plugin
         manager.register("hide-until-reply", |shortcode, ctx| {
-            let placeholder = shortcode.attrs.get("placeholder")
+            let placeholder = shortcode
+                .attrs
+                .get("placeholder")
                 .map_or("回复后可见", |s| s.as_str());
             let article_id = ctx.article_id.unwrap_or(0);
-            
+
             format!(
                 r#"<div class="noteva-hidden-content" data-article-id="{}">
   <div class="noteva-placeholder">
@@ -451,7 +472,7 @@ pub mod builtins {
             )
         });
     }
-    
+
     /// HTML escape helper
     fn html_escape(s: &str) -> String {
         s.replace('&', "&amp;")
@@ -460,7 +481,7 @@ pub mod builtins {
             .replace('"', "&quot;")
             .replace('\'', "&#39;")
     }
-    
+
     /// Extract YouTube video ID from URL
     fn extract_youtube_id(url: &str) -> &str {
         if let Some(pos) = url.find("v=") {
@@ -475,12 +496,14 @@ pub mod builtins {
             ""
         }
     }
-    
+
     /// Extract Bilibili video ID from URL
     fn extract_bilibili_id(url: &str) -> &str {
         if let Some(pos) = url.find("/BV") {
             let start = pos + 1;
-            let end = url[start..].find(['/', '?']).map_or(url.len(), |p| start + p);
+            let end = url[start..]
+                .find(['/', '?'])
+                .map_or(url.len(), |p| start + p);
             &url[start..end]
         } else {
             ""
@@ -491,40 +514,46 @@ pub mod builtins {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parse_shortcode() {
         let manager = ShortcodeManager::new();
         let content = r#"Hello [note type="warning"]This is a warning[/note] world"#;
         let shortcodes = manager.parse(content);
-        
+
         assert_eq!(shortcodes.len(), 1);
         assert_eq!(shortcodes[0].name, "note");
-        assert_eq!(shortcodes[0].attrs.get("type"), Some(&"warning".to_string()));
+        assert_eq!(
+            shortcodes[0].attrs.get("type"),
+            Some(&"warning".to_string())
+        );
         assert_eq!(shortcodes[0].content, "This is a warning");
     }
-    
+
     #[test]
     fn test_parse_self_closing() {
         let manager = ShortcodeManager::new();
         let content = r#"Check this [video url="https://youtube.com/watch?v=123" /] out"#;
         let shortcodes = manager.parse(content);
-        
+
         assert_eq!(shortcodes.len(), 1);
         assert_eq!(shortcodes[0].name, "video");
-        assert_eq!(shortcodes[0].attrs.get("url"), Some(&"https://youtube.com/watch?v=123".to_string()));
+        assert_eq!(
+            shortcodes[0].attrs.get("url"),
+            Some(&"https://youtube.com/watch?v=123".to_string())
+        );
         assert!(shortcodes[0].content.is_empty());
     }
-    
+
     #[test]
     fn test_render_shortcode() {
         let mut manager = ShortcodeManager::new();
         manager.register("upper", |sc, _| sc.content.to_uppercase());
-        
+
         let content = "Hello [upper]world[/upper]!";
         let ctx = ShortcodeContext::default();
         let result = manager.render(content, &ctx);
-        
+
         assert_eq!(result, "Hello WORLD!");
     }
 }

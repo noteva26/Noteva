@@ -91,7 +91,10 @@ pub async fn upsert_locale(code: &str, name: &str, json_content: &str) -> Result
     ensure_dir().await?;
 
     let translations: serde_json::Value = serde_json::from_str(json_content)?;
-    let file = LocaleFile { name: name.to_string(), translations };
+    let file = LocaleFile {
+        name: name.to_string(),
+        translations,
+    };
     let content = serde_json::to_string_pretty(&file)?;
 
     fs::write(locale_path(code), content).await?;

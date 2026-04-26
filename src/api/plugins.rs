@@ -30,7 +30,11 @@ fn collect_secret_fields(schema: &serde_json::Value) -> Vec<String> {
         for section in sections {
             if let Some(fields) = section.get("fields").and_then(|f| f.as_array()) {
                 for field in fields {
-                    if field.get("secret").and_then(|s| s.as_bool()).unwrap_or(false) {
+                    if field
+                        .get("secret")
+                        .and_then(|s| s.as_bool())
+                        .unwrap_or(false)
+                    {
                         if let Some(id) = field.get("id").and_then(|i| i.as_str()) {
                             secrets.push(id.to_string());
                         }
@@ -50,6 +54,7 @@ pub struct PluginResponse {
     pub version: String,
     pub description: String,
     pub author: String,
+    pub repository: String,
     pub enabled: bool,
     pub has_settings: bool,
     pub has_wasm: bool,
@@ -107,7 +112,10 @@ pub fn router() -> Router<AppState> {
         // Plugin data routes (public, for plugin use)
         .route("/{id}/data/{key}", get(get_plugin_data))
         .route("/{id}/data/{key}", axum::routing::put(set_plugin_data))
-        .route("/{id}/data/{key}", axum::routing::delete(delete_plugin_data))
+        .route(
+            "/{id}/data/{key}",
+            axum::routing::delete(delete_plugin_data),
+        )
         // Plugin action route (triggers plugin_action hook)
         .route("/{id}/action/{action}", post(plugin_action))
 }
@@ -119,11 +127,13 @@ async fn list_plugins(
 ) -> Result<Json<PluginListResponse>, ApiError> {
     let manager = state.plugin_manager.read().await;
     let wasm_reg = state.wasm_registry.read().await;
-    
-    let plugins: Vec<PluginResponse> = manager.get_all()
+
+    let plugins: Vec<PluginResponse> = manager
+        .get_all()
         .iter()
         .map(|p| {
-            let version_check = check_version_requirement(&p.metadata.requires.noteva, NOTEVA_VERSION);
+            let version_check =
+                check_version_requirement(&p.metadata.requires.noteva, NOTEVA_VERSION);
             let has_wasm = p.path.join("backend.wasm").exists();
             let wasm_loaded = wasm_reg.has_plugin(&p.metadata.id);
             PluginResponse {
@@ -132,6 +142,7 @@ async fn list_plugins(
                 version: p.metadata.version.clone(),
                 description: p.metadata.description.clone(),
                 author: p.metadata.author.clone(),
+                repository: p.metadata.repository.clone(),
                 enabled: p.enabled,
                 has_settings: p.metadata.settings,
                 has_wasm,
@@ -144,7 +155,7 @@ async fn list_plugins(
             }
         })
         .collect();
-    
+
     Ok(Json(PluginListResponse { plugins }))
 }
 
@@ -162,16 +173,17 @@ async fn get_enabled_plugins(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<EnabledPluginInfo>>, ApiError> {
     let manager = state.plugin_manager.read().await;
-    
-    let plugins: Vec<EnabledPluginInfo> = manager.get_enabled()
+
+    let plugins: Vec<EnabledPluginInfo> = manager
+        .get_enabled()
         .iter()
         .map(|p| {
             // Filter out secret settings
             let filtered_settings = filter_secret_settings(p);
-            
+
             // Get editor config if exists
             let editor_config = p.get_editor_config();
-            
+
             EnabledPluginInfo {
                 id: p.metadata.id.clone(),
                 settings: filtered_settings,
@@ -179,12 +191,12 @@ async fn get_enabled_plugins(
             }
         })
         .collect();
-    
+
     Ok(Json(plugins))
 }
 
 /// Filter out secret settings from plugin settings
-/// 
+///
 /// Reads the plugin's settings.json schema and removes any fields marked with "secret": true
 fn filter_secret_settings(plugin: &crate::plugin::Plugin) -> HashMap<String, serde_json::Value> {
     // Get settings schema
@@ -192,10 +204,10 @@ fn filter_secret_settings(plugin: &crate::plugin::Plugin) -> HashMap<String, ser
         Some(s) => s,
         None => return plugin.settings.clone(), // No schema, return all settings
     };
-    
+
     // Extract secret field IDs from schema
     let mut secret_fields = std::collections::HashSet::new();
-    
+
     if let Some(sections) = schema.get("sections").and_then(|v| v.as_array()) {
         for section in sections {
             if let Some(fields) = section.get("fields").and_then(|v| v.as_array()) {
@@ -210,13 +222,13 @@ fn filter_secret_settings(plugin: &crate::plugin::Plugin) -> HashMap<String, ser
             }
         }
     }
-    
+
     // Filter out secret fields
     let mut filtered = plugin.settings.clone();
     for secret_field in secret_fields {
         filtered.remove(&secret_field);
     }
-    
+
     filtered
 }
 
@@ -227,20 +239,22 @@ async fn get_plugin(
     Path(id): Path<String>,
 ) -> Result<Json<PluginResponse>, ApiError> {
     let manager = state.plugin_manager.read().await;
-    
-    let plugin = manager.get(&id)
+
+    let plugin = manager
+        .get(&id)
         .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", id)))?;
-    
+
     let version_check = check_version_requirement(&plugin.metadata.requires.noteva, NOTEVA_VERSION);
     let has_wasm = plugin.path.join("backend.wasm").exists();
     let wasm_loaded = state.wasm_registry.read().await.has_plugin(&id);
-    
+
     Ok(Json(PluginResponse {
         id: plugin.metadata.id.clone(),
         name: plugin.metadata.name.clone(),
         version: plugin.metadata.version.clone(),
         description: plugin.metadata.description.clone(),
         author: plugin.metadata.author.clone(),
+        repository: plugin.metadata.repository.clone(),
         enabled: plugin.enabled,
         has_settings: plugin.metadata.settings,
         has_wasm,
@@ -254,7 +268,7 @@ async fn get_plugin(
 }
 
 /// POST /api/v1/plugins/:id/toggle - Enable/disable plugin
-/// 
+///
 /// # Hooks
 /// - `plugin_activate` - Triggered when a plugin is enabled
 /// - `plugin_deactivate` - Triggered when a plugin is disabled
@@ -265,19 +279,23 @@ async fn toggle_plugin(
     Json(body): Json<PluginToggleRequest>,
 ) -> Result<Json<PluginResponse>, ApiError> {
     use crate::plugin::hook_names;
-    
+
     {
         let mut manager = state.plugin_manager.write().await;
-        
+
         if body.enabled {
-            manager.enable(&id).await
+            manager
+                .enable(&id)
+                .await
                 .map_err(|e| ApiError::internal_error(e.to_string()))?;
         } else {
-            manager.disable(&id).await
+            manager
+                .disable(&id)
+                .await
                 .map_err(|e| ApiError::internal_error(e.to_string()))?;
         }
     }
-    
+
     // Handle WASM plugin loading/unloading (subprocess-isolated, safe on all platforms)
     if body.enabled {
         let manager = state.plugin_manager.read().await;
@@ -289,7 +307,9 @@ async fn toggle_plugin(
                     &state.hook_manager,
                     &state.wasm_registry,
                     &state.pool,
-                ).await {
+                )
+                .await
+                {
                     tracing::warn!("Failed to load WASM module for plugin '{}': {}", id, e);
                 }
             }
@@ -299,7 +319,7 @@ async fn toggle_plugin(
         if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             state.hook_manager.trigger(
                 hook_names::PLUGIN_DESTROY,
-                serde_json::json!({ "plugin_id": id })
+                serde_json::json!({ "plugin_id": id }),
             );
         })) {
             tracing::error!("plugin_destroy hook panicked for plugin '{}': {:?}", id, e);
@@ -310,11 +330,13 @@ async fn toggle_plugin(
             &state.wasm_runtime,
             &state.hook_manager,
             &state.wasm_registry,
-        ).await {
+        )
+        .await
+        {
             tracing::warn!("Failed to unload WASM module for plugin '{}': {}", id, e);
         }
     }
-    
+
     // Trigger hooks after WASM handling
     if body.enabled {
         // Check for version upgrade and trigger plugin_upgrade if needed
@@ -323,20 +345,20 @@ async fn toggle_plugin(
             if let Some(plugin) = manager.get(&id) {
                 let current_version = plugin.metadata.version.clone();
                 let plugin_id = id.clone();
-                
+
                 // Drop read lock before calling async methods that need it
                 drop(manager);
-                
+
                 let last_version = {
                     let mgr = state.plugin_manager.read().await;
                     mgr.get_last_version(&plugin_id).await.unwrap_or(None)
                 };
-                
+
                 let should_upgrade = match &last_version {
                     Some(lv) => lv != &current_version,
                     None => false, // First time enable, no upgrade needed
                 };
-                
+
                 if should_upgrade {
                     let old_ver = last_version.unwrap_or_default();
                     if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -346,17 +368,25 @@ async fn toggle_plugin(
                                 "plugin_id": plugin_id,
                                 "old_version": old_ver,
                                 "new_version": current_version
-                            })
+                            }),
                         );
                     })) {
-                        tracing::error!("plugin_upgrade hook panicked for plugin '{}': {:?}", plugin_id, e);
+                        tracing::error!(
+                            "plugin_upgrade hook panicked for plugin '{}': {:?}",
+                            plugin_id,
+                            e
+                        );
                     }
                 }
-                
+
                 // Always update last_version to current version on enable
                 let mgr = state.plugin_manager.read().await;
                 if let Err(e) = mgr.update_last_version(&plugin_id, &current_version).await {
-                    tracing::error!("Failed to update last_version for plugin '{}': {}", plugin_id, e);
+                    tracing::error!(
+                        "Failed to update last_version for plugin '{}': {}",
+                        plugin_id,
+                        e
+                    );
                 }
             }
         }
@@ -364,10 +394,18 @@ async fn toggle_plugin(
         // Trigger plugin_activate (filter hook) — plugin can deny activation
         // Build rich hook data with site info for license verification
         let activate_data = {
-            let site_url = state.settings_service.get("site_url").await.ok().flatten().unwrap_or_default();
+            let site_url = state
+                .settings_service
+                .get("site_url")
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
             let plugin_version = {
                 let mgr = state.plugin_manager.read().await;
-                mgr.get(&id).map(|p| p.metadata.version.clone()).unwrap_or_default()
+                mgr.get(&id)
+                    .map(|p| p.metadata.version.clone())
+                    .unwrap_or_default()
             };
             serde_json::json!({
                 "plugin_id": id,
@@ -377,46 +415,55 @@ async fn toggle_plugin(
             })
         };
 
-        let activate_result = state.hook_manager.trigger(
-            hook_names::PLUGIN_ACTIVATE,
-            activate_data,
-        );
+        let activate_result = state
+            .hook_manager
+            .trigger(hook_names::PLUGIN_ACTIVATE, activate_data);
 
         // Check if plugin denied activation
         if activate_result.get("allow").and_then(|v| v.as_bool()) == Some(false) {
-            let message = activate_result.get("message")
+            let message = activate_result
+                .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Plugin denied activation");
             tracing::warn!("Plugin '{}' denied activation: {}", id, message);
 
             // Rollback: unload WASM and disable plugin
             let _ = crate::plugin::wasm_bridge::unload_wasm_plugin(
-                &id, &state.wasm_runtime, &state.hook_manager, &state.wasm_registry,
-            ).await;
+                &id,
+                &state.wasm_runtime,
+                &state.hook_manager,
+                &state.wasm_registry,
+            )
+            .await;
             {
                 let mut manager = state.plugin_manager.write().await;
                 let _ = manager.disable(&id).await;
             }
 
             return Err(ApiError::validation_error(format!(
-                "Plugin activation denied: {}", message
+                "Plugin activation denied: {}",
+                message
             )));
         }
     } else {
         state.hook_manager.trigger(
             hook_names::PLUGIN_DEACTIVATE,
-            serde_json::json!({ "plugin_id": id })
+            serde_json::json!({ "plugin_id": id }),
         );
     }
-    
+
     // Re-acquire read lock to get updated plugin info
     let manager = state.plugin_manager.read().await;
-    let plugin = manager.get(&id)
+    let plugin = manager
+        .get(&id)
         .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", id)))?;
 
     // Auto-create pages declared by the plugin (non-destructive, skips existing)
     if body.enabled && !plugin.metadata.pages.is_empty() {
-        let pages: Vec<(String, String)> = plugin.metadata.pages.iter()
+        let pages: Vec<(String, String)> = plugin
+            .metadata
+            .pages
+            .iter()
             .map(|p| (p.slug.clone(), p.title.clone()))
             .collect();
         let source = format!("plugin:{}", id);
@@ -424,17 +471,18 @@ async fn toggle_plugin(
             tracing::warn!("Failed to auto-create pages for plugin '{}': {}", id, e);
         }
     }
-    
+
     let version_check = check_version_requirement(&plugin.metadata.requires.noteva, NOTEVA_VERSION);
     let has_wasm = plugin.path.join("backend.wasm").exists();
     let wasm_loaded = state.wasm_registry.read().await.has_plugin(&id);
-    
+
     Ok(Json(PluginResponse {
         id: plugin.metadata.id.clone(),
         name: plugin.metadata.name.clone(),
         version: plugin.metadata.version.clone(),
         description: plugin.metadata.description.clone(),
         author: plugin.metadata.author.clone(),
+        repository: plugin.metadata.repository.clone(),
         enabled: plugin.enabled,
         has_settings: plugin.metadata.settings,
         has_wasm,
@@ -455,8 +503,9 @@ async fn get_wasm_status(
     let runtime = state.wasm_runtime.read().await;
     let _registry = state.wasm_registry.read().await;
     let manager = state.plugin_manager.read().await;
-    
-    let loaded_plugins: Vec<serde_json::Value> = runtime.list_plugins()
+
+    let loaded_plugins: Vec<serde_json::Value> = runtime
+        .list_plugins()
         .into_iter()
         .map(|info| {
             serde_json::json!({
@@ -468,14 +517,15 @@ async fn get_wasm_status(
             })
         })
         .collect();
-    
+
     // Count plugins with WASM support
-    let wasm_capable: Vec<String> = manager.get_all()
+    let wasm_capable: Vec<String> = manager
+        .get_all()
         .iter()
         .filter(|p| p.path.join("backend.wasm").exists())
         .map(|p| p.metadata.id.clone())
         .collect();
-    
+
     Ok(Json(serde_json::json!({
         "runtime_active": true,
         "loaded_count": loaded_plugins.len(),
@@ -492,10 +542,12 @@ async fn get_plugin_settings(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let manager = state.plugin_manager.read().await;
 
-    let plugin = manager.get(&id)
+    let plugin = manager
+        .get(&id)
         .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", id)))?;
 
-    let schema = plugin.get_settings_schema()
+    let schema = plugin
+        .get_settings_schema()
         .unwrap_or(serde_json::json!({}));
 
     // Mask secret fields in returned values
@@ -505,7 +557,10 @@ async fn get_plugin_settings(
         if let Some(val) = masked_values.get(field_id) {
             if let Some(s) = val.as_str() {
                 if !s.is_empty() {
-                    masked_values.insert(field_id.clone(), serde_json::Value::String(SECRET_MASK.to_string()));
+                    masked_values.insert(
+                        field_id.clone(),
+                        serde_json::Value::String(SECRET_MASK.to_string()),
+                    );
                 }
             }
         }
@@ -517,7 +572,6 @@ async fn get_plugin_settings(
     })))
 }
 
-
 /// POST /api/v1/plugins/:id/settings - Update plugin settings
 async fn update_plugin_settings(
     State(state): State<AppState>,
@@ -525,37 +579,58 @@ async fn update_plugin_settings(
     Path(id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    use crate::plugin::validation;
+
     let mut manager = state.plugin_manager.write().await;
-    
+
     // Get current plugin to read schema and existing settings
-    let (secret_fields, old_settings) = {
-        let plugin = manager.get(&id)
+    let (secret_fields, old_settings, schema_fields) = {
+        let plugin = manager
+            .get(&id)
             .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", id)))?;
-        let schema = plugin.get_settings_schema().unwrap_or(serde_json::json!({}));
-        (collect_secret_fields(&schema), plugin.settings.clone())
+        let schema = plugin
+            .get_settings_schema()
+            .unwrap_or(serde_json::json!({}));
+        let schema_fields = validation::collect_settings_fields(&schema)
+            .into_iter()
+            .map(|(key, field)| (key, field.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        (
+            collect_secret_fields(&schema),
+            plugin.settings.clone(),
+            schema_fields,
+        )
     };
-    
-    // Convert body to HashMap
-    let mut settings: std::collections::HashMap<String, serde_json::Value> = body
+
+    let obj = body
         .as_object()
-        .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-        .unwrap_or_default();
-    
-    // For secret fields: if the value is the mask placeholder, restore the original value
-    for field_id in &secret_fields {
-        if let Some(val) = settings.get(field_id) {
-            if val.as_str() == Some(SECRET_MASK) {
-                if let Some(original) = old_settings.get(field_id) {
-                    settings.insert(field_id.clone(), original.clone());
-                }
+        .ok_or_else(|| ApiError::validation_error("Plugin settings payload must be an object"))?;
+
+    let mut settings = std::collections::HashMap::new();
+
+    for (field_id, value) in obj {
+        let field = schema_fields.get(field_id).ok_or_else(|| {
+            ApiError::validation_error(format!("Unknown plugin setting '{}'", field_id))
+        })?;
+
+        if secret_fields.contains(field_id) && value.as_str() == Some(SECRET_MASK) {
+            if let Some(original) = old_settings.get(field_id) {
+                settings.insert(field_id.clone(), original.clone());
             }
+            continue;
         }
+
+        let coerced = validation::coerce_plugin_setting_value(field, value)
+            .map_err(|e| ApiError::validation_error(e.to_string()))?;
+        settings.insert(field_id.clone(), coerced);
     }
-    
+
     // Update settings (this also persists to database)
-    manager.update_settings(&id, settings.clone()).await
+    manager
+        .update_settings(&id, settings.clone())
+        .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
-    
+
     Ok(Json(serde_json::json!({
         "success": true,
         "settings": settings
@@ -563,12 +638,10 @@ async fn update_plugin_settings(
 }
 
 /// GET /api/v1/plugins/assets/plugins.js - Combined JS for all enabled plugins
-async fn get_plugins_js(
-    State(state): State<AppState>,
-) -> Response {
+async fn get_plugins_js(State(state): State<AppState>) -> Response {
     let manager = state.plugin_manager.read().await;
     let js = manager.get_combined_frontend_js();
-    
+
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/javascript")
@@ -578,12 +651,10 @@ async fn get_plugins_js(
 }
 
 /// GET /api/v1/plugins/assets/plugins.css - Combined CSS for all enabled plugins
-async fn get_plugins_css(
-    State(state): State<AppState>,
-) -> Response {
+async fn get_plugins_css(State(state): State<AppState>) -> Response {
     let manager = state.plugin_manager.read().await;
     let css = manager.get_combined_frontend_css();
-    
+
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/css")
@@ -595,16 +666,12 @@ async fn get_plugins_css(
 // Public handlers (no auth required)
 
 /// GET /api/v1/plugins/assets/plugins.js - Public endpoint
-pub async fn get_plugins_js_public(
-    State(state): State<AppState>,
-) -> Response {
+pub async fn get_plugins_js_public(State(state): State<AppState>) -> Response {
     get_plugins_js(State(state)).await
 }
 
 /// GET /api/v1/plugins/assets/plugins.css - Public endpoint
-pub async fn get_plugins_css_public(
-    State(state): State<AppState>,
-) -> Response {
+pub async fn get_plugins_css_public(State(state): State<AppState>) -> Response {
     get_plugins_css(State(state)).await
 }
 
@@ -681,7 +748,10 @@ async fn get_plugin_store(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
 ) -> Result<Json<PluginStoreResponse>, ApiError> {
-    let store_url = state.store_url.as_deref().unwrap_or("https://store.noteva.org");
+    let store_url = state
+        .store_url
+        .as_deref()
+        .unwrap_or("https://store.noteva.org");
 
     let client = reqwest::Client::builder()
         .user_agent("Noteva")
@@ -691,14 +761,19 @@ async fn get_plugin_store(
         .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
 
     let url = format!("{}/api/v1/store/plugins?per_page=100", store_url);
-    let response = client.get(&url).send().await
+    let response = client
+        .get(&url)
+        .send()
+        .await
         .map_err(|e| ApiError::internal_error(format!("Failed to fetch store: {}", e)))?;
 
     if !response.status().is_success() {
         return Ok(Json(PluginStoreResponse { plugins: vec![] }));
     }
 
-    let store_data: StoreApiListResponse = response.json().await
+    let store_data: StoreApiListResponse = response
+        .json()
+        .await
         .map_err(|e| ApiError::internal_error(format!("Failed to parse store response: {}", e)))?;
 
     // Get installed plugins
@@ -709,28 +784,41 @@ async fn get_plugin_store(
         .map(|p| p.metadata.id.clone())
         .collect();
 
-    let plugins: Vec<StorePluginInfo> = store_data.items.into_iter().map(|item| {
-        let cover = if item.cover_image.is_empty() { None } else { Some(item.cover_image) };
-        let effective_id = if item.plugin_id.is_empty() { item.slug.clone() } else { item.plugin_id.clone() };
-        StorePluginInfo {
-            installed: installed_ids.contains(&item.plugin_id) || installed_ids.contains(&item.slug),
-            slug: effective_id,
-            name: item.name,
-            version: item.version,
-            description: item.description,
-            author: item.author,
-            cover_image: cover,
-            github_url: item.github_url,
-            external_url: item.external_url,
-            license_type: item.license_type,
-            price_info: item.price_info,
-            download_source: item.download_source,
-            download_count: item.download_count,
-            avg_rating: None,
-            rating_count: None,
-            tags: item.tags,
-        }
-    }).collect();
+    let plugins: Vec<StorePluginInfo> = store_data
+        .items
+        .into_iter()
+        .map(|item| {
+            let cover = if item.cover_image.is_empty() {
+                None
+            } else {
+                Some(item.cover_image)
+            };
+            let effective_id = if item.plugin_id.is_empty() {
+                item.slug.clone()
+            } else {
+                item.plugin_id.clone()
+            };
+            StorePluginInfo {
+                installed: installed_ids.contains(&item.plugin_id)
+                    || installed_ids.contains(&item.slug),
+                slug: effective_id,
+                name: item.name,
+                version: item.version,
+                description: item.description,
+                author: item.author,
+                cover_image: cover,
+                github_url: item.github_url,
+                external_url: item.external_url,
+                license_type: item.license_type,
+                price_info: item.price_info,
+                download_source: item.download_source,
+                download_count: item.download_count,
+                avg_rating: None,
+                rating_count: None,
+                tags: item.tags,
+            }
+        })
+        .collect();
 
     Ok(Json(PluginStoreResponse { plugins }))
 }
@@ -787,28 +875,34 @@ async fn check_plugin_updates(
         .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
 
     let url = format!("{}/api/v1/store/check-updates", store_url);
-    let response = client.post(&url)
+    let response = client
+        .post(&url)
         .json(&StoreCheckUpdatesRequest { items: installed })
-        .send().await
+        .send()
+        .await
         .map_err(|e| ApiError::internal_error(format!("Failed to check updates: {}", e)))?;
 
     if !response.status().is_success() {
         return Ok(Json(PluginUpdatesResponse { updates: vec![] }));
     }
 
-    let store_updates: Vec<StoreUpdateInfo> = response.json().await
+    let store_updates: Vec<StoreUpdateInfo> = response
+        .json()
+        .await
         .map_err(|e| ApiError::internal_error(format!("Failed to parse updates: {}", e)))?;
 
-    let updates = store_updates.into_iter().map(|u| PluginUpdateInfo {
-        id: u.slug,
-        current_version: u.current_version,
-        latest_version: u.latest_version,
-        has_update: true,
-    }).collect();
+    let updates = store_updates
+        .into_iter()
+        .map(|u| PluginUpdateInfo {
+            id: u.slug,
+            current_version: u.current_version,
+            latest_version: u.latest_version,
+            has_update: true,
+        })
+        .collect();
 
     Ok(Json(PluginUpdatesResponse { updates }))
 }
-
 
 // ============================================
 // Plugin Data API
@@ -832,14 +926,15 @@ pub async fn get_plugin_data(
     Path((plugin_id, key)): Path<(String, String)>,
 ) -> Result<Json<PluginDataResponse>, ApiError> {
     use crate::db::repositories::{PluginDataRepository, SqlxPluginDataRepository};
-    
+
     let repo = SqlxPluginDataRepository::new(state.pool.clone());
-    
-    let value = repo.get(&plugin_id, &key)
+
+    let value = repo
+        .get(&plugin_id, &key)
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to get plugin data: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Data not found"))?;
-    
+
     Ok(Json(PluginDataResponse { value }))
 }
 
@@ -850,13 +945,13 @@ pub async fn set_plugin_data(
     Json(body): Json<PluginDataRequest>,
 ) -> Result<StatusCode, ApiError> {
     use crate::db::repositories::{PluginDataRepository, SqlxPluginDataRepository};
-    
+
     let repo = SqlxPluginDataRepository::new(state.pool.clone());
-    
+
     repo.set(&plugin_id, &key, &body.value)
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to set plugin data: {}", e)))?;
-    
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -866,13 +961,14 @@ pub async fn delete_plugin_data(
     Path((plugin_id, key)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
     use crate::db::repositories::{PluginDataRepository, SqlxPluginDataRepository};
-    
+
     let repo = SqlxPluginDataRepository::new(state.pool.clone());
-    
-    let deleted = repo.delete(&plugin_id, &key)
+
+    let deleted = repo
+        .delete(&plugin_id, &key)
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to delete plugin data: {}", e)))?;
-    
+
     if deleted {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -915,7 +1011,8 @@ async fn plugin_action(
     // Verify plugin exists and is enabled
     {
         let manager = state.plugin_manager.read().await;
-        let plugin = manager.get(&plugin_id)
+        let plugin = manager
+            .get(&plugin_id)
             .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", plugin_id)))?;
         if !plugin.enabled {
             return Err(ApiError::new("BAD_REQUEST", "Plugin is not enabled"));
@@ -934,7 +1031,9 @@ async fn plugin_action(
     }
 
     // Trigger the plugin_action hook
-    let result = state.hook_manager.trigger(hook_names::PLUGIN_ACTION, hook_data);
+    let result = state
+        .hook_manager
+        .trigger(hook_names::PLUGIN_ACTION, hook_data);
 
     // The hook system injects plugin settings into hook data (including secrets).
     // Strip ALL plugin settings keys and internal metadata from the response
@@ -952,7 +1051,11 @@ async fn plugin_action(
                 }
             }
         }
-        if map.is_empty() { None } else { Some(serde_json::Value::Object(map)) }
+        if map.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(map))
+        }
     } else {
         None
     };
@@ -978,7 +1081,8 @@ pub async fn plugin_api_handler(
     // Verify plugin exists, is enabled, and has api: true
     let (wasm_path, permissions, plugin_settings) = {
         let manager = state.plugin_manager.read().await;
-        let plugin = manager.get(&plugin_id)
+        let plugin = manager
+            .get(&plugin_id)
             .ok_or_else(|| ApiError::not_found(format!("Plugin not found: {}", plugin_id)))?;
         if !plugin.enabled {
             return Err(ApiError::new("BAD_REQUEST", "Plugin is not enabled"));
@@ -993,7 +1097,11 @@ pub async fn plugin_api_handler(
         let abs_path = std::fs::canonicalize(&wasm_path)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| wasm_path.to_string_lossy().to_string());
-        (abs_path, plugin.metadata.permissions.clone(), plugin.settings.clone())
+        (
+            abs_path,
+            plugin.metadata.permissions.clone(),
+            plugin.settings.clone(),
+        )
     };
 
     // Build request data for the WASM function
@@ -1018,20 +1126,22 @@ pub async fn plugin_api_handler(
     let pid = plugin_id.clone();
     let result = tokio::task::spawn_blocking(move || {
         crate::plugin::wasm_bridge::execute_plugin_api_request(
-            &wasm_path, &pid, &permissions, &request_data, &pool,
+            &wasm_path,
+            &pid,
+            &permissions,
+            &request_data,
+            &pool,
         )
     })
     .await
     .map_err(|e| ApiError::internal_error(format!("Task join error: {}", e)))?;
 
     match result {
-        Some((status, content_type, body)) => {
-            Response::builder()
-                .status(status)
-                .header(header::CONTENT_TYPE, content_type)
-                .body(Body::from(body))
-                .map_err(|e| ApiError::internal_error(e.to_string()))
-        }
+        Some((status, content_type, body)) => Response::builder()
+            .status(status)
+            .header(header::CONTENT_TYPE, content_type)
+            .body(Body::from(body))
+            .map_err(|e| ApiError::internal_error(e.to_string())),
         None => Err(ApiError::internal_error(
             "Plugin API handler returned no response",
         )),

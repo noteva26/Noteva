@@ -380,6 +380,25 @@
     "2faDisableRequired": "Password and verification code are required",
     "2faDisabled": "Two-factor authentication disabled"
   },
+  "version": {
+    "title": "Version",
+    "openMenu": "Version status",
+    "current": "Current",
+    "latest": "Latest",
+    "notChecked": "Not checked",
+    "checking": "Checking...",
+    "upToDate": "Up to date",
+    "updateAvailable": "Update available",
+    "checkFailed": "Check failed",
+    "restarting": "Restarting...",
+    "checkNow": "Check now",
+    "checkedAt": "Checked {time}",
+    "viewRelease": "View release",
+    "stableHint": "Check GitHub releases without leaving the dashboard.",
+    "updateHint": "A newer Noteva release is ready to install.",
+    "confirmTitle": "Update Noteva",
+    "confirmDescription": "Update to v{version}? The program will replace the current binary and restart automatically. The dashboard may be unavailable for a short time."
+  },
   "theme": {
     "light": "Light",
     "dark": "Dark",
@@ -728,7 +747,7 @@
     "pluginInstalled": "Plugin '{name}' installed successfully",
     "pluginInstalledFrom": "Plugin '{name}' installed successfully (from {repo})",
     "pluginUpdated": "Plugin '{name}' updated from {from} to {to}",
-    "No usable theme files found in repository. Requires theme.json, and theme must be pre-compiled (not source code)": "No usable theme files found in repository. Requires theme.json, and theme must be pre-compiled (not source code)",
+    "No usable theme files found in repository. Requires theme.json and dist/index.html": "No usable theme files found in repository. Requires theme.json and dist/index.html",
     "No usable plugin files found in repository. Requires plugin.json, and WASM plugins must include compiled .wasm files": "No usable plugin files found in repository. Requires plugin.json, and WASM plugins must include compiled .wasm files"
   }
 }

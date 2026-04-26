@@ -52,17 +52,16 @@ author = "Test Author"
     theme_path
 }
 
-
 #[test]
 fn test_theme_engine_creation() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
-    
+
     // Create default theme
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     assert_eq!(engine.get_current_theme(), "default");
     assert_eq!(engine.get_default_theme(), "default");
 }
@@ -71,12 +70,12 @@ fn test_theme_engine_creation() {
 fn test_theme_engine_creation_creates_themes_dir() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
-    
+
     // Create default theme first (engine needs at least one theme)
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     assert!(themes_path.exists());
     assert_eq!(engine.get_current_theme(), "default");
 }
@@ -86,15 +85,15 @@ fn test_render_template() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let mut context = TeraContext::new();
     context.insert("site_name", "My Blog");
     context.insert("site_description", "A great blog");
-    
+
     let result = engine.render("index.html", &context).unwrap();
-    
+
     assert!(result.contains("My Blog"));
     assert!(result.contains("A great blog"));
 }
@@ -104,18 +103,19 @@ fn test_render_with_standard_vars() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let context = TeraContext::new();
     let standard_vars = StandardTemplateVars::new("My Blog", "A great blog", "/");
-    
-    let result = engine.render_with_standard_vars("index.html", &context, &standard_vars).unwrap();
-    
+
+    let result = engine
+        .render_with_standard_vars("index.html", &context, &standard_vars)
+        .unwrap();
+
     assert!(result.contains("My Blog"));
     assert!(result.contains("A great blog"));
 }
-
 
 #[test]
 fn test_set_theme() {
@@ -123,13 +123,13 @@ fn test_set_theme() {
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
     create_test_theme(&themes_path, "custom");
-    
+
     let mut engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     assert_eq!(engine.get_current_theme(), "default");
-    
+
     engine.set_theme("custom").unwrap();
-    
+
     assert_eq!(engine.get_current_theme(), "custom");
 }
 
@@ -138,11 +138,11 @@ fn test_set_theme_not_found() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let mut engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let result = engine.set_theme("nonexistent");
-    
+
     assert!(result.is_err());
     // Theme should remain unchanged
     assert_eq!(engine.get_current_theme(), "default");
@@ -155,14 +155,14 @@ fn test_list_themes() {
     create_test_theme(&themes_path, "default");
     create_test_theme(&themes_path, "custom");
     create_test_theme(&themes_path, "minimal");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let themes = engine.list_themes();
-    
+
     // At least 1 theme (default is embedded), test themes may or may not be detected
     assert!(themes.len() >= 1);
-    
+
     let theme_names: Vec<&str> = themes.iter().map(|t| t.name.as_str()).collect();
     assert!(theme_names.contains(&"default"));
 }
@@ -172,42 +172,41 @@ fn test_theme_metadata_loading() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let info = engine.get_theme_info("default").unwrap();
-    
+
     assert_eq!(info.name, "default");
     // Default theme is now embedded with "Noteva Default Theme" display name
     assert!(info.display_name.contains("Default") || info.display_name == "default Theme");
     assert_eq!(info.version, "1.0.0");
 }
 
-
 #[test]
 fn test_reload_templates() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     let theme_path = create_test_theme(&themes_path, "default");
-    
+
     let mut engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     // Modify the template
     let new_index = r#"{% extends "base.html" %}
 {% block content %}
 <h1>Updated: {{ site_name }}</h1>
 {% endblock %}"#;
     fs::write(theme_path.join("index.html"), new_index).unwrap();
-    
+
     // Reload templates
     engine.reload_templates().unwrap();
-    
+
     // Render with new template
     let mut context = TeraContext::new();
     context.insert("site_name", "My Blog");
-    
+
     let result = engine.render("index.html", &context).unwrap();
-    
+
     assert!(result.contains("Updated: My Blog"));
 }
 
@@ -216,27 +215,27 @@ fn test_theme_exists() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     assert!(engine.theme_exists("default"));
     assert!(!engine.theme_exists("nonexistent"));
 }
 
 #[test]
 fn test_standard_template_vars_with_user() {
-    let vars = StandardTemplateVars::new("My Blog", "Description", "/posts")
-        .with_user(CurrentUser {
+    let vars =
+        StandardTemplateVars::new("My Blog", "Description", "/posts").with_user(CurrentUser {
             id: 1,
             username: "admin".to_string(),
             role: "admin".to_string(),
         });
-    
+
     assert_eq!(vars.site_name, "My Blog");
     assert_eq!(vars.site_description, "Description");
     assert_eq!(vars.request_path, "/posts");
     assert!(vars.current_user.is_some());
-    
+
     let user = vars.current_user.unwrap();
     assert_eq!(user.id, 1);
     assert_eq!(user.username, "admin");
@@ -246,7 +245,7 @@ fn test_standard_template_vars_with_user() {
 #[test]
 fn test_standard_template_vars_year() {
     let vars = StandardTemplateVars::new("Blog", "Desc", "/");
-    
+
     let current_year = chrono::Utc::now().year();
     assert_eq!(vars.year, current_year);
 }
@@ -257,14 +256,14 @@ fn test_theme_without_toml() {
     let themes_path = temp_dir.path().join("themes");
     let theme_path = themes_path.join("minimal");
     fs::create_dir_all(&theme_path).unwrap();
-    
+
     // Create only a simple template, no theme.toml
     let simple_html = r#"<html><body>{{ content }}</body></html>"#;
     fs::write(theme_path.join("simple.html"), simple_html).unwrap();
-    
+
     // Use "minimal" as the active theme to test themes without toml
     let engine = ThemeEngine::new(&themes_path, "minimal").unwrap();
-    
+
     // Should still work with default metadata
     let info = engine.get_theme_info("minimal").unwrap();
     assert_eq!(info.name, "minimal");
@@ -272,31 +271,33 @@ fn test_theme_without_toml() {
     assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
 }
 
-
 #[test]
 fn test_render_post_template() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let mut context = TeraContext::new();
     context.insert("site_name", "My Blog");
-    
+
     #[derive(serde::Serialize)]
     struct Post {
         title: String,
         content: String,
     }
-    
-    context.insert("post", &Post {
-        title: "Hello World".to_string(),
-        content: "<p>This is my first post!</p>".to_string(),
-    });
-    
+
+    context.insert(
+        "post",
+        &Post {
+            title: "Hello World".to_string(),
+            content: "<p>This is my first post!</p>".to_string(),
+        },
+    );
+
     let result = engine.render("post.html", &context).unwrap();
-    
+
     assert!(result.contains("Hello World"));
     assert!(result.contains("This is my first post!"));
 }
@@ -306,14 +307,14 @@ fn test_invalid_template_error() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let context = TeraContext::new();
-    
+
     // Try to render a non-existent template
     let result = engine.render("nonexistent.html", &context);
-    
+
     assert!(result.is_err());
 }
 
@@ -322,12 +323,12 @@ fn test_get_theme_path() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let path = engine.get_theme_path("default");
     assert_eq!(path, themes_path.join("default"));
-    
+
     let custom_path = engine.get_theme_path("custom");
     assert_eq!(custom_path, themes_path.join("custom"));
 }
@@ -336,49 +337,52 @@ fn test_get_theme_path() {
 fn test_theme_switch_renders_correct_templates() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
-    
+
     // Create default theme
     create_test_theme(&themes_path, "default");
-    
+
     // Create custom theme with different content
     let custom_path = themes_path.join("custom");
     fs::create_dir_all(&custom_path).unwrap();
-    
+
     let custom_base = r#"<!DOCTYPE html>
 <html>
 <head><title>Custom: {{ site_name }}</title></head>
 <body>{% block content %}{% endblock %}</body>
 </html>"#;
     fs::write(custom_path.join("base.html"), custom_base).unwrap();
-    
+
     let custom_index = r#"{% extends "base.html" %}
 {% block content %}
 <h1>Custom Theme: {{ site_name }}</h1>
 {% endblock %}"#;
     fs::write(custom_path.join("index.html"), custom_index).unwrap();
-    
+
     let mut engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let mut context = TeraContext::new();
     context.insert("site_name", "My Blog");
     context.insert("site_description", "A great blog");
-    
+
     // Render with default theme
-    let default_result = engine.render("index.html", &context)
+    let default_result = engine
+        .render("index.html", &context)
         .expect("Failed to render default theme index.html");
     assert!(default_result.contains("Welcome to My Blog"));
     assert!(!default_result.contains("Custom Theme"));
-    
+
     // Switch to custom theme
-    engine.set_theme("custom").expect("Failed to switch to custom theme");
-    
+    engine
+        .set_theme("custom")
+        .expect("Failed to switch to custom theme");
+
     // Render with custom theme
-    let custom_result = engine.render("index.html", &context)
+    let custom_result = engine
+        .render("index.html", &context)
         .expect("Failed to render custom theme index.html");
     assert!(custom_result.contains("Custom Theme: My Blog"));
     assert!(!custom_result.contains("Welcome to"));
 }
-
 
 // ============================================================================
 // Fallback Mechanism Tests (Task 9.2 - Requirement 6.4)
@@ -390,12 +394,12 @@ fn test_set_theme_with_fallback_success() {
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
     create_test_theme(&themes_path, "custom");
-    
+
     let mut engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     // Switch to existing theme should succeed without fallback
     let result = engine.set_theme_with_fallback("custom");
-    
+
     assert!(result.success);
     assert!(!result.used_fallback);
     assert!(result.error.is_none());
@@ -407,17 +411,19 @@ fn test_set_theme_with_fallback_nonexistent_theme() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let mut engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     // Switch to non-existent theme should fall back to default
     let result = engine.set_theme_with_fallback("nonexistent");
-    
+
     assert!(result.success);
     assert!(result.used_fallback);
     assert!(result.error.is_some());
-    assert!(result.error.as_ref().unwrap().contains("not found") || 
-            result.error.as_ref().unwrap().contains("NotFound"));
+    assert!(
+        result.error.as_ref().unwrap().contains("not found")
+            || result.error.as_ref().unwrap().contains("NotFound")
+    );
     assert_eq!(engine.get_current_theme(), "default");
 }
 
@@ -427,16 +433,16 @@ fn test_set_theme_with_fallback_to_default_theme() {
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
     create_test_theme(&themes_path, "custom");
-    
+
     let mut engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     // First switch to custom
     engine.set_theme("custom").unwrap();
     assert_eq!(engine.get_current_theme(), "custom");
-    
+
     // Switch to default theme directly should succeed without fallback
     let result = engine.set_theme_with_fallback("default");
-    
+
     assert!(result.success);
     assert!(!result.used_fallback);
     assert!(result.error.is_none());
@@ -448,16 +454,16 @@ fn test_render_with_fallback_success() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let mut context = TeraContext::new();
     context.insert("site_name", "My Blog");
     context.insert("site_description", "A great blog");
-    
+
     // Render existing template should succeed
     let result = engine.render_with_fallback("index.html", &context);
-    
+
     assert!(result.contains("My Blog"));
     assert!(result.contains("A great blog"));
 }
@@ -467,14 +473,14 @@ fn test_render_with_fallback_nonexistent_template() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let context = TeraContext::new();
-    
+
     // Render non-existent template should return simple error page
     let result = engine.render_with_fallback("nonexistent.html", &context);
-    
+
     // Should contain error page content
     assert!(result.contains("Template Error"));
     assert!(result.contains("nonexistent.html"));
@@ -486,7 +492,7 @@ fn test_render_with_fallback_uses_error_template() {
     let themes_path = temp_dir.path().join("themes");
     let theme_path = themes_path.join("default");
     fs::create_dir_all(&theme_path).unwrap();
-    
+
     // Create theme.toml
     let theme_toml = r#"name = "default"
 display_name = "Default Theme"
@@ -495,7 +501,7 @@ version = "1.0.0"
 author = "Test Author"
 "#;
     fs::write(theme_path.join("theme.toml"), theme_toml).unwrap();
-    
+
     // Create base.html template
     let base_html = r#"<!DOCTYPE html>
 <html>
@@ -503,7 +509,7 @@ author = "Test Author"
 <body>{% block content %}{% endblock %}</body>
 </html>"#;
     fs::write(theme_path.join("base.html"), base_html).unwrap();
-    
+
     // Create error.html template
     let error_html = r#"{% extends "base.html" %}
 {% block content %}
@@ -514,16 +520,20 @@ author = "Test Author"
 </div>
 {% endblock %}"#;
     fs::write(theme_path.join("error.html"), error_html).unwrap();
-    
+
     // Create engine after all templates exist
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let context = TeraContext::new();
-    
+
     // Render non-existent template should use error.html
     let result = engine.render_with_fallback("nonexistent.html", &context);
-    
-    assert!(result.contains("Custom Error Page"), "Expected 'Custom Error Page' in result, got: {}", result);
+
+    assert!(
+        result.contains("Custom Error Page"),
+        "Expected 'Custom Error Page' in result, got: {}",
+        result
+    );
     assert!(result.contains("nonexistent.html"));
 }
 
@@ -532,16 +542,16 @@ fn test_try_render_success() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let mut context = TeraContext::new();
     context.insert("site_name", "My Blog");
     context.insert("site_description", "A great blog");
-    
+
     // try_render on existing template should return Some
     let result = engine.try_render("index.html", &context);
-    
+
     assert!(result.is_some());
     let html = result.unwrap();
     assert!(html.contains("My Blog"));
@@ -552,14 +562,14 @@ fn test_try_render_failure() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let context = TeraContext::new();
-    
+
     // try_render on non-existent template should return None
     let result = engine.try_render("nonexistent.html", &context);
-    
+
     assert!(result.is_none());
 }
 
@@ -568,18 +578,18 @@ fn test_render_or_default_success() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let mut context = TeraContext::new();
     context.insert("site_name", "My Blog");
     context.insert("site_description", "A great blog");
-    
+
     let default_content = "<p>Default content</p>";
-    
+
     // render_or_default on existing template should return rendered content
     let result = engine.render_or_default("index.html", &context, default_content);
-    
+
     assert!(result.contains("My Blog"));
     assert!(!result.contains("Default content"));
 }
@@ -589,15 +599,15 @@ fn test_render_or_default_failure() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let context = TeraContext::new();
     let default_content = "<p>Default content</p>";
-    
+
     // render_or_default on non-existent template should return default
     let result = engine.render_or_default("nonexistent.html", &context, default_content);
-    
+
     assert_eq!(result, default_content);
 }
 
@@ -609,17 +619,17 @@ fn test_theme_switch_result_fields() {
         used_fallback: false,
         error: None,
     };
-    
+
     assert!(success_result.success);
     assert!(!success_result.used_fallback);
     assert!(success_result.error.is_none());
-    
+
     let fallback_result = ThemeSwitchResult {
         success: true,
         used_fallback: true,
         error: Some("Theme not found".to_string()),
     };
-    
+
     assert!(fallback_result.success);
     assert!(fallback_result.used_fallback);
     assert_eq!(fallback_result.error, Some("Theme not found".to_string()));
@@ -630,14 +640,14 @@ fn test_simple_error_page_content() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     let context = TeraContext::new();
-    
+
     // Render non-existent template (no error.html exists)
     let result = engine.render_with_fallback("missing.html", &context);
-    
+
     // Verify simple error page structure
     assert!(result.contains("<!DOCTYPE html>"));
     assert!(result.contains("<title>Template Error</title>"));
@@ -651,16 +661,16 @@ fn test_fallback_preserves_theme_on_failure() {
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
     create_test_theme(&themes_path, "custom");
-    
+
     let mut engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     // Switch to custom theme
     engine.set_theme("custom").unwrap();
     assert_eq!(engine.get_current_theme(), "custom");
-    
+
     // Try to switch to non-existent theme
     let result = engine.set_theme_with_fallback("nonexistent");
-    
+
     // Should fall back to default, not stay on custom
     assert!(result.success);
     assert!(result.used_fallback);
@@ -672,19 +682,18 @@ fn test_multiple_fallback_attempts() {
     let temp_dir = TempDir::new().unwrap();
     let themes_path = temp_dir.path().join("themes");
     create_test_theme(&themes_path, "default");
-    
+
     let mut engine = ThemeEngine::new(&themes_path, "default").unwrap();
-    
+
     // Multiple attempts to switch to non-existent themes
     for theme_name in &["theme1", "theme2", "theme3"] {
         let result = engine.set_theme_with_fallback(theme_name);
-        
+
         assert!(result.success);
         assert!(result.used_fallback);
         assert_eq!(engine.get_current_theme(), "default");
     }
 }
-
 
 // ============================================================================
 // Property-Based Tests for Theme Engine
@@ -845,7 +854,7 @@ author = "Test Author"
             // Property: Initial render should use theme1's templates
             let result1 = engine.render("index.html", &context)
                 .expect("Failed to render with theme1");
-            
+
             prop_assert!(
                 result1.contains(&theme1_id),
                 "Initial render should contain theme1 identifier '{}'. Got: {}",
@@ -874,7 +883,7 @@ author = "Test Author"
             // Property: Render after switch should use theme2's templates
             let result2 = engine.render("index.html", &context)
                 .expect("Failed to render with theme2");
-            
+
             prop_assert!(
                 result2.contains(&theme2_id),
                 "Render after switch should contain theme2 identifier '{}'. Got: {}",
@@ -891,10 +900,10 @@ author = "Test Author"
             // Property: Switch back to theme1 should work
             engine.set_theme(&theme1_name)
                 .expect("Failed to switch back to theme1");
-            
+
             let result3 = engine.render("index.html", &context)
                 .expect("Failed to render after switching back");
-            
+
             prop_assert!(
                 result3.contains(&theme1_id),
                 "Render after switching back should contain theme1 identifier '{}'. Got: {}",
@@ -976,7 +985,7 @@ author = "Test Author"
             // Property: Engine should still be functional (can render)
             let mut context = TeraContext::new();
             context.insert("site_name", &site_name);
-            
+
             let render_result = engine.render("index.html", &context);
             prop_assert!(
                 render_result.is_ok(),

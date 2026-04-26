@@ -31,7 +31,9 @@ pub struct ListTagsQuery {
     pub limit: usize,
 }
 
-fn default_cloud_limit() -> usize { 50 }
+fn default_cloud_limit() -> usize {
+    50
+}
 
 /// Query parameters for listing articles
 #[derive(Debug, Deserialize)]

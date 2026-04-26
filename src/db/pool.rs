@@ -74,8 +74,9 @@ impl SqliteDatabase {
             // Create parent directory if it doesn't exist
             if let Some(parent) = std::path::Path::new(path).parent() {
                 if !parent.as_os_str().is_empty() {
-                    std::fs::create_dir_all(parent)
-                        .with_context(|| format!("Failed to create database directory: {:?}", parent))?;
+                    std::fs::create_dir_all(parent).with_context(|| {
+                        format!("Failed to create database directory: {:?}", parent)
+                    })?;
                 }
             }
         }
@@ -359,14 +360,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_test_pool() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         assert_eq!(pool.driver(), DatabaseDriver::Sqlite);
         pool.ping().await.expect("Ping should succeed");
     }
 
     #[tokio::test]
     async fn test_pool_close() {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         pool.close().await;
         // After close, ping should fail
         // Note: SQLite might still work after close in some cases,

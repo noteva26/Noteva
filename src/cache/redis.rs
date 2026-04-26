@@ -65,9 +65,8 @@ impl RedisCache {
     /// # Errors
     /// Returns an error if the connection cannot be established.
     pub async fn with_ttl(redis_url: &str, default_ttl: Duration) -> Result<Self> {
-        let client = Client::open(redis_url)
-            .context("Failed to create Redis client")?;
-        
+        let client = Client::open(redis_url).context("Failed to create Redis client")?;
+
         let connection = client
             .get_multiplexed_async_connection()
             .await
@@ -105,7 +104,7 @@ impl CacheLayer for RedisCache {
     /// `Ok(None)` if the key doesn't exist.
     async fn get<T: DeserializeOwned + Send>(&self, key: &str) -> Result<Option<T>> {
         let mut conn = self.connection.clone();
-        
+
         let result: Option<String> = conn
             .get(key)
             .await
@@ -113,8 +112,8 @@ impl CacheLayer for RedisCache {
 
         match result {
             Some(json) => {
-                let value = serde_json::from_str(&json)
-                    .context("Failed to deserialize cached value")?;
+                let value =
+                    serde_json::from_str(&json).context("Failed to deserialize cached value")?;
                 Ok(Some(value))
             }
             None => Ok(None),
@@ -129,17 +128,22 @@ impl CacheLayer for RedisCache {
     /// * `key` - The cache key
     /// * `value` - The value to cache (must be serializable)
     /// * `ttl` - Time-to-live for this entry
-    async fn set<T: Serialize + Send + Sync>(&self, key: &str, value: &T, ttl: Duration) -> Result<()> {
+    async fn set<T: Serialize + Send + Sync>(
+        &self,
+        key: &str,
+        value: &T,
+        ttl: Duration,
+    ) -> Result<()> {
         let mut conn = self.connection.clone();
-        
-        let json = serde_json::to_string(value)
-            .context("Failed to serialize cache value")?;
+
+        let json = serde_json::to_string(value).context("Failed to serialize cache value")?;
 
         // Use SETEX for atomic set with expiration
         // TTL is in seconds for Redis
         let ttl_secs = ttl.as_secs().max(1) as u64; // Minimum 1 second
-        
-        let _: () = conn.set_ex(key, json, ttl_secs)
+
+        let _: () = conn
+            .set_ex(key, json, ttl_secs)
             .await
             .context("Failed to set value in Redis")?;
 
@@ -151,7 +155,7 @@ impl CacheLayer for RedisCache {
     /// If the key doesn't exist, this is a no-op.
     async fn delete(&self, key: &str) -> Result<()> {
         let mut conn = self.connection.clone();
-        
+
         let _: () = conn
             .del(key)
             .await
@@ -178,7 +182,7 @@ impl CacheLayer for RedisCache {
         // Use SCAN to iterate through keys matching the pattern
         // This is production-safe as it doesn't block the server
         let mut cursor: u64 = 0;
-        
+
         loop {
             // SCAN returns (new_cursor, keys)
             let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
@@ -200,7 +204,7 @@ impl CacheLayer for RedisCache {
             }
 
             cursor = new_cursor;
-            
+
             // Cursor 0 means we've completed the full iteration
             if cursor == 0 {
                 break;
@@ -216,7 +220,7 @@ impl CacheLayer for RedisCache {
     /// Note: This clears ALL keys in the current Redis database.
     async fn clear(&self) -> Result<()> {
         let mut conn = self.connection.clone();
-        
+
         let _: () = redis::cmd("FLUSHDB")
             .query_async(&mut conn)
             .await
@@ -242,15 +246,18 @@ mod tests {
     #[ignore = "requires running Redis server"]
     async fn test_set_and_get() {
         let cache = RedisCache::new(&get_redis_url()).await.unwrap();
-        
+
         // Clean up first
         cache.delete("test:key1").await.unwrap();
-        
-        cache.set("test:key1", &"value1".to_string(), Duration::from_secs(60)).await.unwrap();
-        
+
+        cache
+            .set("test:key1", &"value1".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+
         let result: Option<String> = cache.get("test:key1").await.unwrap();
         assert_eq!(result, Some("value1".to_string()));
-        
+
         // Clean up
         cache.delete("test:key1").await.unwrap();
     }
@@ -259,7 +266,7 @@ mod tests {
     #[ignore = "requires running Redis server"]
     async fn test_get_nonexistent() {
         let cache = RedisCache::new(&get_redis_url()).await.unwrap();
-        
+
         let result: Option<String> = cache.get("test:nonexistent_key_12345").await.unwrap();
         assert_eq!(result, None);
     }
@@ -268,10 +275,17 @@ mod tests {
     #[ignore = "requires running Redis server"]
     async fn test_delete() {
         let cache = RedisCache::new(&get_redis_url()).await.unwrap();
-        
-        cache.set("test:delete_key", &"value".to_string(), Duration::from_secs(60)).await.unwrap();
+
+        cache
+            .set(
+                "test:delete_key",
+                &"value".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
         cache.delete("test:delete_key").await.unwrap();
-        
+
         let result: Option<String> = cache.get("test:delete_key").await.unwrap();
         assert_eq!(result, None);
     }
@@ -280,23 +294,47 @@ mod tests {
     #[ignore = "requires running Redis server"]
     async fn test_delete_pattern_star() {
         let cache = RedisCache::new(&get_redis_url()).await.unwrap();
-        
+
         // Set up test data
-        cache.set("test:pattern:articles:1", &"article1".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("test:pattern:articles:2", &"article2".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("test:pattern:users:1", &"user1".to_string(), Duration::from_secs(60)).await.unwrap();
-        
+        cache
+            .set(
+                "test:pattern:articles:1",
+                &"article1".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        cache
+            .set(
+                "test:pattern:articles:2",
+                &"article2".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        cache
+            .set(
+                "test:pattern:users:1",
+                &"user1".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+
         // Delete articles pattern
-        cache.delete_pattern("test:pattern:articles:*").await.unwrap();
-        
+        cache
+            .delete_pattern("test:pattern:articles:*")
+            .await
+            .unwrap();
+
         let article1: Option<String> = cache.get("test:pattern:articles:1").await.unwrap();
         let article2: Option<String> = cache.get("test:pattern:articles:2").await.unwrap();
         let user1: Option<String> = cache.get("test:pattern:users:1").await.unwrap();
-        
+
         assert_eq!(article1, None);
         assert_eq!(article2, None);
         assert_eq!(user1, Some("user1".to_string()));
-        
+
         // Clean up
         cache.delete("test:pattern:users:1").await.unwrap();
     }
@@ -305,24 +343,48 @@ mod tests {
     #[ignore = "requires running Redis server"]
     async fn test_delete_pattern_question_mark() {
         let cache = RedisCache::new(&get_redis_url()).await.unwrap();
-        
+
         // Set up test data
-        cache.set("test:qmark:user:1:profile", &"profile1".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("test:qmark:user:2:profile", &"profile2".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("test:qmark:user:10:profile", &"profile10".to_string(), Duration::from_secs(60)).await.unwrap();
-        
+        cache
+            .set(
+                "test:qmark:user:1:profile",
+                &"profile1".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        cache
+            .set(
+                "test:qmark:user:2:profile",
+                &"profile2".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        cache
+            .set(
+                "test:qmark:user:10:profile",
+                &"profile10".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+
         // Delete single-character user IDs
-        cache.delete_pattern("test:qmark:user:?:profile").await.unwrap();
-        
+        cache
+            .delete_pattern("test:qmark:user:?:profile")
+            .await
+            .unwrap();
+
         let profile1: Option<String> = cache.get("test:qmark:user:1:profile").await.unwrap();
         let profile2: Option<String> = cache.get("test:qmark:user:2:profile").await.unwrap();
         let profile10: Option<String> = cache.get("test:qmark:user:10:profile").await.unwrap();
-        
+
         assert_eq!(profile1, None);
         assert_eq!(profile2, None);
         // "10" has two characters, so it shouldn't match "?"
         assert_eq!(profile10, Some("profile10".to_string()));
-        
+
         // Clean up
         cache.delete("test:qmark:user:10:profile").await.unwrap();
     }
@@ -331,17 +393,20 @@ mod tests {
     #[ignore = "requires running Redis server"]
     async fn test_ttl_expiration() {
         let cache = RedisCache::new(&get_redis_url()).await.unwrap();
-        
+
         // Set with 1 second TTL
-        cache.set("test:ttl_key", &"value".to_string(), Duration::from_secs(1)).await.unwrap();
-        
+        cache
+            .set("test:ttl_key", &"value".to_string(), Duration::from_secs(1))
+            .await
+            .unwrap();
+
         // Should exist immediately
         let result: Option<String> = cache.get("test:ttl_key").await.unwrap();
         assert_eq!(result, Some("value".to_string()));
-        
+
         // Wait for expiration
         tokio::time::sleep(Duration::from_secs(2)).await;
-        
+
         // Should be expired
         let result: Option<String> = cache.get("test:ttl_key").await.unwrap();
         assert_eq!(result, None);
@@ -351,25 +416,28 @@ mod tests {
     #[ignore = "requires running Redis server"]
     async fn test_complex_types() {
         let cache = RedisCache::new(&get_redis_url()).await.unwrap();
-        
+
         #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
         struct Article {
             id: i64,
             title: String,
             content: String,
         }
-        
+
         let article = Article {
             id: 1,
             title: "Test Article".to_string(),
             content: "This is the content".to_string(),
         };
-        
-        cache.set("test:article:1", &article, Duration::from_secs(60)).await.unwrap();
-        
+
+        cache
+            .set("test:article:1", &article, Duration::from_secs(60))
+            .await
+            .unwrap();
+
         let result: Option<Article> = cache.get("test:article:1").await.unwrap();
         assert_eq!(result, Some(article));
-        
+
         // Clean up
         cache.delete("test:article:1").await.unwrap();
     }
@@ -378,13 +446,27 @@ mod tests {
     #[ignore = "requires running Redis server"]
     async fn test_overwrite_existing_key() {
         let cache = RedisCache::new(&get_redis_url()).await.unwrap();
-        
-        cache.set("test:overwrite_key", &"value1".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("test:overwrite_key", &"value2".to_string(), Duration::from_secs(60)).await.unwrap();
-        
+
+        cache
+            .set(
+                "test:overwrite_key",
+                &"value1".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        cache
+            .set(
+                "test:overwrite_key",
+                &"value2".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+
         let result: Option<String> = cache.get("test:overwrite_key").await.unwrap();
         assert_eq!(result, Some("value2".to_string()));
-        
+
         // Clean up
         cache.delete("test:overwrite_key").await.unwrap();
     }
@@ -393,18 +475,32 @@ mod tests {
     #[ignore = "requires running Redis server"]
     async fn test_clear() {
         let cache = RedisCache::new(&get_redis_url()).await.unwrap();
-        
+
         // Note: clear() uses FLUSHDB which clears ALL keys in the database
         // This test should be run on a dedicated test database
-        
-        cache.set("test:clear:key1", &"value1".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("test:clear:key2", &"value2".to_string(), Duration::from_secs(60)).await.unwrap();
-        
+
+        cache
+            .set(
+                "test:clear:key1",
+                &"value1".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        cache
+            .set(
+                "test:clear:key2",
+                &"value2".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+
         cache.clear().await.unwrap();
-        
+
         let result1: Option<String> = cache.get("test:clear:key1").await.unwrap();
         let result2: Option<String> = cache.get("test:clear:key2").await.unwrap();
-        
+
         assert_eq!(result1, None);
         assert_eq!(result2, None);
     }

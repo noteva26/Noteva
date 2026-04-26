@@ -47,7 +47,11 @@ impl NavItemService {
         item.sort_order = sort_order;
         item.visible = visible;
 
-        let created = self.repo.create(&item).await.context("Failed to create nav item")?;
+        let created = self
+            .repo
+            .create(&item)
+            .await
+            .context("Failed to create nav item")?;
 
         // Invalidate cache - CRITICAL: must clear all nav caches
         self.invalidate_cache().await?;
@@ -69,7 +73,10 @@ impl NavItemService {
         let items = self.repo.list().await?;
 
         // Cache the result
-        let _ = self.cache.set(CACHE_KEY_NAV_LIST, &items, self.cache_ttl).await;
+        let _ = self
+            .cache
+            .set(CACHE_KEY_NAV_LIST, &items, self.cache_ttl)
+            .await;
 
         Ok(items)
     }
@@ -84,14 +91,21 @@ impl NavItemService {
         let tree = self.repo.list_tree().await?;
 
         // Cache the result
-        let _ = self.cache.set(CACHE_KEY_NAV_TREE, &tree, self.cache_ttl).await;
+        let _ = self
+            .cache
+            .set(CACHE_KEY_NAV_TREE, &tree, self.cache_ttl)
+            .await;
 
         Ok(tree)
     }
 
     pub async fn list_visible_tree(&self) -> Result<Vec<NavItemTree>> {
         // Try cache first
-        if let Ok(Some(tree)) = self.cache.get::<Vec<NavItemTree>>(CACHE_KEY_NAV_VISIBLE_TREE).await {
+        if let Ok(Some(tree)) = self
+            .cache
+            .get::<Vec<NavItemTree>>(CACHE_KEY_NAV_VISIBLE_TREE)
+            .await
+        {
             return Ok(tree);
         }
 
@@ -99,7 +113,10 @@ impl NavItemService {
         let tree = self.repo.list_visible_tree().await?;
 
         // Cache the result
-        let _ = self.cache.set(CACHE_KEY_NAV_VISIBLE_TREE, &tree, self.cache_ttl).await;
+        let _ = self
+            .cache
+            .set(CACHE_KEY_NAV_VISIBLE_TREE, &tree, self.cache_ttl)
+            .await;
 
         Ok(tree)
     }
@@ -115,7 +132,11 @@ impl NavItemService {
         sort_order: Option<i32>,
         visible: Option<bool>,
     ) -> Result<NavItem> {
-        let mut item = self.repo.get_by_id(id).await?.ok_or_else(|| anyhow::anyhow!("Nav item not found"))?;
+        let mut item = self
+            .repo
+            .get_by_id(id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Nav item not found"))?;
 
         if let Some(p) = parent_id {
             item.parent_id = p;
@@ -149,7 +170,9 @@ impl NavItemService {
 
     pub async fn update_order(&self, items: Vec<NavOrderItem>) -> Result<()> {
         for item in items {
-            self.repo.update_order(item.id, item.parent_id, item.sort_order).await?;
+            self.repo
+                .update_order(item.id, item.parent_id, item.sort_order)
+                .await?;
         }
 
         // Invalidate cache - CRITICAL: must clear all nav caches
@@ -191,7 +214,8 @@ impl NavItemService {
         ];
 
         for (title, target, order) in defaults {
-            let mut item = NavItem::new(title.to_string(), NavItemType::Builtin, target.to_string());
+            let mut item =
+                NavItem::new(title.to_string(), NavItemType::Builtin, target.to_string());
             item.sort_order = order;
             self.repo.create(&item).await?;
         }

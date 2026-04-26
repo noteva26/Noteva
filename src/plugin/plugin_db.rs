@@ -8,9 +8,9 @@ use anyhow::{bail, Context, Result};
 use sqlx::{Column, Row};
 use tracing::{debug, info};
 
+use crate::config::DatabaseDriver;
 use crate::db::migrations::split_sql_statements;
 use crate::db::DynDatabasePool;
-use crate::config::DatabaseDriver;
 
 /// Run pending migrations for a plugin.
 ///
@@ -34,7 +34,10 @@ pub async fn run_plugin_migrations(
 
     for (filename, sql) in migrations {
         if applied.contains(filename) {
-            debug!("Plugin {} migration {} already applied, skipping", plugin_id, filename);
+            debug!(
+                "Plugin {} migration {} already applied, skipping",
+                plugin_id, filename
+            );
             continue;
         }
 
@@ -71,15 +74,21 @@ fn validate_plugin_sql(plugin_id: &str, sql: &str) -> Result<()> {
         // Check CREATE TABLE statements
         if let Some(pos) = trimmed.find("CREATE TABLE") {
             let after = &trimmed[pos + 12..].trim_start();
-            let after = after.strip_prefix("IF NOT EXISTS").unwrap_or(after).trim_start();
-            let table_name = after.split(|c: char| c.is_whitespace() || c == '(')
+            let after = after
+                .strip_prefix("IF NOT EXISTS")
+                .unwrap_or(after)
+                .trim_start();
+            let table_name = after
+                .split(|c: char| c.is_whitespace() || c == '(')
                 .next()
                 .unwrap_or("");
             let prefix_upper = prefix.to_uppercase();
             if !table_name.starts_with(&prefix_upper) {
                 bail!(
                     "Plugin '{}' migration error: table '{}' must start with '{}'",
-                    plugin_id, table_name, prefix
+                    plugin_id,
+                    table_name,
+                    prefix
                 );
             }
         }
@@ -92,7 +101,9 @@ fn validate_plugin_sql(plugin_id: &str, sql: &str) -> Result<()> {
             if !table_name.starts_with(&prefix_upper) {
                 bail!(
                     "Plugin '{}' migration error: ALTER TABLE '{}' must target '{}_*' tables",
-                    plugin_id, table_name, prefix
+                    plugin_id,
+                    table_name,
+                    prefix
                 );
             }
         }
@@ -100,15 +111,21 @@ fn validate_plugin_sql(plugin_id: &str, sql: &str) -> Result<()> {
         // Check DROP TABLE
         if let Some(pos) = trimmed.find("DROP TABLE") {
             let after = &trimmed[pos + 10..].trim_start();
-            let after = after.strip_prefix("IF EXISTS").unwrap_or(after).trim_start();
-            let table_name = after.split(|c: char| c.is_whitespace() || c == ';')
+            let after = after
+                .strip_prefix("IF EXISTS")
+                .unwrap_or(after)
+                .trim_start();
+            let table_name = after
+                .split(|c: char| c.is_whitespace() || c == ';')
                 .next()
                 .unwrap_or("");
             let prefix_upper = prefix.to_uppercase();
             if !table_name.starts_with(&prefix_upper) {
                 bail!(
                     "Plugin '{}' migration error: DROP TABLE '{}' must target '{}_*' tables",
-                    plugin_id, table_name, prefix
+                    plugin_id,
+                    table_name,
+                    prefix
                 );
             }
         }
@@ -126,7 +143,10 @@ pub fn validate_plugin_query(plugin_id: &str, sql: &str) -> Result<()> {
     let ddl_keywords = ["CREATE ", "ALTER ", "DROP ", "TRUNCATE "];
     for kw in &ddl_keywords {
         if sql_upper.contains(kw) {
-            bail!("Plugin '{}': DDL statements not allowed in queries. Use migrations/ instead.", plugin_id);
+            bail!(
+                "Plugin '{}': DDL statements not allowed in queries. Use migrations/ instead.",
+                plugin_id
+            );
         }
     }
 
@@ -139,7 +159,8 @@ pub fn validate_plugin_query(plugin_id: &str, sql: &str) -> Result<()> {
         while let Some(pos) = sql_upper[search_from..].find(keyword) {
             let abs_pos = search_from + pos + keyword.len();
             let after = sql_upper[abs_pos..].trim_start();
-            let table_name = after.split(|c: char| c.is_whitespace() || c == '(' || c == ',' || c == ';')
+            let table_name = after
+                .split(|c: char| c.is_whitespace() || c == '(' || c == ',' || c == ';')
                 .next()
                 .unwrap_or("");
             // Skip subqueries
@@ -169,8 +190,7 @@ pub async fn execute_plugin_query(
 ) -> Result<String> {
     validate_plugin_query(plugin_id, sql)?;
 
-    let params: Vec<serde_json::Value> = serde_json::from_str(params_json)
-        .unwrap_or_default();
+    let params: Vec<serde_json::Value> = serde_json::from_str(params_json).unwrap_or_default();
 
     match pool.driver() {
         DatabaseDriver::Sqlite => {
@@ -179,7 +199,9 @@ pub async fn execute_plugin_query(
             for p in &params {
                 query = bind_json_param_sqlite(query, p);
             }
-            let rows = query.fetch_all(sqlite_pool).await
+            let rows = query
+                .fetch_all(sqlite_pool)
+                .await
                 .with_context(|| format!("Plugin {} query failed", plugin_id))?;
 
             let mut result = Vec::new();
@@ -200,7 +222,9 @@ pub async fn execute_plugin_query(
             for p in &params {
                 query = bind_json_param_mysql(query, p);
             }
-            let rows = query.fetch_all(mysql_pool).await
+            let rows = query
+                .fetch_all(mysql_pool)
+                .await
                 .with_context(|| format!("Plugin {} query failed", plugin_id))?;
 
             let mut result = Vec::new();
@@ -227,8 +251,7 @@ pub async fn execute_plugin_statement(
 ) -> Result<u64> {
     validate_plugin_query(plugin_id, sql)?;
 
-    let params: Vec<serde_json::Value> = serde_json::from_str(params_json)
-        .unwrap_or_default();
+    let params: Vec<serde_json::Value> = serde_json::from_str(params_json).unwrap_or_default();
 
     match pool.driver() {
         DatabaseDriver::Sqlite => {
@@ -237,7 +260,9 @@ pub async fn execute_plugin_statement(
             for p in &params {
                 query = bind_json_param_sqlite(query, p);
             }
-            let result = query.execute(sqlite_pool).await
+            let result = query
+                .execute(sqlite_pool)
+                .await
                 .with_context(|| format!("Plugin {} execute failed", plugin_id))?;
             Ok(result.rows_affected())
         }
@@ -247,7 +272,9 @@ pub async fn execute_plugin_statement(
             for p in &params {
                 query = bind_json_param_mysql(query, p);
             }
-            let result = query.execute(mysql_pool).await
+            let result = query
+                .execute(mysql_pool)
+                .await
                 .with_context(|| format!("Plugin {} execute failed", plugin_id))?;
             Ok(result.rows_affected())
         }
@@ -267,24 +294,30 @@ async fn get_applied_plugin_migrations(
         DatabaseDriver::Sqlite => {
             let sqlite_pool = pool.as_sqlite_or_err()?;
             let rows = sqlx::query(
-                "SELECT filename FROM plugin_migrations WHERE plugin_id = ? ORDER BY filename"
+                "SELECT filename FROM plugin_migrations WHERE plugin_id = ? ORDER BY filename",
             )
             .bind(plugin_id)
             .fetch_all(sqlite_pool)
             .await
             .context("Failed to query plugin_migrations")?;
-            Ok(rows.iter().map(|r| r.get::<String, _>("filename")).collect())
+            Ok(rows
+                .iter()
+                .map(|r| r.get::<String, _>("filename"))
+                .collect())
         }
         DatabaseDriver::Mysql => {
             let mysql_pool = pool.as_mysql_or_err()?;
             let rows = sqlx::query(
-                "SELECT filename FROM plugin_migrations WHERE plugin_id = ? ORDER BY filename"
+                "SELECT filename FROM plugin_migrations WHERE plugin_id = ? ORDER BY filename",
             )
             .bind(plugin_id)
             .fetch_all(mysql_pool)
             .await
             .context("Failed to query plugin_migrations")?;
-            Ok(rows.iter().map(|r| r.get::<String, _>("filename")).collect())
+            Ok(rows
+                .iter()
+                .map(|r| r.get::<String, _>("filename"))
+                .collect())
         }
     }
 }
@@ -300,29 +333,37 @@ async fn execute_plugin_migration(
     match pool.driver() {
         DatabaseDriver::Sqlite => {
             let sqlite_pool = pool.as_sqlite_or_err()?;
-            let mut tx = sqlite_pool
-                .begin()
-                .await
-                .with_context(|| format!("Failed to start plugin {} migration transaction", plugin_id))?;
+            let mut tx = sqlite_pool.begin().await.with_context(|| {
+                format!("Failed to start plugin {} migration transaction", plugin_id)
+            })?;
 
-            for stmt in &statements {
-                let stmt = stmt.trim();
-                if !stmt.is_empty() {
-                    sqlx::query(stmt)
-                        .execute(&mut *tx)
-                        .await
-                        .with_context(|| format!("Plugin SQL failed: {}", truncate(stmt, 120)))?;
+            let result = async {
+                for stmt in &statements {
+                    let stmt = stmt.trim();
+                    if !stmt.is_empty() {
+                        sqlx::query(stmt).execute(&mut *tx).await.with_context(|| {
+                            format!("Plugin SQL failed: {}", truncate(stmt, 120))
+                        })?;
+                    }
                 }
-            }
 
-            sqlx::query(
-                "INSERT INTO plugin_migrations (plugin_id, filename) VALUES (?, ?)"
-            )
-            .bind(plugin_id)
-            .bind(filename)
-            .execute(&mut *tx)
-            .await
-            .context("Failed to record plugin migration")?;
+                sqlx::query("INSERT INTO plugin_migrations (plugin_id, filename) VALUES (?, ?)")
+                    .bind(plugin_id)
+                    .bind(filename)
+                    .execute(&mut *tx)
+                    .await
+                    .context("Failed to record plugin migration")?;
+
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+
+            if let Err(err) = result {
+                tx.rollback().await.with_context(|| {
+                    format!("Failed to roll back plugin {} migration", plugin_id)
+                })?;
+                return Err(err);
+            }
 
             tx.commit()
                 .await
@@ -330,29 +371,37 @@ async fn execute_plugin_migration(
         }
         DatabaseDriver::Mysql => {
             let mysql_pool = pool.as_mysql_or_err()?;
-            let mut tx = mysql_pool
-                .begin()
-                .await
-                .with_context(|| format!("Failed to start plugin {} migration transaction", plugin_id))?;
+            let mut tx = mysql_pool.begin().await.with_context(|| {
+                format!("Failed to start plugin {} migration transaction", plugin_id)
+            })?;
 
-            for stmt in &statements {
-                let stmt = stmt.trim();
-                if !stmt.is_empty() {
-                    sqlx::query(stmt)
-                        .execute(&mut *tx)
-                        .await
-                        .with_context(|| format!("Plugin SQL failed: {}", truncate(stmt, 120)))?;
+            let result = async {
+                for stmt in &statements {
+                    let stmt = stmt.trim();
+                    if !stmt.is_empty() {
+                        sqlx::query(stmt).execute(&mut *tx).await.with_context(|| {
+                            format!("Plugin SQL failed: {}", truncate(stmt, 120))
+                        })?;
+                    }
                 }
-            }
 
-            sqlx::query(
-                "INSERT INTO plugin_migrations (plugin_id, filename) VALUES (?, ?)"
-            )
-            .bind(plugin_id)
-            .bind(filename)
-            .execute(&mut *tx)
-            .await
-            .context("Failed to record plugin migration")?;
+                sqlx::query("INSERT INTO plugin_migrations (plugin_id, filename) VALUES (?, ?)")
+                    .bind(plugin_id)
+                    .bind(filename)
+                    .execute(&mut *tx)
+                    .await
+                    .context("Failed to record plugin migration")?;
+
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+
+            if let Err(err) = result {
+                tx.rollback().await.with_context(|| {
+                    format!("Failed to roll back plugin {} migration", plugin_id)
+                })?;
+                return Err(err);
+            }
 
             tx.commit()
                 .await
@@ -407,28 +456,30 @@ fn bind_json_param_mysql<'q>(
 }
 
 /// Extract a column value from a SQLite row as serde_json::Value.
-fn sqlite_row_value(row: &sqlx::sqlite::SqliteRow, col: &sqlx::sqlite::SqliteColumn) -> serde_json::Value {
+fn sqlite_row_value(
+    row: &sqlx::sqlite::SqliteRow,
+    col: &sqlx::sqlite::SqliteColumn,
+) -> serde_json::Value {
     use sqlx::TypeInfo;
     let type_name = col.type_info().name();
     let idx = col.ordinal();
     match type_name {
-        "INTEGER" | "INT" | "BIGINT" => {
-            row.try_get::<i64, _>(idx)
-                .map(serde_json::Value::from)
-                .unwrap_or(serde_json::Value::Null)
-        }
-        "REAL" | "FLOAT" | "DOUBLE" => {
-            row.try_get::<f64, _>(idx)
-                .map(|f| serde_json::Number::from_f64(f)
+        "INTEGER" | "INT" | "BIGINT" => row
+            .try_get::<i64, _>(idx)
+            .map(serde_json::Value::from)
+            .unwrap_or(serde_json::Value::Null),
+        "REAL" | "FLOAT" | "DOUBLE" => row
+            .try_get::<f64, _>(idx)
+            .map(|f| {
+                serde_json::Number::from_f64(f)
                     .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null))
-                .unwrap_or(serde_json::Value::Null)
-        }
-        "BOOLEAN" => {
-            row.try_get::<bool, _>(idx)
-                .map(serde_json::Value::from)
-                .unwrap_or(serde_json::Value::Null)
-        }
+                    .unwrap_or(serde_json::Value::Null)
+            })
+            .unwrap_or(serde_json::Value::Null),
+        "BOOLEAN" => row
+            .try_get::<bool, _>(idx)
+            .map(serde_json::Value::from)
+            .unwrap_or(serde_json::Value::Null),
         _ => {
             // TEXT, VARCHAR, BLOB, etc. — try as string
             row.try_get::<String, _>(idx)
@@ -439,33 +490,34 @@ fn sqlite_row_value(row: &sqlx::sqlite::SqliteRow, col: &sqlx::sqlite::SqliteCol
 }
 
 /// Extract a column value from a MySQL row as serde_json::Value.
-fn mysql_row_value(row: &sqlx::mysql::MySqlRow, col: &sqlx::mysql::MySqlColumn) -> serde_json::Value {
+fn mysql_row_value(
+    row: &sqlx::mysql::MySqlRow,
+    col: &sqlx::mysql::MySqlColumn,
+) -> serde_json::Value {
     use sqlx::TypeInfo;
     let type_name = col.type_info().name();
     let idx = col.ordinal();
     match type_name {
-        "BIGINT" | "INT" | "MEDIUMINT" | "SMALLINT" | "TINYINT" => {
-            row.try_get::<i64, _>(idx)
-                .map(serde_json::Value::from)
-                .unwrap_or(serde_json::Value::Null)
-        }
-        "FLOAT" | "DOUBLE" | "DECIMAL" => {
-            row.try_get::<f64, _>(idx)
-                .map(|f| serde_json::Number::from_f64(f)
+        "BIGINT" | "INT" | "MEDIUMINT" | "SMALLINT" | "TINYINT" => row
+            .try_get::<i64, _>(idx)
+            .map(serde_json::Value::from)
+            .unwrap_or(serde_json::Value::Null),
+        "FLOAT" | "DOUBLE" | "DECIMAL" => row
+            .try_get::<f64, _>(idx)
+            .map(|f| {
+                serde_json::Number::from_f64(f)
                     .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null))
-                .unwrap_or(serde_json::Value::Null)
-        }
-        "BOOLEAN" => {
-            row.try_get::<bool, _>(idx)
-                .map(serde_json::Value::from)
-                .unwrap_or(serde_json::Value::Null)
-        }
-        _ => {
-            row.try_get::<String, _>(idx)
-                .map(serde_json::Value::from)
-                .unwrap_or(serde_json::Value::Null)
-        }
+                    .unwrap_or(serde_json::Value::Null)
+            })
+            .unwrap_or(serde_json::Value::Null),
+        "BOOLEAN" => row
+            .try_get::<bool, _>(idx)
+            .map(serde_json::Value::from)
+            .unwrap_or(serde_json::Value::Null),
+        _ => row
+            .try_get::<String, _>(idx)
+            .map(serde_json::Value::from)
+            .unwrap_or(serde_json::Value::Null),
     }
 }
 

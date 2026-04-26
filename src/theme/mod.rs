@@ -17,10 +17,11 @@ use std::sync::Arc;
 use tera::{Context as TeraContext, Tera};
 use tracing;
 
-use crate::plugin::HookManager;
 use crate::plugin::loader::{check_version_requirement, NOTEVA_VERSION};
+use crate::plugin::HookManager;
 
 mod error;
+pub mod validation;
 
 pub use error::ThemeError;
 
@@ -41,7 +42,7 @@ pub struct ThemeEngine {
 }
 
 /// Result of a theme switch operation with fallback support
-/// 
+///
 /// This struct provides detailed information about what happened during
 /// a theme switch operation, including whether a fallback was used.
 #[derive(Debug, Clone)]
@@ -65,20 +66,24 @@ impl ThemeEngine {
     /// A new ThemeEngine instance or an error if initialization fails
     pub fn new(themes_path: &Path, default_theme: &str) -> Result<Self> {
         let themes_path = themes_path.to_path_buf();
-        
+
         // Ensure themes directory exists
         if !themes_path.exists() {
             fs::create_dir_all(&themes_path)
                 .with_context(|| format!("Failed to create themes directory: {:?}", themes_path))?;
         }
-        
+
         // Ensure default theme directory exists
         let default_theme_path = themes_path.join(default_theme);
         if !default_theme_path.exists() {
-            fs::create_dir_all(&default_theme_path)
-                .with_context(|| format!("Failed to create default theme directory: {:?}", default_theme_path))?;
+            fs::create_dir_all(&default_theme_path).with_context(|| {
+                format!(
+                    "Failed to create default theme directory: {:?}",
+                    default_theme_path
+                )
+            })?;
         }
-        
+
         // Note: For the default theme, we use embedded metadata instead of creating theme.json
         // This keeps the themes/default directory clean (only dist/ folder)
 
@@ -97,23 +102,27 @@ impl ThemeEngine {
         // Load templates for the default theme (may be empty for embedded themes)
         // This won't fail if there are no .html templates - embedded themes serve static files
         if let Err(e) = engine.load_theme_templates(default_theme) {
-            tracing::warn!("No templates found for theme '{}': {} (this is OK for embedded themes)", default_theme, e);
+            tracing::warn!(
+                "No templates found for theme '{}': {} (this is OK for embedded themes)",
+                default_theme,
+                e
+            );
         }
 
         Ok(engine)
     }
-    
+
     /// Set the hook manager for triggering theme_switch hook
     pub fn with_hooks(mut self, hook_manager: Arc<HookManager>) -> Self {
         self.hook_manager = Some(hook_manager);
         self
     }
-    
+
     /// Set the hook manager (for existing instances)
     pub fn set_hook_manager(&mut self, hook_manager: Arc<HookManager>) {
         self.hook_manager = Some(hook_manager);
     }
-    
+
     /// Trigger theme_switch hook
     fn trigger_theme_switch_hook(&self, old_theme: &str, new_theme: &str) {
         if let Some(ref hook_manager) = self.hook_manager {
@@ -129,11 +138,13 @@ impl ThemeEngine {
     /// Load templates for a specific theme
     fn load_theme_templates(&mut self, theme_name: &str) -> Result<()> {
         // Resolve actual directory name from cache
-        let dir_name = self.theme_cache.get(theme_name)
+        let dir_name = self
+            .theme_cache
+            .get(theme_name)
             .map(|info| info.dir_name.clone())
             .unwrap_or_else(|| theme_name.to_string());
         let theme_path = self.themes_path.join(&dir_name);
-        
+
         if !theme_path.exists() {
             return Err(ThemeError::NotFound(theme_name.to_string()).into());
         }
@@ -148,34 +159,41 @@ impl ThemeEngine {
 
         // Create a new Tera instance
         let mut tera = Tera::default();
-        
+
         // Collect all templates first
         let mut templates: Vec<(String, String)> = Vec::new();
         self.collect_templates_from_dir(&template_path, &template_path, &mut templates)?;
-        
+
         // Sort templates so base templates are loaded first
         templates.sort_by(|a, b| {
             let a_is_base = a.0 == "base.html" || a.0.ends_with("/base.html");
             let b_is_base = b.0 == "base.html" || b.0.ends_with("/base.html");
             b_is_base.cmp(&a_is_base)
         });
-        
+
         // Add all templates
         for (name, content) in templates {
-            tera.add_raw_template(&name, &content)
-                .map_err(|e| ThemeError::TemplateError(format!("Failed to add template {}: {}", name, e)))?;
+            tera.add_raw_template(&name, &content).map_err(|e| {
+                ThemeError::TemplateError(format!("Failed to add template {}: {}", name, e))
+            })?;
         }
-        
+
         // Build inheritance chains after adding all templates
-        tera.build_inheritance_chains()
-            .map_err(|e| ThemeError::TemplateError(format!("Failed to build template inheritance: {}", e)))?;
-        
+        tera.build_inheritance_chains().map_err(|e| {
+            ThemeError::TemplateError(format!("Failed to build template inheritance: {}", e))
+        })?;
+
         self.tera = tera;
         Ok(())
     }
 
     /// Collect templates from a directory
-    fn collect_templates_from_dir(&self, base_path: &Path, current_path: &Path, templates: &mut Vec<(String, String)>) -> Result<()> {
+    fn collect_templates_from_dir(
+        &self,
+        base_path: &Path,
+        current_path: &Path,
+        templates: &mut Vec<(String, String)>,
+    ) -> Result<()> {
         if !current_path.exists() {
             return Ok(());
         }
@@ -183,31 +201,30 @@ impl ThemeEngine {
         for entry in fs::read_dir(current_path)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_dir() {
                 self.collect_templates_from_dir(base_path, &path, templates)?;
             } else if path.extension().map_or(false, |ext| ext == "html") {
-                let relative_path = path.strip_prefix(base_path)
-                    .map_err(|_| ThemeError::TemplateError("Failed to get relative path".to_string()))?;
-                
-                let template_name = relative_path
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                
+                let relative_path = path.strip_prefix(base_path).map_err(|_| {
+                    ThemeError::TemplateError("Failed to get relative path".to_string())
+                })?;
+
+                let template_name = relative_path.to_string_lossy().replace('\\', "/");
+
                 let content = fs::read_to_string(&path)
                     .with_context(|| format!("Failed to read template: {:?}", path))?;
-                
+
                 templates.push((template_name, content));
             }
         }
-        
+
         Ok(())
     }
 
     /// Refresh the theme metadata cache
     fn refresh_theme_cache(&mut self) -> Result<()> {
         self.theme_cache.clear();
-        
+
         if !self.themes_path.exists() {
             return Ok(());
         }
@@ -215,7 +232,7 @@ impl ThemeEngine {
         for entry in fs::read_dir(&self.themes_path)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_dir() {
                 if let Some(theme_name) = path.file_name().and_then(|n| n.to_str()) {
                     match self.load_theme_metadata(theme_name) {
@@ -226,7 +243,11 @@ impl ThemeEngine {
                             self.theme_cache.insert(key, info);
                         }
                         Err(e) => {
-                            tracing::warn!("Failed to load theme metadata for '{}': {}", theme_name, e);
+                            tracing::warn!(
+                                "Failed to load theme metadata for '{}': {}",
+                                theme_name,
+                                e
+                            );
                         }
                     }
                 }
@@ -236,33 +257,58 @@ impl ThemeEngine {
         Ok(())
     }
 
-    /// Load theme metadata from theme.json or theme.toml
+    /// Load theme metadata from theme.json
     fn load_theme_metadata(&self, theme_name: &str) -> Result<ThemeInfo> {
         let theme_json_path = self.themes_path.join(theme_name).join("theme.json");
-        let theme_toml_path = self.themes_path.join(theme_name).join("theme.toml");
-        let has_settings = self.themes_path.join(theme_name).join("settings.json").exists();
-        
-        // Try theme.json first (for ALL themes, including default)
-        if theme_json_path.exists() {
-            let content = fs::read_to_string(&theme_json_path)
-                .with_context(|| format!("Failed to read theme.json: {:?}", theme_json_path))?;
-            
-            let metadata: ThemeJsonMetadata = serde_json::from_str(&content)
-                .map_err(|e| ThemeError::InvalidMetadata(format!("theme '{}': {}", theme_name, e)))?;
+        let settings_path = self.themes_path.join(theme_name).join("settings.json");
+        let has_settings = settings_path.exists();
 
-            let requires_noteva = metadata.requires.as_ref()
-                .map(|r| r.noteva.clone())
-                .unwrap_or_default();
+        if theme_json_path.exists() {
+            let theme_dir = self.themes_path.join(theme_name);
+            let metadata = validation::load_theme_manifest(&theme_dir).map_err(|e| {
+                ThemeError::InvalidMetadata(format!("theme '{}': {}", theme_name, e))
+            })?;
+            validation::validate_theme_manifest(&metadata, Some(theme_name)).map_err(|e| {
+                ThemeError::InvalidMetadata(format!("theme '{}': {}", theme_name, e))
+            })?;
+
+            if !theme_dir.join("dist").join("index.html").is_file() {
+                return Err(ThemeError::InvalidMetadata(format!(
+                    "theme '{}': dist/index.html not found",
+                    theme_name
+                ))
+                .into());
+            }
+            if let Some(preview) = &metadata.preview {
+                if !theme_dir.join(preview).is_file() {
+                    return Err(ThemeError::InvalidMetadata(format!(
+                        "theme '{}': preview file '{}' not found",
+                        theme_name, preview
+                    ))
+                    .into());
+                }
+            }
+
+            if has_settings {
+                let schema = validation::load_settings_schema(&settings_path).map_err(|e| {
+                    ThemeError::InvalidMetadata(format!("theme '{}': {}", theme_name, e))
+                })?;
+                validation::validate_settings_schema(&schema).map_err(|e| {
+                    ThemeError::InvalidMetadata(format!("theme '{}': {}", theme_name, e))
+                })?;
+            }
+
+            let requires_noteva = metadata.requires.noteva.clone();
             let version_check = check_version_requirement(&requires_noteva, NOTEVA_VERSION);
 
             return Ok(ThemeInfo {
-                name: metadata.short.unwrap_or_else(|| theme_name.to_string()),
+                name: metadata.short,
                 dir_name: theme_name.to_string(),
                 display_name: metadata.name,
-                description: metadata.description,
+                description: Some(metadata.description),
                 version: metadata.version,
-                author: metadata.author,
-                url: metadata.url,
+                author: Some(metadata.author),
+                repository: metadata.repository,
                 preview: metadata.preview,
                 requires_noteva,
                 compatible: version_check.compatible,
@@ -272,33 +318,7 @@ impl ThemeEngine {
                 pages: metadata.pages,
             });
         }
-        
-        // Fall back to theme.toml
-        if theme_toml_path.exists() {
-            let content = fs::read_to_string(&theme_toml_path)
-                .with_context(|| format!("Failed to read theme.toml: {:?}", theme_toml_path))?;
-            
-            let metadata: ThemeMetadata = toml::from_str(&content)
-                .map_err(|e| ThemeError::InvalidMetadata(format!("theme '{}': {}", theme_name, e)))?;
 
-            return Ok(ThemeInfo {
-                name: metadata.theme.name,
-                dir_name: theme_name.to_string(),
-                display_name: metadata.theme.display_name,
-                description: metadata.theme.description,
-                version: metadata.theme.version,
-                author: metadata.theme.author,
-                url: None,
-                preview: None,
-                requires_noteva: String::new(),
-                compatible: true,
-                compatibility_message: None,
-                config: None,
-                has_settings,
-                pages: Vec::new(),
-            });
-        }
-        
         // Fallback: hardcoded metadata for default theme (when no theme.json on disk)
         if theme_name == self.default_theme {
             let version_check = check_version_requirement(">=0.0.8", NOTEVA_VERSION);
@@ -309,7 +329,7 @@ impl ThemeEngine {
                 description: Some("The default theme for Noteva blog system".to_string()),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 author: Some("Noteva Team".to_string()),
-                url: Some("https://github.com/noteva26/Noteva".to_string()),
+                repository: "https://github.com/noteva26/Noteva".to_string(),
                 preview: Some("preview.png".to_string()),
                 requires_noteva: ">=0.0.8".to_string(),
                 compatible: version_check.compatible,
@@ -319,24 +339,11 @@ impl ThemeEngine {
                 pages: Vec::new(),
             });
         }
-        
-        // Return default metadata if no config file exists
-        Ok(ThemeInfo {
-            name: theme_name.to_string(),
-            dir_name: theme_name.to_string(),
-            display_name: theme_name.to_string(),
-            description: None,
-            version: "0.0.0".to_string(),
-            author: None,
-            url: None,
-            preview: None,
-            requires_noteva: String::new(),
-            compatible: true,
-            compatibility_message: None,
-            config: None,
-            has_settings,
-            pages: Vec::new(),
-        })
+
+        Err(
+            ThemeError::InvalidMetadata(format!("theme '{}': theme.json not found", theme_name))
+                .into(),
+        )
     }
 
     /// Render a template with context
@@ -348,17 +355,15 @@ impl ThemeEngine {
     /// # Returns
     /// Rendered HTML string or an error
     pub fn render(&self, template: &str, context: &TeraContext) -> Result<String> {
-        self.tera
-            .render(template, context)
-            .map_err(|e| {
-                let mut error_msg = format!("Failed to render '{}': {}", template, e);
-                let mut source = e.source();
-                while let Some(s) = source {
-                    error_msg.push_str(&format!("\n  Caused by: {}", s));
-                    source = s.source();
-                }
-                ThemeError::TemplateError(error_msg).into()
-            })
+        self.tera.render(template, context).map_err(|e| {
+            let mut error_msg = format!("Failed to render '{}': {}", template, e);
+            let mut source = e.source();
+            while let Some(s) = source {
+                error_msg.push_str(&format!("\n  Caused by: {}", s));
+                source = s.source();
+            }
+            ThemeError::TemplateError(error_msg).into()
+        })
     }
 
     /// Render a template with standard variables automatically added
@@ -377,14 +382,14 @@ impl ThemeEngine {
         standard_vars: &StandardTemplateVars,
     ) -> Result<String> {
         let mut full_context = context.clone();
-        
+
         // Add standard variables
         full_context.insert("site_name", &standard_vars.site_name);
         full_context.insert("site_description", &standard_vars.site_description);
         full_context.insert("request_path", &standard_vars.request_path);
         full_context.insert("theme_name", &self.current_theme);
         full_context.insert("year", &standard_vars.year);
-        
+
         if let Some(ref user) = standard_vars.current_user {
             full_context.insert("current_user", user);
         }
@@ -399,17 +404,17 @@ impl ThemeEngine {
     ///
     /// # Returns
     /// Ok(()) if successful, or an error if the theme doesn't exist
-    /// 
+    ///
     /// Triggers `theme_switch` hook with old and new theme names
     pub fn set_theme(&mut self, theme_name: &str) -> Result<()> {
-        // Resolve actual directory name: theme_name might be a short name (e.g. "pixel")
-        // while the directory is named differently (e.g. "Pixel Art")
-        let dir_name = self.theme_cache.get(theme_name)
+        let dir_name = self
+            .theme_cache
+            .get(theme_name)
             .map(|info| info.dir_name.clone())
-            .unwrap_or_else(|| theme_name.to_string());
-        
+            .ok_or_else(|| ThemeError::NotFound(theme_name.to_string()))?;
+
         let theme_path = self.themes_path.join(&dir_name);
-        
+
         if !theme_path.exists() {
             return Err(ThemeError::NotFound(theme_name.to_string()).into());
         }
@@ -417,12 +422,12 @@ impl ThemeEngine {
         let old_theme = self.current_theme.clone();
         self.load_theme_templates(theme_name)?;
         self.current_theme = theme_name.to_string();
-        
+
         // Trigger theme_switch hook
         if old_theme != theme_name {
             self.trigger_theme_switch_hook(&old_theme, theme_name);
         }
-        
+
         Ok(())
     }
 
@@ -463,13 +468,11 @@ impl ThemeEngine {
 
         // Try to set the requested theme
         match self.set_theme(theme_name) {
-            Ok(()) => {
-                ThemeSwitchResult {
-                    success: true,
-                    used_fallback: false,
-                    error: None,
-                }
-            }
+            Ok(()) => ThemeSwitchResult {
+                success: true,
+                used_fallback: false,
+                error: None,
+            },
             Err(e) => {
                 let error_msg = e.to_string();
                 tracing::warn!(
@@ -481,13 +484,11 @@ impl ThemeEngine {
 
                 // Try to fall back to default theme
                 match self.set_theme(&self.default_theme.clone()) {
-                    Ok(()) => {
-                        ThemeSwitchResult {
-                            success: true,
-                            used_fallback: true,
-                            error: Some(error_msg),
-                        }
-                    }
+                    Ok(()) => ThemeSwitchResult {
+                        success: true,
+                        used_fallback: true,
+                        error: Some(error_msg),
+                    },
                     Err(fallback_err) => {
                         tracing::error!(
                             "Failed to fall back to default theme '{}': {}",
@@ -585,7 +586,12 @@ impl ThemeEngine {
     ///
     /// # Returns
     /// Rendered HTML string or the default string
-    pub fn render_or_default(&self, template: &str, context: &TeraContext, default: &str) -> String {
+    pub fn render_or_default(
+        &self,
+        template: &str,
+        context: &TeraContext,
+        default: &str,
+    ) -> String {
         match self.render(template, context) {
             Ok(html) => html,
             Err(e) => {
@@ -678,13 +684,22 @@ impl ThemeEngine {
 
     /// Get the settings.json schema for a theme
     pub fn get_settings_schema(&self, theme_name: &str) -> Option<serde_json::Value> {
-        let dir_name = self.theme_cache.get(theme_name)
+        let dir_name = self
+            .theme_cache
+            .get(theme_name)
             .map(|info| info.dir_name.clone())
             .unwrap_or_else(|| theme_name.to_string());
         let path = self.themes_path.join(dir_name).join("settings.json");
-        fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
+        let schema = validation::load_settings_schema(&path).ok()?;
+        if let Err(error) = validation::validate_settings_schema(&schema) {
+            tracing::warn!(
+                "Ignoring invalid settings schema for theme '{}': {}",
+                theme_name,
+                error
+            );
+            return None;
+        }
+        Some(schema)
     }
 
     /// Refresh themes (rescan themes directory)
@@ -707,17 +722,15 @@ impl ThemeEngine {
 
     /// Check if a theme exists
     pub fn theme_exists(&self, theme_name: &str) -> bool {
-        // Check by short name in cache first, then fall back to directory name
-        if self.theme_cache.contains_key(theme_name) {
-            return true;
-        }
-        self.themes_path.join(theme_name).exists()
+        self.theme_cache.contains_key(theme_name)
     }
 
     /// Get the path to a theme directory
     pub fn get_theme_path(&self, theme_name: &str) -> PathBuf {
         // Resolve actual directory name from cache
-        let dir_name = self.theme_cache.get(theme_name)
+        let dir_name = self
+            .theme_cache
+            .get(theme_name)
             .map(|info| info.dir_name.clone())
             .unwrap_or_else(|| theme_name.to_string());
         self.themes_path.join(dir_name)
@@ -739,47 +752,27 @@ impl ThemeEngine {
     }
 }
 
-/// Theme metadata from theme.toml
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ThemeMetadata {
-    /// Theme section
-    pub theme: ThemeMetadataInner,
-}
-
-/// Inner theme metadata
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ThemeMetadataInner {
-    /// Theme name (identifier)
-    pub name: String,
-    /// Display name for UI
-    pub display_name: String,
-    /// Theme description
-    pub description: Option<String>,
-    /// Theme version
-    pub version: String,
-    /// Theme author
-    pub author: Option<String>,
-}
-
 /// Theme metadata from theme.json
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ThemeJsonMetadata {
+    /// Theme manifest schema version
+    pub schema: u32,
     /// Theme display name
     pub name: String,
     /// Short identifier
-    pub short: Option<String>,
+    pub short: String,
     /// Theme description
-    pub description: Option<String>,
+    pub description: String,
     /// Theme version
     pub version: String,
     /// Theme author
-    pub author: Option<String>,
-    /// Theme homepage URL
-    pub url: Option<String>,
+    pub author: String,
+    /// Git repository used for theme updates
+    pub repository: String,
     /// Preview image filename
     pub preview: Option<String>,
     /// Required Noteva version
-    pub requires: Option<ThemeRequirements>,
+    pub requires: ThemeRequirements,
     /// Theme configuration
     pub configuration: Option<serde_json::Value>,
     /// Routes that require auto-created pages (slug → title)
@@ -819,8 +812,8 @@ pub struct ThemeInfo {
     pub version: String,
     /// Theme author
     pub author: Option<String>,
-    /// Theme homepage URL
-    pub url: Option<String>,
+    /// Git repository used for theme updates
+    pub repository: String,
     /// Preview image filename
     pub preview: Option<String>,
     /// Required Noteva version

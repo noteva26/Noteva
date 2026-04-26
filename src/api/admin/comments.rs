@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use crate::api::common::{default_page_i64, default_per_page};
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 
-
 /// Query params for comments list
 #[derive(Debug, Deserialize)]
 pub struct CommentsQuery {

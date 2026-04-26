@@ -236,7 +236,9 @@ async fn update_sqlite(pool: &SqlitePool, item: &NavItem) -> Result<NavItem> {
         .execute(pool)
         .await
         .context("Failed to update nav item")?;
-    get_by_id_sqlite(pool, item.id).await?.ok_or_else(|| anyhow::anyhow!("Nav item not found after update"))
+    get_by_id_sqlite(pool, item.id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Nav item not found after update"))
 }
 
 // ============================================================================
@@ -286,5 +288,7 @@ async fn update_mysql(pool: &MySqlPool, item: &NavItem) -> Result<NavItem> {
         .execute(pool)
         .await
         .context("Failed to update nav item")?;
-    get_by_id_mysql(pool, item.id).await?.ok_or_else(|| anyhow::anyhow!("Nav item not found after update"))
+    get_by_id_mysql(pool, item.id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Nav item not found after update"))
 }

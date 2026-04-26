@@ -11,6 +11,10 @@
 //! - 4.2: User registration
 //! - 4.3: User login
 
+use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
+use crate::config::DatabaseDriver;
+use crate::db::DynDatabasePool;
+use crate::services::user::{LoginInput, RegisterInput, UserServiceError};
 use axum::{
     extract::State,
     http::{header, HeaderMap, HeaderValue, StatusCode},
@@ -19,10 +23,6 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use crate::db::DynDatabasePool;
-use crate::config::DatabaseDriver;
-use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
-use crate::services::user::{LoginInput, RegisterInput, UserServiceError};
 
 /// Request body for user registration
 #[derive(Debug, Deserialize)]
@@ -90,7 +90,6 @@ pub fn public_router() -> Router<AppState> {
     Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
-
         .route("/has-admin", get(has_admin))
 }
 
@@ -98,15 +97,13 @@ pub fn public_router() -> Router<AppState> {
 ///
 /// Returns whether the system has at least one admin user.
 /// Used for first-time setup flow.
-async fn has_admin(
-    State(state): State<AppState>,
-) -> Result<Json<HasAdminResponse>, ApiError> {
+async fn has_admin(State(state): State<AppState>) -> Result<Json<HasAdminResponse>, ApiError> {
     let is_first = state
         .user_service
         .is_first_user()
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
-    
+
     Ok(Json(HasAdminResponse {
         has_admin: !is_first,
     }))
@@ -134,9 +131,11 @@ async fn register(
         .is_first_user()
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
-    
+
     if !is_first {
-        return Err(ApiError::forbidden("Admin account already exists, registration is closed"));
+        return Err(ApiError::forbidden(
+            "Admin account already exists, registration is closed",
+        ));
     }
 
     let password = body.password.clone();
@@ -157,7 +156,10 @@ async fn register(
     // Create session for the new user
     let login_input = LoginInput::new(&user.username, &password);
     let ip_addr = extract_ip_address(&headers);
-    let ua = headers.get(header::USER_AGENT).and_then(|h| h.to_str().ok()).map(String::from);
+    let ua = headers
+        .get(header::USER_AGENT)
+        .and_then(|h| h.to_str().ok())
+        .map(String::from);
     let session = state
         .user_service
         .login(login_input, ip_addr, ua)
@@ -165,7 +167,8 @@ async fn register(
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     // Detect if behind HTTPS
-    let is_secure = headers.get("x-forwarded-proto")
+    let is_secure = headers
+        .get("x-forwarded-proto")
         .and_then(|h| h.to_str().ok())
         .map(|p| p == "https")
         .unwrap_or(false);
@@ -225,30 +228,50 @@ async fn login(
         .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
         .map(String::from);
-    
+
     // Check IP rate limit (10 requests per minute)
     if let Some(ip) = ip_address.as_ref().and_then(|s| s.parse().ok()) {
         if state.rate_limiter.is_ip_limited(ip).await {
-            log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), false, Some("IP rate limit exceeded")).await;
+            log_login_attempt(
+                &state.pool,
+                &body.username_or_email,
+                ip_address.as_deref(),
+                user_agent.as_deref(),
+                false,
+                Some("IP rate limit exceeded"),
+            )
+            .await;
             return Err(ApiError::with_details(
                 "RATE_LIMIT",
                 "Too many requests, please try again later",
-                serde_json::json!({"retry_after": 60})
+                serde_json::json!({"retry_after": 60}),
             ));
         }
         state.rate_limiter.record_ip_request(ip).await;
     }
-    
+
     // Check username rate limit (progressive tiers)
-    if let Some(lockout_secs) = state.rate_limiter.check_username_limit(&body.username_or_email).await {
-        log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), false, Some("Username rate limit exceeded")).await;
+    if let Some(lockout_secs) = state
+        .rate_limiter
+        .check_username_limit(&body.username_or_email)
+        .await
+    {
+        log_login_attempt(
+            &state.pool,
+            &body.username_or_email,
+            ip_address.as_deref(),
+            user_agent.as_deref(),
+            false,
+            Some("Username rate limit exceeded"),
+        )
+        .await;
         return Err(ApiError::with_details(
             "RATE_LIMIT",
             "Too many failed login attempts, please try again later",
-            serde_json::json!({"retry_after": lockout_secs})
+            serde_json::json!({"retry_after": lockout_secs}),
         ));
     }
-    
+
     let input = LoginInput::new(body.username_or_email.clone(), body.password);
 
     let session = state
@@ -302,8 +325,19 @@ async fn login(
     // Check if 2FA is enabled — return challenge instead of full login
     if user.totp_enabled {
         // Clear failed attempts (password was correct)
-        state.rate_limiter.clear_username_attempts(&body.username_or_email).await;
-        log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), true, Some("2FA challenge issued")).await;
+        state
+            .rate_limiter
+            .clear_username_attempts(&body.username_or_email)
+            .await;
+        log_login_attempt(
+            &state.pool,
+            &body.username_or_email,
+            ip_address.as_deref(),
+            user_agent.as_deref(),
+            true,
+            Some("2FA challenge issued"),
+        )
+        .await;
 
         // Don't set cookies yet — user must complete 2FA first
         return Ok((
@@ -312,17 +346,30 @@ async fn login(
                 user: user.into(),
                 token: session.id,
             }),
-        ).into_response());
+        )
+            .into_response());
     }
 
     // Clear failed attempts on successful login
-    state.rate_limiter.clear_username_attempts(&body.username_or_email).await;
-    
+    state
+        .rate_limiter
+        .clear_username_attempts(&body.username_or_email)
+        .await;
+
     // Log successful login
-    log_login_attempt(&state.pool, &body.username_or_email, ip_address.as_deref(), user_agent.as_deref(), true, None).await;
+    log_login_attempt(
+        &state.pool,
+        &body.username_or_email,
+        ip_address.as_deref(),
+        user_agent.as_deref(),
+        true,
+        None,
+    )
+    .await;
 
     // Detect if behind HTTPS (for Secure flag on cookies)
-    let is_secure = headers.get("x-forwarded-proto")
+    let is_secure = headers
+        .get("x-forwarded-proto")
         .and_then(|h| h.to_str().ok())
         .map(|p| p == "https")
         .unwrap_or(false);
@@ -364,7 +411,8 @@ async fn login(
             user: user.into(),
             token: session.id,
         }),
-    ).into_response())
+    )
+        .into_response())
 }
 
 /// POST /api/v1/auth/logout - User logout
@@ -402,14 +450,8 @@ async fn logout(
     let clear_session = "session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
     let clear_csrf = "csrf_token=; Path=/; SameSite=Lax; Max-Age=0";
     let mut response_headers = HeaderMap::new();
-    response_headers.insert(
-        header::SET_COOKIE,
-        HeaderValue::from_static(clear_session),
-    );
-    response_headers.append(
-        header::SET_COOKIE,
-        HeaderValue::from_static(clear_csrf),
-    );
+    response_headers.insert(header::SET_COOKIE, HeaderValue::from_static(clear_session));
+    response_headers.append(header::SET_COOKIE, HeaderValue::from_static(clear_csrf));
 
     Ok((StatusCode::NO_CONTENT, response_headers))
 }
@@ -435,7 +477,7 @@ async fn update_profile(
     Json(body): Json<UpdateProfileRequest>,
 ) -> Result<Json<UserResponse>, ApiError> {
     let mut current_user = user.0;
-    
+
     // Update fields
     if let Some(display_name) = body.display_name {
         current_user.display_name = if display_name.trim().is_empty() {
@@ -451,13 +493,13 @@ async fn update_profile(
             Some(avatar.trim().to_string())
         };
     }
-    
+
     let updated = state
         .user_service
         .update_user(current_user)
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
-    
+
     Ok(Json(updated.into()))
 }
 
@@ -475,29 +517,31 @@ async fn change_password(
     Json(body): Json<ChangePasswordRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     use crate::services::password::{hash_password, verify_password};
-    
+
     // Validate new password
     if body.new_password.len() < 8 {
-        return Err(ApiError::validation_error("Password must be at least 8 characters"));
+        return Err(ApiError::validation_error(
+            "Password must be at least 8 characters",
+        ));
     }
-    
+
     // Verify current password
     let is_valid = verify_password(&body.current_password, &user.0.password_hash)
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
-    
+
     if !is_valid {
         return Err(ApiError::validation_error("Current password is incorrect"));
     }
-    
+
     // Hash new password
-    let new_hash = hash_password(&body.new_password)
-        .map_err(|e| ApiError::internal_error(e.to_string()))?;
-    
+    let new_hash =
+        hash_password(&body.new_password).map_err(|e| ApiError::internal_error(e.to_string()))?;
+
     // Update user
     let user_id = user.0.id;
     let mut updated_user = user.0;
     updated_user.password_hash = new_hash;
-    
+
     state
         .user_service
         .update_user(updated_user)
@@ -509,12 +553,9 @@ async fn change_password(
         "user_password_change",
         serde_json::json!({ "user_id": user_id }),
     );
-    
+
     Ok(StatusCode::NO_CONTENT)
 }
-
-
-
 
 // ============================================================================
 // Helper Functions for Security
@@ -536,14 +577,14 @@ fn extract_ip_address(headers: &HeaderMap) -> Option<String> {
             }
         }
     }
-    
+
     // Check X-Real-IP header
     if let Some(real_ip) = headers.get("x-real-ip") {
         if let Ok(ip_str) = real_ip.to_str() {
             return Some(ip_str.to_string());
         }
     }
-    
+
     None
 }
 
@@ -557,7 +598,7 @@ async fn log_login_attempt(
     failure_reason: Option<&str>,
 ) {
     let success_int = if success { 1 } else { 0 };
-    
+
     let result: Result<(), sqlx::Error> = match pool.driver() {
         DatabaseDriver::Sqlite => {
             sqlx::query(
@@ -586,7 +627,7 @@ async fn log_login_attempt(
             .map(|_| ())
         }
     };
-    
+
     if let Err(e) = result {
         tracing::warn!("Failed to log login attempt: {}", e);
     }

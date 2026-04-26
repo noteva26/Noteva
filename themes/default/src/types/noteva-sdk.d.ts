@@ -1,90 +1,139 @@
-/**
- * Noteva SDK 类型声明
- * 全局 window.Noteva 对象的 TypeScript 类型定义
- */
+type NotevaSettingValue =
+  | string
+  | number
+  | boolean
+  | null
+  | NotevaSettingValue[]
+  | { [key: string]: NotevaSettingValue };
+
+interface NotevaArticleLink {
+  id: number;
+  slug: string;
+  title: string;
+  thumbnail?: string | null;
+  url?: string;
+}
+
+interface NotevaCategory {
+  id: number;
+  slug: string;
+  name: string;
+  description?: string;
+  parentId?: number | null;
+  articleCount: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface NotevaTag {
+  id: number;
+  slug: string;
+  name: string;
+  articleCount: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 interface NotevaArticle {
   id: number;
   slug: string;
   title: string;
   content: string;
-  html: string;  // SDK 返回 html 而不是 content_html
-  excerpt?: string;
-  coverImage?: string;
-  author?: { id: number; username: string; avatar?: string };
-  category?: { id: number; name: string; slug: string };
-  tags?: { id: number; name: string; slug: string }[];
+  html: string;
+  excerpt: string;
+  thumbnail: string | null;
+  coverImage: string | null;
+  authorId?: number | null;
+  categoryId?: number | null;
+  status: string;
+  author?: NotevaUser | null;
+  category?: NotevaCategory | null;
+  tags: NotevaTag[];
   createdAt: string;
   updatedAt: string;
-  publishedAt?: string;
+  publishedAt: string;
+  scheduledAt?: string | null;
   viewCount: number;
   likeCount: number;
   commentCount: number;
-  isPinned?: boolean;
-  pinOrder?: number;
-  thumbnail?: string;
-}
-
-interface NotevaCategory {
-  id: number;
-  name: string;
-  slug: string;
-  description?: string;
-  parentId?: number;
-  articleCount?: number;
-}
-
-interface NotevaTag {
-  id: number;
-  name: string;
-  slug: string;
-  articleCount?: number;
+  wordCount: number;
+  readingTime: number;
+  isPinned: boolean;
+  pinOrder: number;
+  prev?: NotevaArticleLink | null;
+  next?: NotevaArticleLink | null;
+  related: NotevaArticleLink[];
+  toc: Array<{ id: string; text: string; level: number }>;
+  meta?: unknown;
+  canonicalUrl?: string | null;
 }
 
 interface NotevaComment {
   id: number;
+  articleId?: number | null;
+  userId?: number | null;
+  parentId?: number | null;
+  nickname?: string | null;
+  email?: string | null;
   content: string;
   html?: string;
-  author?: { id: number; username: string; avatar?: string };
-  parentId?: number;
+  status?: string;
   createdAt: string;
-  replies?: NotevaComment[];
+  updatedAt?: string;
+  avatarUrl: string;
   likeCount: number;
   isLiked: boolean;
-  nickname?: string;
-  avatarUrl?: string;
+  isAuthor: boolean;
+  replies: NotevaComment[];
 }
 
 interface NotevaUser {
   id: number;
   username: string;
   email: string;
-  avatar?: string;
-  display_name?: string;
   role: string;
+  status?: string;
+  displayName?: string;
+  avatar?: string;
+  totpEnabled?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface NotevaSiteInfo {
+  version: string;
   name: string;
   description: string;
   subtitle: string;
   logo: string;
   footer: string;
-  version?: string;
-  permalinkStructure?: string;
-  site_name?: string;
-  site_description?: string;
-  site_subtitle?: string;
-  site_logo?: string;
-  site_footer?: string;
-  permalink_structure?: string;
-  email_verification_enabled?: string;
-  font_family?: string;
-  custom_css?: string;
-  custom_js?: string;
-  demo_mode?: boolean;
-  stats?: { total_articles: number; total_categories: number; total_tags: number };
-  [key: string]: any; // 透传全部后端字段
+  url: string;
+  permalinkStructure: string;
+  emailVerificationEnabled: boolean;
+  demoMode: boolean;
+  customCss: string;
+  customJs: string;
+  fontFamily: string;
+  stats: {
+    totalArticles: number;
+    totalCategories: number;
+    totalTags: number;
+  };
+}
+
+interface NotevaThemeInfo {
+  name: string;
+  displayName: string;
+  version: string;
+  description?: string;
+  author?: string;
+  repository?: string;
+  preview?: string;
+  requiresNoteva?: string;
+  compatible?: boolean;
+  compatibilityMessage?: string;
+  config: Record<string, unknown>;
+  hasSettings: boolean;
 }
 
 interface NotevaInjectedSiteConfig {
@@ -102,22 +151,26 @@ interface NotevaCustomLocale {
   translations: Record<string, unknown>;
 }
 
-interface NotevaNavItem {
-  id: number;
+interface NotevaLocaleInfo {
+  code: string;
   name: string;
-  url: string;
-  target?: string;
-  order: number;
+  nativeName?: string;
+  isCustom?: boolean;
+  builtIn?: boolean;
 }
 
-interface NotevaPage {
+interface NotevaNavItem {
   id: number;
+  parentId?: number | null;
   title: string;
-  slug: string;
-  content: string;
-  html: string;
-  createdAt: string;
-  updatedAt: string;
+  name: string;
+  type: "builtin" | "page" | "external" | string;
+  target: string;
+  url: string;
+  openNewTab: boolean;
+  order: number;
+  visible: boolean;
+  children: NotevaNavItem[];
 }
 
 interface NotevaArticleListResult {
@@ -125,24 +178,62 @@ interface NotevaArticleListResult {
   total: number;
   page: number;
   pageSize: number;
+  totalPages: number;
   hasMore: boolean;
+}
+
+interface NotevaArchiveEntry {
+  month: string;
+  year: number;
+  monthNumber: number;
+  count: number;
+}
+
+interface NotevaRuntimeError extends Error {
+  status: number;
+  code: string | null;
+  data: unknown;
+  url: string;
+  method: string;
+}
+
+interface NotevaUploadResult {
+  url: string;
+  filename: string;
+  size: number;
+  contentType: string;
+}
+
+interface NotevaMultiUploadResult {
+  files: NotevaUploadResult[];
+  failed: string[];
+}
+
+interface NotevaPageContext {
+  type: "unknown" | "article" | "page" | string;
+  path: string;
+  query: Record<string, string>;
+  articleId: number | null;
+  article: NotevaArticle | null;
+  pageId: number | null;
+  customPage: NotevaPage | null;
 }
 
 interface NotevaSDK {
   version: string;
+  sdkVersion: string;
 
-  // 核心系统
   hooks: {
-    on(name: string, callback: Function, priority?: number): void;
-    off(name: string, callback: Function): void;
-    trigger(name: string, ...args: any[]): any;
-    triggerAsync(name: string, ...args: any[]): Promise<any>;
+    on(name: string, callback: (...args: any[]) => any, priority?: number): () => void;
+    off(name: string, callback: (...args: any[]) => any): void;
+    trigger<T = any>(name: string, ...args: any[]): T;
+    triggerAsync<T = any>(name: string, ...args: any[]): Promise<T>;
   };
 
   events: {
-    on(event: string, callback: Function): void;
-    once(event: string, callback: Function): void;
-    off(event: string, callback: Function): void;
+    on(event: string, callback: (data?: any) => void): () => void;
+    once(event: string, callback: (data?: any) => void): () => void;
+    off(event: string, callback: (data?: any) => void): void;
     emit(event: string, data?: any): void;
   };
 
@@ -154,16 +245,21 @@ interface NotevaSDK {
     delete<T = any>(url: string): Promise<T>;
   };
 
-  // 站点 API
   site: {
     getInfo(): Promise<NotevaSiteInfo>;
     getNav(): Promise<NotevaNavItem[]>;
-    getThemeConfig(key?: string): any;
-    getThemeSettings(key?: string): Promise<Record<string, string> | string | undefined>;
-    getArticleUrl(article: { id: number | string; slug?: string }): string;
+    refresh(): Promise<NotevaSiteInfo>;
   };
 
-  // 文章 API
+  theme: {
+    getInfo(): Promise<NotevaThemeInfo>;
+    getConfig<T = any>(key?: string): Promise<T>;
+    getSettings(): Promise<Record<string, NotevaSettingValue>>;
+    getSettings<T = NotevaSettingValue>(key: string): Promise<T | undefined>;
+    getSetting<T = NotevaSettingValue>(key: string, defaultValue?: T): Promise<T>;
+    refreshSettings(): Promise<Record<string, NotevaSettingValue>>;
+  };
+
   articles: {
     list(params?: {
       page?: number;
@@ -171,39 +267,29 @@ interface NotevaSDK {
       category?: string;
       tag?: string;
       keyword?: string;
+      sort?: "date" | "views" | "comments" | "latest" | string;
     }): Promise<NotevaArticleListResult>;
     get(slug: string): Promise<NotevaArticle>;
-    getRelated(slug: string, params?: { limit?: number }): Promise<NotevaArticle[]>;
-    getArchives(): Promise<{ year: number; month: number; count: number }[]>;
-    // 字段兼容工具
-    getDate(article: any): string;
-    getStats(article: any): { views: number; likes: number; comments: number };
-    isPinned(article: any): boolean;
-    getThumbnail(article: any): string | null;
-    getExcerpt(article: any, maxLength?: number): string;
-    getHtml(article: any): string;
+    related(slug: string, params?: { limit?: number }): Promise<NotevaArticleLink[]>;
+    archives(): Promise<NotevaArchiveEntry[]>;
     incrementView(articleId: number): Promise<void>;
   };
 
-  // 页面 API
   pages: {
     list(): Promise<NotevaPage[]>;
     get(slug: string): Promise<NotevaPage>;
   };
 
-  // 分类 API
   categories: {
     list(): Promise<NotevaCategory[]>;
-    get(slug: string): Promise<NotevaCategory>;
+    get(slug: string): Promise<NotevaCategory | null>;
   };
 
-  // 标签 API
   tags: {
     list(): Promise<NotevaTag[]>;
-    get(slug: string): Promise<NotevaTag>;
+    get(slug: string): Promise<NotevaTag | null>;
   };
 
-  // 评论 API
   comments: {
     list(articleId: number): Promise<NotevaComment[]>;
     create(data: {
@@ -213,35 +299,31 @@ interface NotevaSDK {
       nickname?: string;
       email?: string;
     }): Promise<NotevaComment>;
-    delete(commentId: number): Promise<void>;
     recent(limit?: number): Promise<NotevaComment[]>;
   };
 
-  // 交互 API（点赞）
   interactions: {
-    like(targetType: 'article' | 'comment', targetId: number): Promise<{ liked: boolean; like_count: number }>;
-    checkLike(targetType: 'article' | 'comment', targetId: number): Promise<{ liked: boolean }>;
+    like(targetType: "article" | "comment", targetId: number): Promise<{ success: boolean; liked: boolean; likeCount: number }>;
+    checkLike(targetType: "article" | "comment", targetId: number): Promise<{ success: boolean; liked: boolean; likeCount: number }>;
   };
 
-  // 搜索工具
-  search: {
-    highlight(text: string, keyword: string): string;
-  };
-
-  // 用户 API
   user: {
     isLoggedIn(): boolean;
     getCurrent(): NotevaUser | null;
     check(): Promise<NotevaUser | null>;
-    login(credentials: { username: string; password: string }): Promise<{ user: NotevaUser }>;
-    register(data: { username: string; email: string; password: string; verification_code?: string }): Promise<{ user: NotevaUser }>;
     logout(): Promise<void>;
     hasPermission(permission: string): boolean;
-    updateProfile(data: { display_name?: string; avatar?: string }): Promise<NotevaUser>;
-    changePassword(data: { current_password: string; new_password: string }): Promise<void>;
   };
 
-  // 路由辅助
+  urls: {
+    article(article: { id: number | string; slug?: string }): string;
+    category(category: string | { slug?: string }): string;
+    tag(tag: string | { slug?: string }): string;
+    page(page: string | { slug?: string }): string;
+    asset(path: string): string;
+    upload(path: string): string;
+  };
+
   router: {
     getPath(): string;
     getQuery(key: string): string | null;
@@ -252,31 +334,42 @@ interface NotevaSDK {
     replace(path: string): void;
   };
 
-  // 工具函数
+  page: NotevaPageContext & {
+    set(context?: Partial<NotevaPageContext>): NotevaPageContext;
+    get(): NotevaPageContext;
+    clear(): NotevaPageContext;
+  };
+
   utils: {
     formatDate(date: string | Date, format?: string): string;
     timeAgo(date: string | Date): string;
     escapeHtml(str: string): string;
     truncate(text: string, length: number, suffix?: string): string;
     excerpt(markdown: string, length?: number): string;
-    debounce<T extends Function>(fn: T, delay: number): T;
-    throttle<T extends Function>(fn: T, delay: number): T;
+    debounce<T extends (...args: any[]) => any>(fn: T, delay: number): T;
+    throttle<T extends (...args: any[]) => any>(fn: T, delay: number): T;
     copyToClipboard(text: string): Promise<boolean>;
     uniqueId(prefix?: string): string;
     prefersDarkMode(): boolean;
     lazyLoadImages(selector?: string): void;
   };
 
-  // UI 组件
+  errors: {
+    NotevaError: new (message: string, options?: Record<string, unknown>) => NotevaRuntimeError;
+    isNotFound(error: unknown): boolean;
+    isUnauthorized(error: unknown): boolean;
+    isForbidden(error: unknown): boolean;
+    isValidation(error: unknown): boolean;
+  };
+
   ui: {
-    toast(message: string, type?: 'info' | 'success' | 'warning' | 'error', duration?: number): void;
+    toast(message: string, type?: "info" | "success" | "warning" | "error", duration?: number): void;
     confirm(options: string | { title?: string; message: string; confirmText?: string; cancelText?: string }): Promise<boolean>;
     showLoading(): void;
     hideLoading(): void;
     modal(options: { title?: string; content: string; onClose?: () => void }): { close: () => void; element: HTMLElement };
   };
 
-  // 本地存储
   storage: {
     get<T = any>(key: string, defaultValue?: T): T;
     set(key: string, value: any): void;
@@ -284,49 +377,62 @@ interface NotevaSDK {
     clear(): void;
   };
 
-  // SEO
+  search: {
+    highlight(text: string, keyword: string): string;
+  };
+
+  upload: {
+    image(file: File): Promise<NotevaUploadResult>;
+    images(files: File[] | FileList): Promise<NotevaMultiUploadResult>;
+    file(file: File): Promise<NotevaUploadResult>;
+    pluginFile(pluginId: string, file: File): Promise<NotevaUploadResult>;
+  };
+
+  cache: {
+    get<T = any>(key: string): Promise<T | null>;
+    set(key: string, value: any, ttl?: number): Promise<void>;
+    delete(key: string): Promise<void>;
+  };
+
   seo: {
     setTitle(title: string): void;
     setMeta(meta: Record<string, string>): void;
     setOpenGraph(og: Record<string, string>): void;
     setTwitterCard(twitter: Record<string, string>): void;
     set(options: { title?: string; meta?: Record<string, string>; og?: Record<string, string>; twitter?: Record<string, string> }): void;
-    setArticleMeta(article: { title: string; excerpt?: string; thumbnail?: string; slug?: string; id?: number | string; published_at?: string; updated_at?: string }, siteName: string, siteUrl?: string): void;
+    setArticleMeta(article: { title: string; excerpt?: string; thumbnail?: string | null; coverImage?: string | null; slug?: string; id?: number | string; publishedAt?: string; updatedAt?: string }, siteName: string, siteUrl?: string): void;
     setSiteMeta(siteName: string, description: string, siteUrl?: string): void;
   };
 
-  // TOC（文章目录）
   toc: {
     extract(container?: string | HTMLElement, levels?: string): Array<{ id: string; text: string; level: number }>;
     scrollTo(id: string, offset?: number): void;
     observe(items: Array<{ id: string }>, callback: (activeId: string) => void, offset?: number): () => void;
   };
 
-  // 国际化
   i18n: {
     getLocale(): string;
     setLocale(locale: string): void;
     addMessages(locale: string, messages: Record<string, any>): void;
     t(key: string, params?: Record<string, any>): string;
+    loadCustomLocales(): NotevaCustomLocale[];
+    getCustomLocales(): NotevaCustomLocale[];
+    getLocales(builtinLocales?: NotevaLocaleInfo[]): NotevaLocaleInfo[];
   };
 
-  // 插件系统
   plugins: {
     register(id: string, plugin: any): void;
     get(id: string): any;
     getSettings(pluginId: string): Record<string, any>;
-    saveSettings(pluginId: string, settings: Record<string, any>): Promise<void>;
+    list(): any[];
     getData(pluginId: string, key: string): Promise<any>;
-    setData(pluginId: string, key: string, value: any): Promise<void>;
   };
 
-  // Shortcode 系统
   shortcodes: {
     register(name: string, handler: any): void;
     render(content: string, context?: any): Promise<string>;
   };
 
-  // 插槽系统
   slots: {
     register(name: string, content: string | (() => string), priority?: number): void;
     getContent(name: string): string;
@@ -334,7 +440,6 @@ interface NotevaSDK {
     autoRender(): void;
   };
 
-  // Emoji / Twemoji
   emoji: {
     categories: Array<{
       id: string;
@@ -355,7 +460,6 @@ interface NotevaSDK {
     isLoaded(): boolean;
   };
 
-  // 调试
   debug: {
     enable(): void;
     disable(): void;
@@ -366,8 +470,19 @@ interface NotevaSDK {
     mockThemeConfig(config: any): void;
   };
 
-  // 初始化
   ready(callback?: () => void): Promise<void>;
+}
+
+interface NotevaPage {
+  id: number;
+  slug: string;
+  title: string;
+  content: string;
+  html: string;
+  status: string;
+  source?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 declare global {
@@ -378,4 +493,4 @@ declare global {
   }
 }
 
-export { };
+export {};

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  getCategoryUrl,
   waitForNoteva,
   type NotevaArticle,
   type NotevaCategory,
@@ -214,7 +215,7 @@ export default function CategoriesPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.03 }}
                 >
-                  <Link to={`/categories?c=${category.slug}`} className="group block h-full">
+                  <Link to={getCategoryUrl(category)} className="group block h-full">
                     <Card className="h-full transition-colors hover:border-primary/60 hover:bg-muted/30">
                       <CardContent className="p-5">
                         <div className="flex items-start gap-4">

@@ -134,9 +134,9 @@ export default function HomePage() {
         if (!active) return;
 
         setSiteInfo({
-          name: info.name || info.site_name || "Noteva",
-          subtitle: info.subtitle || info.site_subtitle || "",
-          description: info.description || info.site_description || "",
+          name: info.name || "Noteva",
+          subtitle: info.subtitle || "",
+          description: info.description || "",
         });
       } catch {
         if (active) {
@@ -259,22 +259,19 @@ export default function HomePage() {
     <div className="theme-page-shell relative flex min-h-screen flex-col">
       <SiteHeader />
       <main className="flex-1">
-        <div className="container mx-auto max-w-4xl py-10 md:py-12">
+        <div className="container mx-auto max-w-4xl py-8 md:py-10">
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, ease: "easeOut" }}
-            className="mb-10 text-center"
+            className="mb-8 text-center"
           >
             {siteInfo ? (
               <>
-                <p className="mb-3 text-sm font-medium text-muted-foreground">
-                  {t("home.latestPosts")}
-                </p>
-                <h1 className="mx-auto mb-3 max-w-3xl text-4xl font-semibold leading-tight md:text-5xl">
+                <h1 className="mx-auto mb-3 max-w-3xl text-3xl font-semibold leading-tight md:text-4xl">
                   {t("home.welcome")} {siteInfo.name}
                 </h1>
-                <p className="mx-auto max-w-2xl text-base leading-7 text-muted-foreground md:text-lg">
+                <p className="mx-auto max-w-3xl text-base leading-7 text-muted-foreground">
                   {siteInfo.subtitle ||
                     siteInfo.description ||
                     t("home.subtitle")}

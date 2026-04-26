@@ -1,6 +1,6 @@
 # Noteva 插件开发文档
 
-> 版本：v0.2.5
+> 版本：v0.2.7
 
 ## 快速开始
 
@@ -21,7 +21,7 @@ plugins/
     backend.wasm       # WASM 后端模块（可选）
     settings.json      # 设置项定义（可选）
     editor.json        # 编辑器工具栏按钮（可选）
-    migrations/        # 数据库迁移 SQL（可选，需 database 权限）
+    migrations/        # 数据库迁移 SQL（实验项，schema v1 暂不开放）
       001_init.sql
     locales/           # 国际化翻译文件（可选）
       zh-CN.json
@@ -29,7 +29,20 @@ plugins/
     README.md          # 插件说明（可选）
 ```
 
-### v0.2.5 安全约束速览
+### v0.2.7 规范速览
+
+- `plugin.json` 必须声明 `"schema": 1`，插件目录名必须与 `id` 一致。
+- `settings: true` 时必须提供 `settings.json`；没有设置项时不要保留空的 `settings.json`。
+- `settings.json` 必须声明 `"schema": 1`，结构与主题设置一致：`sections -> fields`。
+- `homepage` 已替换为 `repository`，用于后续更新检查，支持 GitHub URL 或 `owner/repo`。
+- `hooks.backend`、`hooks.frontend`、`hooks.editor`、`permissions` 都会在安装/加载时校验，未知声明会直接拒绝。
+- `database` / 插件私有 SQL API 暂时不属于 schema v1 稳定能力，第五步再单独处理。
+
+JSON Schema 文件位于：
+- `docs/schemas/plugin.schema.json`
+- `docs/schemas/plugin-settings.schema.json`
+
+### 安全约束速览
 
 - `/api/v1/plugins/proxy` 通用代理已禁用，不再允许前端插件提交任意 URL 让主程序代转发请求。
 - 用户自定义中转站仍然支持：插件可以把 `api_url`、`api_key` 等放在 `settings.json` 中，由用户在插件设置里填写；WASM 后端在声明 `network` 权限后，通过 `host_http_request` 请求这些用户配置的公开 `http/https` 地址。
@@ -43,14 +56,16 @@ plugins/
 
 ```json
 {
+  "schema": 1,
   "id": "my-plugin",
   "name": "我的插件",
   "version": "1.0.0",
   "description": "插件描述",
   "author": "Your Name",
+  "repository": "https://github.com/your-name/my-plugin",
   "license": "MIT",
   "requires": {
-    "noteva": ">=0.1.3"
+    "noteva": ">=0.2.7"
   },
   "hooks": {
     "frontend": ["content_render"],
@@ -66,20 +81,23 @@ plugins/
 
 | 字段 | 必需 | 说明 |
 |-----|------|------|
+| `schema` | 是 | 插件清单格式版本，目前固定为 `1` |
 | `id` | 是 | 插件唯一标识，小写字母和连字符，必须与目录名一致 |
 | `name` | 是 | 插件显示名称 |
 | `version` | 是 | 版本号（语义化版本） |
-| `description` | | 插件描述 |
-| `author` | | 作者 |
-| `license` | | 开源协议 |
-| `requires.noteva` | | 最低版本要求，如 `>=0.1.3` |
+| `description` | 是 | 插件描述 |
+| `author` | 是 | 作者 |
+| `repository` | 是 | GitHub 仓库地址或 `owner/repo`，用于更新 |
+| `license` | 是 | 开源协议 |
+| `requires.noteva` | 是 | 最低版本要求，如 `>=0.2.7` |
 | `hooks.frontend` | | 前端钩子列表 |
 | `hooks.backend` | | 后端钩子列表（需要 backend.wasm） |
 | `hooks.editor` | | 编辑器扩展，如 `["toolbar"]`（需要 editor.json） |
 | `permissions` | | WASM 插件所需权限列表 |
 | `shortcodes` | | 注册的短代码列表 |
 | `settings` | | 是否有设置项（true/false） |
-| `database` | | 是否需要数据库表（true/false，需配合 `migrations/` 目录） |
+| `api` | | 是否暴露公开插件 API（需要 backend.wasm） |
+| `database` | | schema v1 暂不开放，声明 `true` 会被拒绝 |
 | `pages` | | 自动创建的页面列表，每项含 `slug` 和 `title`。启用插件时自动创建缺失的 Page 记录（不覆盖已有页面） |
 
 ### 可用权限
@@ -91,12 +109,6 @@ plugins/
 | `read_articles` | 查询文章列表（用于批量处理等场景） |
 | `read_comments` | 读取评论数据 |
 | `write_articles` | 修改文章数据 |
-| `write_comments` | 修改评论数据 |
-| `read_config` | 读取系统配置 |
-| `write_config` | 修改系统配置 |
-| `fs_read` | 读取文件系统 |
-| `fs_write` | 写入文件系统 |
-| `database` | 插件数据库表（需要 `migrations/` 目录） |
 
 > `storage` 权限会自动授予所有 WASM 插件，但建议显式声明以保持清晰。
 
@@ -110,6 +122,7 @@ plugins/
 
 ```json
 {
+  "schema": 1,
   "sections": [
     {
       "id": "api",
@@ -166,7 +179,6 @@ plugins/
 | `switch` | 开关 | - |
 | `select` | 下拉选择 | `options` |
 | `color` | 颜色选择器 | - |
-| `image` | 图片上传 | - |
 | `array` | 数组/列表 | `itemFields` |
 
 ### secret 字段
@@ -195,7 +207,7 @@ plugins/
 }
 ```
 
-前端获取：`Noteva.plugins.getSettings('my-plugin').links` 直接是数组。
+前端获取：`(await Noteva.plugins.ready('my-plugin')).links` 直接是数组。
 
 ---
 
@@ -301,16 +313,12 @@ plugins/
 (function() {
   const PLUGIN_ID = 'my-plugin';
 
-  function waitForNoteva(callback) {
-    if (typeof Noteva !== 'undefined') callback();
-    else setTimeout(function() { waitForNoteva(callback); }, 100);
-  }
+  Noteva.ready(async function() {
+    var settings = await Noteva.plugins.ready(PLUGIN_ID, {
+      enabled: true
+    });
 
-  waitForNoteva(function() {
-    var settings = Noteva.plugins.getSettings(PLUGIN_ID);
-
-    // 注意：getSettings 返回从数据库加载的设置
-    // 如果用户从未保存过设置，返回空对象 {}
+    // 注意：ready() 返回已合并默认值和用户保存值的设置
     // 检查开关类设置时，应使用 === false 而非 !value
     if (settings.enabled === false) return;
 
@@ -329,10 +337,11 @@ plugins/
 | `content_render` | Action | SPA 路由变化/DOM 变化时 | `{ path, query }` |
 | `comment_after_create` | Action | 评论提交后 | `comment, { articleId }` |
 | `body_end` | Action | 页面加载完成 | - |
+| `route_change` | Action | SPA 路由变化时 | `{ from, to, query }` |
 | `seo_meta_tags` | Filter | SEO 元标签生成时 | `{ title, description, keywords }` |
-| `admin_menu` | Filter | 管理后台菜单渲染时 | `{ items }` |
-| `admin_dashboard` | Filter | 管理后台仪表盘渲染时 | `{ widgets }` |
-| `nav_items_filter` | Filter | 导航菜单渲染时 | `{ items }` |
+| `api_request_before` | Action | SDK API 请求前 | `{ method, url, data }` |
+| `api_request_after` | Action | SDK API 请求后 | `{ method, url, response, result }` |
+| `api_error` | Action | SDK API 请求失败时 | `error` |
 
 ```javascript
 // 文章查看（最常用，可获取文章 ID）
@@ -368,12 +377,7 @@ if (match.matched) {
 
 ```javascript
 // SDK 方式
-var value = await Noteva.plugins.getData('my-plugin', 'some-key');
-
-// 或直接 fetch
-fetch('/api/v1/plugins/my-plugin/data/some-key')
-  .then(function(r) { return r.json(); })
-  .then(function(d) { console.log(d.value); });
+var value = await Noteva.plugins.storage.get('my-plugin', 'some-key');
 ```
 
 ### 插件 Action API（需管理员登录）
@@ -381,19 +385,26 @@ fetch('/api/v1/plugins/my-plugin/data/some-key')
 触发插件的自定义后端操作：
 
 ```javascript
-fetch('/api/v1/admin/plugins/my-plugin/action/regenerate', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  credentials: 'include',
-  body: JSON.stringify({ article_id: 123 })
-})
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    // d: { success: true, data: { ... } }
-  });
+var result = await Noteva.plugins.action('my-plugin', 'regenerate', {
+  article_id: 123
+});
+// result: { success: true, data: { ... } }
 ```
 
 > Action API 在 `/admin/` 路径下，受 `require_admin` + `require_auth` 中间件保护。
+
+### 插件公开 API（WASM）
+
+插件在 `plugin.json` 中声明 `"api": true` 后，可以通过 WASM `handle_request` 暴露公开 API：
+
+```javascript
+var result = await Noteva.plugins.request('my-plugin', 'verify', {
+  method: 'POST',
+  data: { token: 'xxx' }
+});
+```
+
+`Noteva.plugins.api(...)` 是 `request(...)` 的短别名。JSON 响应会自动解析，非 JSON 响应返回文本。
 
 ### 插件注入点（PluginSlot）
 
@@ -553,7 +564,7 @@ extern "C" {
     // 文章元数据更新（需要 write_articles 权限）
     fn host_update_article_meta(article_id: i32, data_ptr: i32, data_len: i32) -> i32;
 
-    // 数据库操作（需要 database 权限）
+    // 数据库操作（实验项，schema v1 暂不开放）
     fn host_db_query(sql_ptr: i32, sql_len: i32, params_ptr: i32, params_len: i32) -> i32;
     fn host_db_execute(sql_ptr: i32, sql_len: i32, params_ptr: i32, params_len: i32) -> i32;
 }
@@ -731,97 +742,9 @@ update_article_meta(article_id, summary_data);
 
 #### host_db_query / host_db_execute
 
-插件数据库操作。需要 `database` 权限。插件可以创建自己的表并执行 SQL 查询。
+插件数据库 API 仍在实验阶段，不属于 `plugin.json` schema v1 的稳定能力。
 
-**前提条件**：
-1. `plugin.json` 中声明 `"database": true` 和 `"permissions": ["database"]`
-2. 在 `plugins/{id}/migrations/` 目录下放置建表 SQL 文件
-
-**迁移文件**：
-
-```
-plugins/my-plugin/
-  migrations/
-    001_create_tables.sql
-    002_add_index.sql
-```
-
-迁移文件按文件名排序执行，只执行一次。所有表名必须使用 `plugin_{id}_` 前缀：
-
-```sql
--- 001_create_tables.sql
-CREATE TABLE IF NOT EXISTS plugin_my_plugin_stats (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    article_id INTEGER NOT NULL,
-    score REAL NOT NULL DEFAULT 0,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_plugin_my_plugin_stats_article
-    ON plugin_my_plugin_stats(article_id);
-```
-
-> 注意：插件 ID 中的 `-` 在表名前缀中替换为 `_`。例如 `my-plugin` → `plugin_my_plugin_`。
-
-**宿主函数声明**：
-
-```rust
-extern "C" {
-    // SQL 查询（SELECT），返回 JSON 行数组
-    fn host_db_query(
-        sql_ptr: i32, sql_len: i32,
-        params_ptr: i32, params_len: i32,
-    ) -> i32;
-
-    // SQL 执行（INSERT/UPDATE/DELETE），返回 > 0 表示操作已入队
-    fn host_db_execute(
-        sql_ptr: i32, sql_len: i32,
-        params_ptr: i32, params_len: i32,
-    ) -> i32;
-}
-```
-
-**使用示例**：
-
-```rust
-fn db_execute(sql: &str, params: &str) -> bool {
-    unsafe {
-        host_db_execute(
-            sql.as_ptr() as i32, sql.len() as i32,
-            params.as_ptr() as i32, params.len() as i32,
-        ) > 0
-    }
-}
-
-fn db_query(sql: &str, params: &str) -> Option<String> {
-    let result_ptr = unsafe {
-        host_db_query(
-            sql.as_ptr() as i32, sql.len() as i32,
-            params.as_ptr() as i32, params.len() as i32,
-        )
-    };
-    if result_ptr <= 0 { return None; }
-    read_result(result_ptr)
-}
-
-// 插入数据
-db_execute(
-    "INSERT INTO plugin_my_plugin_stats (article_id, score) VALUES (?, ?)",
-    "[123, 0.95]"
-);
-
-// 查询数据
-let rows = db_query(
-    "SELECT article_id, score FROM plugin_my_plugin_stats WHERE score > ?",
-    "[0.5]"
-);
-// 返回: [{"article_id":123,"score":0.95}, ...]
-```
-
-**安全限制**：
-- 运行时 SQL 禁止 DDL（CREATE/ALTER/DROP）— 建表只能通过 `migrations/` 目录
-- 所有 FROM/JOIN/INTO/UPDATE 引用的表必须有 `plugin_{id}_` 前缀
-- 参数使用 JSON 数组格式，按 `?` 占位符顺序绑定
-- 操作在钩子执行完成后由主进程批量执行，与 storage_ops 行为一致
+当前版本会拒绝 `"database": true` 和 `"database"` 权限声明。需要持久化数据时，优先使用 `host_storage_get/set/delete` 这组按插件 ID 隔离的 key-value 存储。插件私有 SQL、迁移规范和权限边界会在后续单独版本中收口。
 
 ### 自定义 API 路由
 

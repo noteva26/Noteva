@@ -12,15 +12,16 @@ use chrono::{DateTime, Utc};
 
 use crate::api::middleware::AppState;
 use crate::db::repositories::{
-    ArticleRepository, CategoryRepository, PageRepository, SqlxArticleRepository,
-    SqlxCategoryRepository, SqlxPageRepository, SqlxSettingsRepository, SettingsRepository,
-    TagRepository, SqlxTagRepository,
+    ArticleRepository, CategoryRepository, PageRepository, SettingsRepository,
+    SqlxArticleRepository, SqlxCategoryRepository, SqlxPageRepository, SqlxSettingsRepository,
+    SqlxTagRepository, TagRepository,
 };
 use crate::models::{ArticleSortBy, ArticleStatus};
 
 /// Helper: get site_url from settings, fallback to empty string
 async fn get_site_url(state: &AppState) -> String {
-    state.settings_service
+    state
+        .settings_service
         .get("site_url")
         .await
         .ok()
@@ -52,7 +53,8 @@ async fn get_site_description(state: &AppState) -> String {
 
 /// Helper: build article URL based on permalink_structure setting
 async fn build_article_url(base: &str, id: i64, slug: &str, state: &AppState) -> String {
-    let permalink_structure = state.settings_service
+    let permalink_structure = state
+        .settings_service
         .get(crate::services::settings::keys::PERMALINK_STRUCTURE)
         .await
         .ok()
@@ -70,10 +72,10 @@ async fn build_article_url(base: &str, id: i64, slug: &str, state: &AppState) ->
 /// XML-escape a string
 fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
-     .replace('\'', "&apos;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 /// Format datetime as W3C format for sitemap
@@ -139,7 +141,10 @@ pub async fn sitemap_xml(State(state): State<AppState>) -> Response {
 
     // Published articles (up to 5000)
     let article_repo = SqlxArticleRepository::new(state.pool.clone());
-    if let Ok(articles) = article_repo.list_published(0, 5000, ArticleSortBy::default()).await {
+    if let Ok(articles) = article_repo
+        .list_published(0, 5000, ArticleSortBy::default())
+        .await
+    {
         for article in &articles {
             if article.status != ArticleStatus::Published {
                 continue;
@@ -193,10 +198,9 @@ pub async fn sitemap_xml(State(state): State<AppState>) -> Response {
     xml.push_str("</urlset>\n");
 
     // Hook: sitemap_filter — allow plugins to modify sitemap XML
-    let hook_result = state.hook_manager.trigger(
-        "sitemap_filter",
-        serde_json::json!({ "xml": xml }),
-    );
+    let hook_result = state
+        .hook_manager
+        .trigger("sitemap_filter", serde_json::json!({ "xml": xml }));
     if let Some(modified) = hook_result.get("xml").and_then(|v| v.as_str()) {
         xml = modified.to_string();
     }
@@ -215,7 +219,11 @@ pub async fn sitemap_xml(State(state): State<AppState>) -> Response {
 
 pub async fn feed_xml(State(state): State<AppState>) -> Response {
     let site_url = get_site_url(&state).await;
-    let base = if site_url.is_empty() { "" } else { site_url.trim_end_matches('/') };
+    let base = if site_url.is_empty() {
+        ""
+    } else {
+        site_url.trim_end_matches('/')
+    };
     let site_name = get_site_name(&state).await;
     let site_desc = get_site_description(&state).await;
 
@@ -233,9 +241,16 @@ pub async fn feed_xml(State(state): State<AppState>) -> Response {
             xml_escape(base)
         ));
     }
-    xml.push_str(&format!("  <description>{}</description>\n", xml_escape(&site_desc)));
-    xml.push_str(&format!("  <generator>Noteva {}</generator>\n", env!("CARGO_PKG_VERSION")));
-    let lang = state.settings_service
+    xml.push_str(&format!(
+        "  <description>{}</description>\n",
+        xml_escape(&site_desc)
+    ));
+    xml.push_str(&format!(
+        "  <generator>Noteva {}</generator>\n",
+        env!("CARGO_PKG_VERSION")
+    ));
+    let lang = state
+        .settings_service
         .get("site_language")
         .await
         .ok()
@@ -245,11 +260,17 @@ pub async fn feed_xml(State(state): State<AppState>) -> Response {
 
     // Latest 50 published articles
     let article_repo = SqlxArticleRepository::new(state.pool.clone());
-    if let Ok(articles) = article_repo.list_published(0, 50, ArticleSortBy::default()).await {
+    if let Ok(articles) = article_repo
+        .list_published(0, 50, ArticleSortBy::default())
+        .await
+    {
         // Build date from most recent article
         if let Some(first) = articles.first() {
             let pub_date = first.published_at.unwrap_or(first.created_at);
-            xml.push_str(&format!("  <lastBuildDate>{}</lastBuildDate>\n", rfc2822_datetime(&pub_date)));
+            xml.push_str(&format!(
+                "  <lastBuildDate>{}</lastBuildDate>\n",
+                rfc2822_datetime(&pub_date)
+            ));
         }
 
         for article in &articles {
@@ -260,7 +281,8 @@ pub async fn feed_xml(State(state): State<AppState>) -> Response {
             let url = build_article_url(base, article.id, &article.slug, &state).await;
 
             // Generate excerpt: strip markdown, limit 300 chars
-            let excerpt: String = article.content
+            let excerpt: String = article
+                .content
                 .replace('#', "")
                 .replace('*', "")
                 .replace('`', "")
@@ -270,11 +292,23 @@ pub async fn feed_xml(State(state): State<AppState>) -> Response {
                 .collect();
 
             xml.push_str("  <item>\n");
-            xml.push_str(&format!("    <title>{}</title>\n", xml_escape(&article.title)));
+            xml.push_str(&format!(
+                "    <title>{}</title>\n",
+                xml_escape(&article.title)
+            ));
             xml.push_str(&format!("    <link>{}</link>\n", xml_escape(&url)));
-            xml.push_str(&format!("    <guid isPermaLink=\"true\">{}</guid>\n", xml_escape(&url)));
-            xml.push_str(&format!("    <pubDate>{}</pubDate>\n", rfc2822_datetime(&pub_date)));
-            xml.push_str(&format!("    <description>{}</description>\n", xml_escape(&excerpt)));
+            xml.push_str(&format!(
+                "    <guid isPermaLink=\"true\">{}</guid>\n",
+                xml_escape(&url)
+            ));
+            xml.push_str(&format!(
+                "    <pubDate>{}</pubDate>\n",
+                rfc2822_datetime(&pub_date)
+            ));
+            xml.push_str(&format!(
+                "    <description>{}</description>\n",
+                xml_escape(&excerpt)
+            ));
             // Include full HTML content in CDATA
             xml.push_str("    <content:encoded><![CDATA[");
             xml.push_str(&article.content_html);
@@ -286,7 +320,10 @@ pub async fn feed_xml(State(state): State<AppState>) -> Response {
                     } else {
                         format!("{}{}", base, thumb)
                     };
-                    xml.push_str(&format!("    <enclosure url=\"{}\" type=\"image/jpeg\" />\n", xml_escape(&img_url)));
+                    xml.push_str(&format!(
+                        "    <enclosure url=\"{}\" type=\"image/jpeg\" />\n",
+                        xml_escape(&img_url)
+                    ));
                 }
             }
             xml.push_str("  </item>\n");
@@ -296,10 +333,9 @@ pub async fn feed_xml(State(state): State<AppState>) -> Response {
     xml.push_str("</channel>\n</rss>\n");
 
     // Hook: feed_filter — allow plugins to modify RSS XML
-    let hook_result = state.hook_manager.trigger(
-        "feed_filter",
-        serde_json::json!({ "xml": xml }),
-    );
+    let hook_result = state
+        .hook_manager
+        .trigger("feed_filter", serde_json::json!({ "xml": xml }));
     if let Some(modified) = hook_result.get("xml").and_then(|v| v.as_str()) {
         xml = modified.to_string();
     }

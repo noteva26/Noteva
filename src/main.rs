@@ -6,29 +6,25 @@ use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use noteva::{
-    api::{self, AppState, middleware::RequestStats},
+    api::{self, middleware::RequestStats, AppState},
     cache::create_cache,
     config::Config,
     db::{
         self,
         repositories::{
-            SqlxCommentRepository, SqlxArticleRepository, SqlxCategoryRepository,
-            SqlxNavItemRepository, SqlxPageRepository, SqlxSessionRepository,
-            SqlxSettingsRepository, SqlxTagRepository, SqlxUserRepository,
-            SettingsRepository,
+            SettingsRepository, SqlxArticleRepository, SqlxCategoryRepository,
+            SqlxCommentRepository, SqlxNavItemRepository, SqlxPageRepository,
+            SqlxSessionRepository, SqlxSettingsRepository, SqlxTagRepository, SqlxUserRepository,
         },
     },
-    plugin::{PluginManager, HookManager, ShortcodeManager, shortcode::builtins, hook_registry::HookRegistry},
+    plugin::{
+        hook_registry::HookRegistry, shortcode::builtins, HookManager, PluginManager,
+        ShortcodeManager,
+    },
     services::{
-        article::ArticleService,
-        category::CategoryService,
-        comment::CommentService,
-        markdown::MarkdownRenderer,
-        nav_item::NavItemService,
-        page::PageService,
-        settings::SettingsService,
-        tag::TagService,
-        user::UserService,
+        article::ArticleService, category::CategoryService, comment::CommentService,
+        markdown::MarkdownRenderer, nav_item::NavItemService, page::PageService,
+        settings::SettingsService, tag::TagService, user::UserService,
     },
     theme::ThemeEngine,
 };
@@ -63,23 +59,22 @@ async fn main() -> Result<()> {
     tracing::debug!("Cache initialized");
 
     // Initialize plugin system (before services, so shortcodes are available)
-    let mut plugin_manager = PluginManager::new(Path::new("plugins"), Path::new("data"), pool.clone());
+    let mut plugin_manager =
+        PluginManager::new(Path::new("plugins"), Path::new("data"), pool.clone());
     if let Err(e) = plugin_manager.init().await {
         tracing::warn!(error = %e, "failed to initialize plugins");
     }
-    
+
     let hook_manager = Arc::new(HookManager::new(HookRegistry::load_embedded()));
-    
+
     let mut shortcode_manager = ShortcodeManager::new();
     builtins::register_builtins(&mut shortcode_manager);
     let shortcode_manager_arc = Arc::new(shortcode_manager);
     tracing::debug!("Plugin system initialized");
 
     // Create markdown renderer with shortcode and hook support
-    let markdown_renderer = MarkdownRenderer::with_managers(
-        shortcode_manager_arc.clone(),
-        hook_manager.clone(),
-    );
+    let markdown_renderer =
+        MarkdownRenderer::with_managers(shortcode_manager_arc.clone(), hook_manager.clone());
 
     // Create repositories
     let user_repo = SqlxUserRepository::boxed(pool.clone());
@@ -101,8 +96,6 @@ async fn main() -> Result<()> {
     let tag_service = Arc::new(TagService::new(tag_repo.clone(), cache.clone()));
     let settings_service = Arc::new(SettingsService::from_sqlx(settings_repo));
 
-
-
     let article_service = Arc::new(ArticleService::with_hooks(
         article_repo,
         tag_repo,
@@ -110,7 +103,11 @@ async fn main() -> Result<()> {
         markdown_renderer,
         hook_manager.clone(),
     ));
-    let page_service = Arc::new(PageService::with_hooks(page_repo, cache.clone(), hook_manager.clone()));
+    let page_service = Arc::new(PageService::with_hooks(
+        page_repo,
+        cache.clone(),
+        hook_manager.clone(),
+    ));
     let nav_service = Arc::new(NavItemService::new(nav_repo, cache.clone()));
 
     // Create comment service with hooks and settings support
@@ -165,7 +162,9 @@ async fn main() -> Result<()> {
         }
         Err(e) => {
             tracing::warn!(error = %e, "failed to initialize WASM runtime, WASM plugins disabled");
-            Arc::new(tokio::sync::RwLock::new(noteva::plugin::PluginRuntime::default()))
+            Arc::new(tokio::sync::RwLock::new(
+                noteva::plugin::PluginRuntime::default(),
+            ))
         }
     };
 
@@ -173,7 +172,7 @@ async fn main() -> Result<()> {
     let wasm_registry = Arc::new(tokio::sync::RwLock::new(
         noteva::plugin::wasm_bridge::WasmPluginRegistry::new(),
     ));
-    
+
     // Load WASM modules for all enabled plugins at startup
     // WASM execution is isolated in subprocess (wasm-worker) — safe on all platforms
     noteva::plugin::wasm_bridge::load_all_wasm_plugins(
@@ -182,13 +181,14 @@ async fn main() -> Result<()> {
         &hook_manager,
         &wasm_registry,
         &pool,
-    ).await;
+    )
+    .await;
 
     // Build application state
     let request_stats = Arc::new(RequestStats::new());
-    
+
     let rate_limiter = Arc::new(noteva::services::LoginRateLimiter::new());
-    
+
     let state = AppState {
         pool: pool.clone(),
         user_service,
@@ -211,7 +211,7 @@ async fn main() -> Result<()> {
         wasm_registry: wasm_registry.clone(),
         store_url: config.store_url.clone(),
     };
-    
+
     // Start rate limiter cleanup task (runs every 5 minutes)
     {
         let limiter = rate_limiter.clone();
@@ -267,13 +267,18 @@ async fn main() -> Result<()> {
                         .iter()
                         .filter(|p| {
                             p.metadata.activate.interval_hours > 0
-                                && p.metadata.hooks.backend.contains(&"plugin_activate".to_string())
+                                && p.metadata
+                                    .hooks
+                                    .backend
+                                    .contains(&"plugin_activate".to_string())
                         })
-                        .map(|p| (
-                            p.metadata.id.clone(),
-                            p.metadata.version.clone(),
-                            p.metadata.activate.interval_hours,
-                        ))
+                        .map(|p| {
+                            (
+                                p.metadata.id.clone(),
+                                p.metadata.version.clone(),
+                                p.metadata.activate.interval_hours,
+                            )
+                        })
                         .collect()
                 };
 
@@ -286,8 +291,11 @@ async fn main() -> Result<()> {
                 for (plugin_id, plugin_version, interval_hours) in &plugins_to_check {
                     // Check last activation time from plugin storage
                     let last_key = format!("__activate_last_{}", plugin_id);
-                    let last_ts: i64 = ss.get(&last_key).await
-                        .ok().flatten()
+                    let last_ts: i64 = ss
+                        .get(&last_key)
+                        .await
+                        .ok()
+                        .flatten()
                         .and_then(|v| v.parse().ok())
                         .unwrap_or(0);
                     let now = chrono::Utc::now().timestamp();
@@ -306,16 +314,14 @@ async fn main() -> Result<()> {
                         "timestamp": chrono::Utc::now().to_rfc3339(),
                     });
 
-                    let result = hm.trigger(
-                        noteva::plugin::hook_names::PLUGIN_ACTIVATE,
-                        data,
-                    );
+                    let result = hm.trigger(noteva::plugin::hook_names::PLUGIN_ACTIVATE, data);
 
                     // Update last activation timestamp
                     let _ = ss.set(&last_key, &now.to_string()).await;
 
                     if result.get("allow").and_then(|v| v.as_bool()) == Some(false) {
-                        let message = result.get("message")
+                        let message = result
+                            .get("message")
                             .and_then(|v| v.as_str())
                             .unwrap_or("Re-verification failed");
                         tracing::warn!(plugin_id = %plugin_id, message = %message, "plugin re-verification failed");
@@ -323,7 +329,8 @@ async fn main() -> Result<()> {
                         // Disable plugin: unload WASM and mark disabled
                         let _ = noteva::plugin::wasm_bridge::unload_wasm_plugin(
                             plugin_id, &wr, &hm, &wreg,
-                        ).await;
+                        )
+                        .await;
                         {
                             let mut mgr = pm.write().await;
                             let _ = mgr.disable(plugin_id).await;
@@ -345,7 +352,8 @@ async fn main() -> Result<()> {
             loop {
                 interval.tick().await;
                 // Find draft articles scheduled for publication
-                let article_repo = noteva::db::repositories::SqlxArticleRepository::new(db_pool.clone());
+                let article_repo =
+                    noteva::db::repositories::SqlxArticleRepository::new(db_pool.clone());
                 use noteva::db::repositories::ArticleRepository;
                 if let Ok(due_articles) = article_repo.list_scheduled_due().await {
                     for article in due_articles {
@@ -375,7 +383,7 @@ async fn main() -> Result<()> {
         serde_json::json!({
             "version": env!("CARGO_PKG_VERSION"),
             "theme": config.theme.active,
-        })
+        }),
     );
 
     // Hook: cron_register — let plugins declare periodic tasks at startup

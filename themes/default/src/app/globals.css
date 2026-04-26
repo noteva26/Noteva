@@ -87,14 +87,13 @@
     @apply border-border;
   }
 
+  html {
+    scrollbar-gutter: stable;
+  }
+
   body {
     @apply bg-background text-foreground;
     min-height: 100vh;
-    background-image:
-      linear-gradient(hsl(var(--border) / 0.28) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(var(--border) / 0.22) 1px, transparent 1px);
-    background-size: 34px 34px;
-    background-attachment: fixed;
     text-rendering: optimizeLegibility;
   }
 
@@ -148,6 +147,17 @@
 
   .article-meta svg {
     color: hsl(var(--muted-foreground) / 0.8);
+  }
+
+  .noteva-highlight {
+    border-radius: 0.18rem;
+    background: hsl(48 96% 53% / 0.32);
+    color: inherit;
+    padding-inline: 0.12rem;
+  }
+
+  .dark .noteva-highlight {
+    background: hsl(48 96% 53% / 0.24);
   }
 }
 

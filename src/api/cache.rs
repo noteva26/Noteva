@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::api::{AppState, ApiError};
+use crate::api::{ApiError, AppState};
 use crate::db::repositories::{PluginDataRepository, SqlxPluginDataRepository};
 
 const CACHE_PLUGIN_ID: &str = "_cache";
@@ -36,12 +36,13 @@ pub async fn get_cache(
     Path(key): Path<String>,
 ) -> Result<Json<CacheValueResponse>, ApiError> {
     let repo = SqlxPluginDataRepository::new(state.pool.clone());
-    
-    let value = repo.get(CACHE_PLUGIN_ID, &key)
+
+    let value = repo
+        .get(CACHE_PLUGIN_ID, &key)
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to get cache: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Cache key not found"))?;
-    
+
     Ok(Json(CacheValueResponse { value }))
 }
 
@@ -52,11 +53,11 @@ pub async fn set_cache(
     Json(body): Json<CacheSetRequest>,
 ) -> Result<StatusCode, ApiError> {
     let repo = SqlxPluginDataRepository::new(state.pool.clone());
-    
+
     repo.set(CACHE_PLUGIN_ID, &key, &body.value)
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to set cache: {}", e)))?;
-    
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -66,10 +67,10 @@ pub async fn delete_cache(
     Path(key): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let repo = SqlxPluginDataRepository::new(state.pool.clone());
-    
+
     repo.delete(CACHE_PLUGIN_ID, &key)
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to delete cache: {}", e)))?;
-    
+
     Ok(StatusCode::NO_CONTENT)
 }

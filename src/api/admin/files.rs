@@ -45,19 +45,23 @@ pub struct StorageStatsResponse {
 #[derive(Debug, Deserialize)]
 pub struct FileListQuery {
     pub search: Option<String>,
-    pub file_type: Option<String>,  // "image", "file", or empty for all
+    pub file_type: Option<String>, // "image", "file", or empty for all
 }
 
 /// Determine MIME type category from file extension
 fn get_file_type(name: &str) -> String {
     let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
     match ext.as_str() {
-        "jpg" | "jpeg" | "png" | "gif" | "webp" | "svg" | "bmp" | "ico" | "tiff" => "image".to_string(),
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "svg" | "bmp" | "ico" | "tiff" => {
+            "image".to_string()
+        }
         "pdf" => "pdf".to_string(),
         "mp4" | "webm" | "avi" | "mov" => "video".to_string(),
         "mp3" | "wav" | "ogg" | "flac" => "audio".to_string(),
         "zip" | "tar" | "gz" | "7z" | "rar" => "archive".to_string(),
-        "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "md" | "csv" => "document".to_string(),
+        "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "md" | "csv" => {
+            "document".to_string()
+        }
         _ => "other".to_string(),
     }
 }
@@ -94,12 +98,15 @@ pub async fn list_files(
     }
 
     let mut files = Vec::new();
-    let mut entries = fs::read_dir(upload_path).await
+    let mut entries = fs::read_dir(upload_path)
+        .await
         .map_err(|e| ApiError::internal_error(format!("Failed to read uploads dir: {}", e)))?;
 
-    while let Some(entry) = entries.next_entry().await
-        .map_err(|e| ApiError::internal_error(format!("Failed to read dir entry: {}", e)))? {
-
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to read dir entry: {}", e)))?
+    {
         let metadata = match entry.metadata().await {
             Ok(m) => m,
             Err(_) => continue,
@@ -127,13 +134,22 @@ pub async fn list_files(
         // Filter by file type
         if let Some(ref type_filter) = query.file_type {
             match type_filter.as_str() {
-                "image" => if ft != "image" { continue; },
-                "file" => if ft == "image" { continue; },
+                "image" => {
+                    if ft != "image" {
+                        continue;
+                    }
+                }
+                "file" => {
+                    if ft == "image" {
+                        continue;
+                    }
+                }
                 _ => {}
             }
         }
 
-        let created_at = metadata.created()
+        let created_at = metadata
+            .created()
             .or_else(|_| metadata.modified())
             .map(|t| {
                 let dt: chrono::DateTime<chrono::Utc> = t.into();
@@ -180,12 +196,15 @@ pub async fn get_storage_stats(
     let mut image_count = 0usize;
     let mut other_count = 0usize;
 
-    let mut entries = fs::read_dir(upload_path).await
+    let mut entries = fs::read_dir(upload_path)
+        .await
         .map_err(|e| ApiError::internal_error(format!("Failed to read uploads dir: {}", e)))?;
 
-    while let Some(entry) = entries.next_entry().await
-        .map_err(|e| ApiError::internal_error(format!("Failed to read dir entry: {}", e)))? {
-
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to read dir entry: {}", e)))?
+    {
         let metadata = match entry.metadata().await {
             Ok(m) => m,
             Err(_) => continue,
@@ -239,7 +258,8 @@ pub async fn delete_file(
         return Err(ApiError::not_found("File not found"));
     }
 
-    fs::remove_file(&file_path).await
+    fs::remove_file(&file_path)
+        .await
         .map_err(|e| ApiError::internal_error(format!("Failed to delete file: {}", e)))?;
 
     Ok(Json(serde_json::json!({

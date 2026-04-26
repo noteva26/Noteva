@@ -4,6 +4,27 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.2.7] - 2026-04-26
+
+### Theme System
+- **Theme Runtime SDK v1 stabilized** - Removed legacy compatibility aliases and consolidated theme calls around the stable modular `Noteva.*` APIs. The default theme has been adapted to the new SDK.
+- **Theme package validation strengthened** - Added `theme.json` schema v1 validation, requiring key fields such as `schema`, `short`, `description`, `repository`, and `requires.noteva`, plus checks for `dist/index.html`, preview paths, and repository URL format.
+- **Theme settings validation tightened** - `settings.json` now supports schema v1 validation. Saving settings rejects unknown fields and validates/coerces values by declared type, reducing runtime issues caused by invalid theme settings.
+
+### Bug Fixes
+- **Default theme header layout fixed** - Fixed excessive left-side whitespace around the top logo area so the header aligns normally again.
+- **Default theme dropdown layout shift fixed** - Fixed horizontal page movement when opening language and theme dropdown menus.
+- **Default theme visual regression fixed** - Restored the clean plain background and tuned home/article-card typography back down so list and reading pages no longer feel oversized or overly sparse.
+
+### Documentation
+- **Theme development docs expanded** - Merged theme package structure, manifest fields, repository rules, version compatibility, and settings declaration requirements into `docs/theme-development.md`.
+- **Theme JSON Schemas added** - Added JSON Schemas for `theme.json` and `settings.json` to support future theme validation and editor assistance.
+
+### Build & Version
+- **Version unified to 0.2.7** - Updated the Rust crate, frontend packages, default theme, SDK built-in version, and development metadata.
+
+---
+
 ## [v0.2.6] - 2026-04-26
 
 ### Highlights

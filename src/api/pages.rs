@@ -22,13 +22,11 @@ pub fn router() -> Router<AppState> {
 }
 
 pub fn public_router() -> Router<AppState> {
-    Router::new()
-        .route("/", get(list_published_pages))
+    Router::new().route("/", get(list_published_pages))
 }
 
 pub fn slug_router() -> Router<AppState> {
-    Router::new()
-        .route("/{slug}", get(get_page_by_slug))
+    Router::new().route("/{slug}", get(get_page_by_slug))
 }
 
 #[derive(Serialize)]
@@ -42,12 +40,22 @@ struct PageResponse {
 }
 
 async fn list_pages(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    let pages = state.page_service.list().await.map_err(|e| ApiError::internal_error(e.to_string()))?;
+    let pages = state
+        .page_service
+        .list()
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
     Ok(Json(PagesResponse { pages }))
 }
 
-async fn list_published_pages(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    let pages = state.page_service.list_published().await.map_err(|e| ApiError::internal_error(e.to_string()))?;
+async fn list_published_pages(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let pages = state
+        .page_service
+        .list_published()
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
     Ok(Json(PagesResponse { pages }))
 }
 
@@ -55,7 +63,11 @@ async fn get_page(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let page = state.page_service.get_by_id(id).await.map_err(|e| ApiError::internal_error(e.to_string()))?;
+    let page = state
+        .page_service
+        .get_by_id(id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
     match page {
         Some(p) => Ok(Json(PageResponse { page: p })),
         None => Err(ApiError::not_found("Page not found")),
@@ -66,7 +78,11 @@ async fn get_page_by_slug(
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let page = state.page_service.get_published_by_slug(&slug).await.map_err(|e| ApiError::internal_error(e.to_string()))?;
+    let page = state
+        .page_service
+        .get_published_by_slug(&slug)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
     match page {
         Some(p) => Ok(Json(PageResponse { page: p })),
         None => Err(ApiError::not_found("Page not found")),
@@ -77,7 +93,8 @@ async fn create_page(
     State(state): State<AppState>,
     Json(input): Json<CreatePageInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let page = state.page_service
+    let page = state
+        .page_service
         .create(input.slug, input.title, input.content, input.status)
         .await
         .map_err(|e| ApiError::validation_error(e.to_string()))?;
@@ -89,7 +106,8 @@ async fn update_page(
     Path(id): Path<i64>,
     Json(input): Json<UpdatePageInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let page = state.page_service
+    let page = state
+        .page_service
         .update(id, input.slug, input.title, input.content, input.status)
         .await
         .map_err(|e| ApiError::validation_error(e.to_string()))?;
@@ -100,6 +118,10 @@ async fn delete_page(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.page_service.delete(id).await.map_err(|e| ApiError::internal_error(e.to_string()))?;
+    state
+        .page_service
+        .delete(id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
     Ok(StatusCode::NO_CONTENT)
 }

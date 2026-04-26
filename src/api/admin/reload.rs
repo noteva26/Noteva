@@ -27,10 +27,10 @@ pub async fn reload_plugins(
         .reload()
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to reload plugins: {}", e)))?;
-    
+
     let plugin_count = plugin_manager.get_all().len();
     drop(plugin_manager);
-    
+
     Ok(Json(ReloadResponse {
         success: true,
         message: "Plugins reloaded successfully".to_string(),
@@ -47,15 +47,17 @@ pub async fn reload_themes(
     _user: AuthenticatedUser,
 ) -> Result<Json<ReloadResponse>, ApiError> {
     // Reload themes
-    let mut theme_engine = state.theme_engine.write()
+    let mut theme_engine = state
+        .theme_engine
+        .write()
         .map_err(|e| ApiError::internal_error(format!("Failed to lock theme engine: {}", e)))?;
     theme_engine
         .refresh_themes()
         .map_err(|e| ApiError::internal_error(format!("Failed to reload themes: {}", e)))?;
-    
+
     let theme_count = theme_engine.list_themes().len();
     drop(theme_engine);
-    
+
     Ok(Json(ReloadResponse {
         success: true,
         message: "Themes reloaded successfully".to_string(),

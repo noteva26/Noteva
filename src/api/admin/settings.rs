@@ -42,7 +42,13 @@ pub async fn get_settings(
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     // Filter out the main fields to put in extra
-    let main_keys = ["site_name", "site_description", "site_subtitle", "site_logo", "site_footer"];
+    let main_keys = [
+        "site_name",
+        "site_description",
+        "site_subtitle",
+        "site_logo",
+        "site_footer",
+    ];
     let extra: std::collections::HashMap<String, String> = all_settings
         .into_iter()
         .filter(|(k, _)| !main_keys.contains(&k.as_str()))
@@ -97,7 +103,13 @@ pub async fn update_settings(
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     // Filter out the main fields to put in extra
-    let main_keys = ["site_name", "site_description", "site_subtitle", "site_logo", "site_footer"];
+    let main_keys = [
+        "site_name",
+        "site_description",
+        "site_subtitle",
+        "site_logo",
+        "site_footer",
+    ];
     let extra: std::collections::HashMap<String, String> = all_settings
         .into_iter()
         .filter(|(k, _)| !main_keys.contains(&k.as_str()))

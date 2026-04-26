@@ -2,8 +2,8 @@
 //!
 //! Converts emoji shortcodes (like :smile:) and Unicode emoji to Twemoji images.
 
-use std::collections::HashMap;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
 
 /// Twemoji CDN base URL
 const TWEMOJI_BASE: &str = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg";
@@ -86,7 +86,7 @@ static EMOJI_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("revolving_hearts", "💞");
     m.insert("cupid", "💘");
     m.insert("gift_heart", "💝");
-    
+
     // Gestures
     m.insert("thumbsup", "👍");
     m.insert("+1", "👍");
@@ -107,7 +107,7 @@ static EMOJI_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("pray", "🙏");
     m.insert("clap", "👏");
     m.insert("muscle", "💪");
-    
+
     // Objects & Symbols
     m.insert("fire", "🔥");
     m.insert("star", "⭐");
@@ -154,7 +154,7 @@ static EMOJI_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("eye", "👁️");
     m.insert("speech_balloon", "💬");
     m.insert("thought_balloon", "💭");
-    
+
     // Animals
     m.insert("dog", "🐶");
     m.insert("cat", "🐱");
@@ -175,7 +175,7 @@ static EMOJI_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("turtle", "🐢");
     m.insert("snake", "🐍");
     m.insert("dragon", "🐉");
-    
+
     m
 });
 
@@ -191,7 +191,7 @@ pub fn emoji_to_twemoji_url(emoji: &str) -> String {
         .filter(|c| *c != '\u{FE0F}') // Remove variation selector
         .map(|c| format!("{:x}", c as u32))
         .collect();
-    
+
     format!("{}/{}.svg", TWEMOJI_BASE, codepoints.join("-"))
 }
 
@@ -209,13 +209,13 @@ pub fn emoji_to_twemoji_img(emoji: &str) -> String {
 pub fn process_shortcodes(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
-    
+
     while let Some(c) = chars.next() {
         if c == ':' {
             // Try to parse shortcode
             let mut shortcode = String::new();
             let mut found_end = false;
-            
+
             // Collect characters until we find another ':'
             while let Some(&next) = chars.peek() {
                 if next == ':' {
@@ -229,7 +229,7 @@ pub fn process_shortcodes(text: &str) -> String {
                     break;
                 }
             }
-            
+
             if found_end && !shortcode.is_empty() {
                 // Try to convert shortcode to emoji
                 if let Some(emoji) = shortcode_to_emoji(&shortcode) {
@@ -249,7 +249,7 @@ pub fn process_shortcodes(text: &str) -> String {
             result.push(c);
         }
     }
-    
+
     result
 }
 
@@ -261,7 +261,7 @@ pub fn process_unicode_emoji(html: &str) -> String {
     let mut in_tag = false;
     let mut in_code = false;
     let mut tag_name = String::new();
-    
+
     while let Some(c) = chars.next() {
         // Track HTML tags to avoid processing emoji inside tags
         if c == '<' {
@@ -270,7 +270,7 @@ pub fn process_unicode_emoji(html: &str) -> String {
             result.push(c);
             continue;
         }
-        
+
         if in_tag {
             if c == '>' {
                 in_tag = false;
@@ -287,18 +287,18 @@ pub fn process_unicode_emoji(html: &str) -> String {
             result.push(c);
             continue;
         }
-        
+
         // Don't process emoji inside code blocks
         if in_code {
             result.push(c);
             continue;
         }
-        
+
         // Check if this is an emoji
         if is_emoji_start(c) {
             let mut emoji = String::new();
             emoji.push(c);
-            
+
             // Collect potential emoji sequence (including ZWJ sequences)
             while let Some(&next) = chars.peek() {
                 if is_emoji_continuation(next) {
@@ -308,7 +308,7 @@ pub fn process_unicode_emoji(html: &str) -> String {
                     break;
                 }
             }
-            
+
             // Convert to Twemoji if it's a valid emoji
             if emoji.chars().count() >= 1 && is_likely_emoji(&emoji) {
                 result.push_str(&emoji_to_twemoji_img(&emoji));
@@ -319,7 +319,7 @@ pub fn process_unicode_emoji(html: &str) -> String {
             result.push(c);
         }
     }
-    
+
     result
 }
 
@@ -381,7 +381,7 @@ fn is_emoji_start(c: char) -> bool {
     (0x3030..=0x3030).contains(&code) ||    // Wavy dash
     (0x303D..=0x303D).contains(&code) ||    // Part alternation mark
     (0x3297..=0x3297).contains(&code) ||    // Circled Ideograph Congratulation
-    (0x3299..=0x3299).contains(&code)       // Circled Ideograph Secret
+    (0x3299..=0x3299).contains(&code) // Circled Ideograph Secret
 }
 
 /// Check if a character could continue an emoji sequence
@@ -390,7 +390,7 @@ fn is_emoji_continuation(c: char) -> bool {
     is_emoji_start(c) ||
     code == 0xFE0F ||  // Variation selector
     code == 0x200D ||  // Zero-width joiner
-    (0x1F3FB..=0x1F3FF).contains(&code)  // Skin tone modifiers
+    (0x1F3FB..=0x1F3FF).contains(&code) // Skin tone modifiers
 }
 
 /// Check if a string is likely a valid emoji

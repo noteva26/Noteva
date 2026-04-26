@@ -82,7 +82,7 @@ pub async fn create_category(
 ) -> Result<(StatusCode, Json<CategoryResponse>), ApiError> {
     let input = crate::services::category::CreateCategoryInput::new(&body.name)
         .with_description(body.description.unwrap_or_default());
-    
+
     let input = if !body.slug.is_empty() {
         input.with_slug(&body.slug)
     } else {
@@ -113,13 +113,12 @@ pub async fn update_category(
     Path(id): Path<i64>,
     Json(body): Json<CategoryRequest>,
 ) -> Result<Json<CategoryResponse>, ApiError> {
-    let mut input = crate::services::category::UpdateCategoryInput::new()
-        .with_name(&body.name);
-    
+    let mut input = crate::services::category::UpdateCategoryInput::new().with_name(&body.name);
+
     if !body.slug.is_empty() {
         input = input.with_slug(&body.slug);
     }
-    
+
     if let Some(desc) = body.description {
         input = input.with_description(Some(desc));
     }
@@ -148,10 +147,9 @@ pub async fn delete_category(
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     // Hook: category_after_delete
-    state.hook_manager.trigger(
-        "category_after_delete",
-        json!({ "id": id }),
-    );
+    state
+        .hook_manager
+        .trigger("category_after_delete", json!({ "id": id }));
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -194,10 +192,9 @@ pub async fn delete_tag(
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     // Hook: tag_after_delete
-    state.hook_manager.trigger(
-        "tag_after_delete",
-        json!({ "id": id }),
-    );
+    state
+        .hook_manager
+        .trigger("tag_after_delete", json!({ "id": id }));
 
     Ok(StatusCode::NO_CONTENT)
 }

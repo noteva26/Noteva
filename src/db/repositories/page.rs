@@ -189,7 +189,9 @@ async fn update_sqlite(pool: &SqlitePool, page: &Page) -> Result<Page> {
         .execute(pool)
         .await
         .context("Failed to update page")?;
-    get_by_id_sqlite(pool, page.id).await?.ok_or_else(|| anyhow::anyhow!("Page not found after update"))
+    get_by_id_sqlite(pool, page.id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Page not found after update"))
 }
 
 // ============================================================================
@@ -273,5 +275,7 @@ async fn update_mysql(pool: &MySqlPool, page: &Page) -> Result<Page> {
         .execute(pool)
         .await
         .context("Failed to update page")?;
-    get_by_id_mysql(pool, page.id).await?.ok_or_else(|| anyhow::anyhow!("Page not found after update"))
+    get_by_id_mysql(pool, page.id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Page not found after update"))
 }

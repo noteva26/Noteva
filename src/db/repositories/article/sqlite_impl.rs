@@ -6,7 +6,10 @@ use super::*;
 // (Functions that differ from MySQL or cross-reference other _sqlite fns)
 // ============================================================================
 
-pub(super) async fn create_article_sqlite(pool: &SqlitePool, input: &CreateArticleInput) -> Result<Article> {
+pub(super) async fn create_article_sqlite(
+    pool: &SqlitePool,
+    input: &CreateArticleInput,
+) -> Result<Article> {
     let now = Utc::now();
     let status = input.status.unwrap_or_default();
     let published_at = if status == ArticleStatus::Published {
@@ -65,7 +68,10 @@ pub(super) async fn create_article_sqlite(pool: &SqlitePool, input: &CreateArtic
     })
 }
 
-pub(super) async fn get_article_by_id_sqlite(pool: &SqlitePool, id: i64) -> Result<Option<Article>> {
+pub(super) async fn get_article_by_id_sqlite(
+    pool: &SqlitePool,
+    id: i64,
+) -> Result<Option<Article>> {
     let row = sqlx::query(
         r#"
         SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
@@ -84,7 +90,10 @@ pub(super) async fn get_article_by_id_sqlite(pool: &SqlitePool, id: i64) -> Resu
     }
 }
 
-pub(super) async fn get_article_by_slug_sqlite(pool: &SqlitePool, slug: &str) -> Result<Option<Article>> {
+pub(super) async fn get_article_by_slug_sqlite(
+    pool: &SqlitePool,
+    slug: &str,
+) -> Result<Option<Article>> {
     let row = sqlx::query(
         r#"
         SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
@@ -103,23 +112,32 @@ pub(super) async fn get_article_by_slug_sqlite(pool: &SqlitePool, slug: &str) ->
     }
 }
 
-pub(super) async fn list_articles_sqlite(pool: &SqlitePool, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+pub(super) async fn list_articles_sqlite(
+    pool: &SqlitePool,
+    offset: i64,
+    limit: i64,
+    sort_by: ArticleSortBy,
+) -> Result<Vec<Article>> {
     let query = format!(
         "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
          FROM articles ORDER BY {} LIMIT ? OFFSET ?",
         sort_by.order_by_sql()
     );
     let rows = sqlx::query(&query)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await
-    .context("Failed to list articles")?;
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .context("Failed to list articles")?;
 
     rows.iter().map(row_to_article_sqlite).collect()
 }
 
-pub(super) async fn update_article_sqlite(pool: &SqlitePool, id: i64, input: &UpdateArticleInput) -> Result<Article> {
+pub(super) async fn update_article_sqlite(
+    pool: &SqlitePool,
+    id: i64,
+    input: &UpdateArticleInput,
+) -> Result<Article> {
     let existing = get_article_by_id_sqlite(pool, id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Article not found"))?;
@@ -128,21 +146,29 @@ pub(super) async fn update_article_sqlite(pool: &SqlitePool, id: i64, input: &Up
     let new_slug = input.slug.as_ref().unwrap_or(&existing.slug);
     let new_title = input.title.as_ref().unwrap_or(&existing.title);
     let new_content = input.content.as_ref().unwrap_or(&existing.content);
-    let new_content_html = input.content_html.as_ref().unwrap_or(&existing.content_html);
+    let new_content_html = input
+        .content_html
+        .as_ref()
+        .unwrap_or(&existing.content_html);
     let new_category_id = input.category_id.unwrap_or(existing.category_id);
     let new_status = input.status.unwrap_or(existing.status);
     let new_thumbnail = input.thumbnail.clone().or(existing.thumbnail.clone());
     let new_is_pinned = input.is_pinned.unwrap_or(existing.is_pinned);
     let new_pin_order = input.pin_order.unwrap_or(existing.pin_order);
-    let new_scheduled_at = if input.scheduled_at.is_some() { input.scheduled_at } else { existing.scheduled_at };
-
-    let new_published_at = if new_status == ArticleStatus::Published && existing.status != ArticleStatus::Published {
-        Some(now)
-    } else if new_status != ArticleStatus::Published {
-        None
+    let new_scheduled_at = if input.scheduled_at.is_some() {
+        input.scheduled_at
     } else {
-        existing.published_at
+        existing.scheduled_at
     };
+
+    let new_published_at =
+        if new_status == ArticleStatus::Published && existing.status != ArticleStatus::Published {
+            Some(now)
+        } else if new_status != ArticleStatus::Published {
+            None
+        } else {
+            existing.published_at
+        };
 
     sqlx::query(
         r#"
@@ -173,24 +199,36 @@ pub(super) async fn update_article_sqlite(pool: &SqlitePool, id: i64, input: &Up
         .ok_or_else(|| anyhow::anyhow!("Article not found after update"))
 }
 
-pub(super) async fn list_articles_by_category_sqlite(pool: &SqlitePool, category_id: i64, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+pub(super) async fn list_articles_by_category_sqlite(
+    pool: &SqlitePool,
+    category_id: i64,
+    offset: i64,
+    limit: i64,
+    sort_by: ArticleSortBy,
+) -> Result<Vec<Article>> {
     let query = format!(
         "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
          FROM articles WHERE category_id = ? ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?",
         sort_by.order_by_sql()
     );
     let rows = sqlx::query(&query)
-    .bind(category_id)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await
-    .context("Failed to list articles by category")?;
+        .bind(category_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .context("Failed to list articles by category")?;
 
     rows.iter().map(row_to_article_sqlite).collect()
 }
 
-pub(super) async fn list_articles_by_tag_sqlite(pool: &SqlitePool, tag_id: i64, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+pub(super) async fn list_articles_by_tag_sqlite(
+    pool: &SqlitePool,
+    tag_id: i64,
+    offset: i64,
+    limit: i64,
+    sort_by: ArticleSortBy,
+) -> Result<Vec<Article>> {
     let query = format!(
         "SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order \
          FROM articles a INNER JOIN article_tags at ON a.id = at.article_id \
@@ -198,33 +236,45 @@ pub(super) async fn list_articles_by_tag_sqlite(pool: &SqlitePool, tag_id: i64, 
         sort_by.order_by_sql()
     );
     let rows = sqlx::query(&query)
-    .bind(tag_id)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await
-    .context("Failed to list articles by tag")?;
+        .bind(tag_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .context("Failed to list articles by tag")?;
 
     rows.iter().map(row_to_article_sqlite).collect()
 }
 
-pub(super) async fn list_published_articles_sqlite(pool: &SqlitePool, offset: i64, limit: i64, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+pub(super) async fn list_published_articles_sqlite(
+    pool: &SqlitePool,
+    offset: i64,
+    limit: i64,
+    sort_by: ArticleSortBy,
+) -> Result<Vec<Article>> {
     let query = format!(
         "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order \
          FROM articles WHERE status = 'published' ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?",
         sort_by.order_by_sql()
     );
     let rows = sqlx::query(&query)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await
-    .context("Failed to list published articles")?;
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .context("Failed to list published articles")?;
 
     rows.iter().map(row_to_article_sqlite).collect()
 }
 
-pub(super) async fn search_articles_sqlite(pool: &SqlitePool, keyword: &str, offset: i64, limit: i64, published_only: bool, sort_by: ArticleSortBy) -> Result<Vec<Article>> {
+pub(super) async fn search_articles_sqlite(
+    pool: &SqlitePool,
+    keyword: &str,
+    offset: i64,
+    limit: i64,
+    published_only: bool,
+    sort_by: ArticleSortBy,
+) -> Result<Vec<Article>> {
     // FTS5 requires at least 2 characters; fallback to LIKE for very short queries
     let use_fts = keyword.chars().count() >= 2;
     let order = sort_by.order_by_sql();
@@ -283,7 +333,10 @@ pub(super) async fn search_articles_sqlite(pool: &SqlitePool, keyword: &str, off
     rows.iter().map(row_to_article_sqlite).collect()
 }
 
-pub(super) async fn list_scheduled_due_articles_sqlite(pool: &SqlitePool, now: &chrono::DateTime<Utc>) -> Result<Vec<Article>> {
+pub(super) async fn list_scheduled_due_articles_sqlite(
+    pool: &SqlitePool,
+    now: &chrono::DateTime<Utc>,
+) -> Result<Vec<Article>> {
     let rows = sqlx::query(
         r#"
         SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at

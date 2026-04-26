@@ -10,7 +10,6 @@ import {
   getArticleUrl,
   waitForNoteva,
   type NotevaArticle,
-  type NotevaSDKRef,
 } from "@/hooks/useNoteva";
 import { useI18nStore, useTranslation } from "@/lib/i18n";
 
@@ -32,20 +31,17 @@ function getDateLocale(locale: string) {
   }
 }
 
-function getArticleDate(sdk: NotevaSDKRef, article: NotevaArticle) {
-  const value = sdk.articles.getDate(article);
+function getArticleDate(article: NotevaArticle) {
+  const value = article.publishedAt || article.createdAt;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function groupByYearMonth(
-  sdk: NotevaSDKRef,
-  articles: NotevaArticle[]
-): ArchiveGroup[] {
+function groupByYearMonth(articles: NotevaArticle[]): ArchiveGroup[] {
   const map = new Map<number, Map<number, NotevaArticle[]>>();
 
   articles.forEach((article) => {
-    const date = getArticleDate(sdk, article);
+    const date = getArticleDate(article);
     if (!date) return;
 
     const year = date.getFullYear();
@@ -79,7 +75,6 @@ export default function ArchivesPage() {
   const dateLocale = getDateLocale(locale);
   const [archives, setArchives] = useState<ArchiveGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sdk, setSdk] = useState<NotevaSDKRef | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -100,8 +95,7 @@ export default function ArchivesPage() {
         const result = await noteva.articles.list({ pageSize: 100 });
         if (!active) return;
 
-        setSdk(noteva);
-        setArchives(groupByYearMonth(noteva, result.articles || []));
+        setArchives(groupByYearMonth(result.articles || []));
       } catch {
         if (active) setArchives([]);
       } finally {
@@ -190,7 +184,7 @@ export default function ArchivesPage() {
 
                         <ul className="relative space-y-3 border-l border-border pl-5">
                           {monthGroup.articles.map((article, index) => {
-                            const date = sdk ? getArticleDate(sdk, article) : null;
+                            const date = getArticleDate(article);
                             return (
                               <motion.li
                                 key={article.id}

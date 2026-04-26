@@ -292,9 +292,13 @@ async fn update_user_sqlite(pool: &SqlitePool, user: &User) -> Result<User> {
         .ok_or_else(|| anyhow::anyhow!("User not found after update"))
 }
 
-async fn list_users_sqlite(pool: &SqlitePool, page: i64, per_page: i64) -> Result<(Vec<User>, i64)> {
+async fn list_users_sqlite(
+    pool: &SqlitePool,
+    page: i64,
+    per_page: i64,
+) -> Result<(Vec<User>, i64)> {
     let offset = (page - 1) * per_page;
-    
+
     let rows = sqlx::query(
         r#"
         SELECT id, username, email, password_hash, role, status, display_name, avatar, totp_secret, totp_enabled, created_at, updated_at
@@ -456,7 +460,7 @@ async fn update_user_mysql(pool: &MySqlPool, user: &User) -> Result<User> {
 
 async fn list_users_mysql(pool: &MySqlPool, page: i64, per_page: i64) -> Result<(Vec<User>, i64)> {
     let offset = (page - 1) * per_page;
-    
+
     let rows = sqlx::query(
         r#"
         SELECT id, username, email, password_hash, role, status, display_name, avatar, totp_secret, totp_enabled, created_at, updated_at
@@ -488,7 +492,9 @@ mod tests {
     use crate::services::password::hash_password;
 
     async fn setup_test_repo() -> (DynDatabasePool, SqlxUserRepository) {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         migrations::run_migrations(&pool)
             .await
             .expect("Failed to run migrations");
@@ -619,9 +625,14 @@ mod tests {
         let user = create_test_user("deleteme", "delete@example.com");
         let created = repo.create(&user).await.expect("Failed to create user");
 
-        repo.delete(created.id).await.expect("Failed to delete user");
+        repo.delete(created.id)
+            .await
+            .expect("Failed to delete user");
 
-        let found = repo.get_by_id(created.id).await.expect("Failed to get user");
+        let found = repo
+            .get_by_id(created.id)
+            .await
+            .expect("Failed to get user");
         assert!(found.is_none());
     }
 
@@ -654,7 +665,9 @@ mod tests {
         let user1 = create_test_user("duplicate", "user1@example.com");
         let user2 = create_test_user("duplicate", "user2@example.com");
 
-        repo.create(&user1).await.expect("Failed to create first user");
+        repo.create(&user1)
+            .await
+            .expect("Failed to create first user");
         let result = repo.create(&user2).await;
 
         assert!(result.is_err(), "Should fail due to duplicate username");
@@ -666,7 +679,9 @@ mod tests {
         let user1 = create_test_user("user1", "duplicate@example.com");
         let user2 = create_test_user("user2", "duplicate@example.com");
 
-        repo.create(&user1).await.expect("Failed to create first user");
+        repo.create(&user1)
+            .await
+            .expect("Failed to create first user");
         let result = repo.create(&user2).await;
 
         assert!(result.is_err(), "Should fail due to duplicate email");
@@ -682,7 +697,10 @@ mod tests {
             UserRole::Admin,
         );
 
-        let created = repo.create(&user).await.expect("Failed to create admin user");
+        let created = repo
+            .create(&user)
+            .await
+            .expect("Failed to create admin user");
 
         assert_eq!(created.role, UserRole::Admin);
     }

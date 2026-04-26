@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
+use super::plugin_db;
 use crate::db::repositories::{PluginState, PluginStateRepository, SqlxPluginStateRepository};
 use crate::db::DynDatabasePool;
-use super::plugin_db;
 
 /// Current Noteva version from Cargo.toml
 pub const NOTEVA_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -25,42 +25,55 @@ pub struct VersionCheckResult {
 }
 
 /// Check if a version requirement is satisfied
-/// 
+///
 /// Supports formats:
 /// - ">=0.0.8" - minimum version
 /// - ">=0.0.8,<1.0.0" - version range
 /// - "0.0.8" - exact version
 pub fn check_version_requirement(requirement: &str, current: &str) -> VersionCheckResult {
     if requirement.is_empty() {
-        return VersionCheckResult { compatible: true, message: None };
+        return VersionCheckResult {
+            compatible: true,
+            message: None,
+        };
     }
-    
+
     let current_parts = parse_version(current);
-    
+
     // Handle multiple constraints (comma-separated)
     for constraint in requirement.split(',') {
         let constraint = constraint.trim();
         if constraint.is_empty() {
             continue;
         }
-        
+
         let result = check_single_constraint(constraint, &current_parts, current);
         if !result.compatible {
             return result;
         }
     }
-    
-    VersionCheckResult { compatible: true, message: None }
+
+    VersionCheckResult {
+        compatible: true,
+        message: None,
+    }
 }
 
-fn check_single_constraint(constraint: &str, current_parts: &[u32], current: &str) -> VersionCheckResult {
+fn check_single_constraint(
+    constraint: &str,
+    current_parts: &[u32],
+    current: &str,
+) -> VersionCheckResult {
     if constraint.starts_with(">=") {
         let min_version = &constraint[2..];
         let min_parts = parse_version(min_version);
         if compare_versions(current_parts, &min_parts) < 0 {
             return VersionCheckResult {
                 compatible: false,
-                message: Some(format!("需要 Noteva {} 或更高版本，当前版本: {}", min_version, current)),
+                message: Some(format!(
+                    "需要 Noteva {} 或更高版本，当前版本: {}",
+                    min_version, current
+                )),
             };
         }
     } else if constraint.starts_with("<=") {
@@ -69,7 +82,10 @@ fn check_single_constraint(constraint: &str, current_parts: &[u32], current: &st
         if compare_versions(current_parts, &max_parts) > 0 {
             return VersionCheckResult {
                 compatible: false,
-                message: Some(format!("最高支持 Noteva {}，当前版本: {}", max_version, current)),
+                message: Some(format!(
+                    "最高支持 Noteva {}，当前版本: {}",
+                    max_version, current
+                )),
             };
         }
     } else if constraint.starts_with('>') {
@@ -78,7 +94,10 @@ fn check_single_constraint(constraint: &str, current_parts: &[u32], current: &st
         if compare_versions(current_parts, &min_parts) <= 0 {
             return VersionCheckResult {
                 compatible: false,
-                message: Some(format!("需要高于 Noteva {} 的版本，当前版本: {}", min_version, current)),
+                message: Some(format!(
+                    "需要高于 Noteva {} 的版本，当前版本: {}",
+                    min_version, current
+                )),
             };
         }
     } else if constraint.starts_with('<') {
@@ -87,7 +106,10 @@ fn check_single_constraint(constraint: &str, current_parts: &[u32], current: &st
         if compare_versions(current_parts, &max_parts) >= 0 {
             return VersionCheckResult {
                 compatible: false,
-                message: Some(format!("需要低于 Noteva {} 的版本，当前版本: {}", max_version, current)),
+                message: Some(format!(
+                    "需要低于 Noteva {} 的版本，当前版本: {}",
+                    max_version, current
+                )),
             };
         }
     } else {
@@ -96,12 +118,18 @@ fn check_single_constraint(constraint: &str, current_parts: &[u32], current: &st
         if compare_versions(current_parts, &exact_parts) != 0 {
             return VersionCheckResult {
                 compatible: false,
-                message: Some(format!("需要 Noteva {} 版本，当前版本: {}", constraint, current)),
+                message: Some(format!(
+                    "需要 Noteva {} 版本，当前版本: {}",
+                    constraint, current
+                )),
             };
         }
     }
-    
-    VersionCheckResult { compatible: true, message: None }
+
+    VersionCheckResult {
+        compatible: true,
+        message: None,
+    }
 }
 
 fn parse_version(version: &str) -> Vec<u32> {
@@ -130,7 +158,10 @@ fn compare_versions(a: &[u32], b: &[u32]) -> i32 {
 
 /// Plugin metadata from plugin.json
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginMetadata {
+    /// Plugin manifest schema version
+    pub schema: u32,
     /// Unique plugin identifier
     pub id: String,
     /// Display name
@@ -138,16 +169,12 @@ pub struct PluginMetadata {
     /// Version string
     pub version: String,
     /// Description
-    #[serde(default)]
     pub description: String,
     /// Author name
-    #[serde(default)]
     pub author: String,
-    /// Homepage URL
-    #[serde(default)]
-    pub homepage: String,
+    /// Source repository used for updates
+    pub repository: String,
     /// License
-    #[serde(default)]
     pub license: String,
     /// Required Noteva version
     #[serde(default)]
@@ -180,6 +207,7 @@ pub struct PluginMetadata {
 
 /// A page that a plugin declares should exist
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginPageDeclaration {
     /// URL slug (e.g. "about", "friendlinks")
     pub slug: String,
@@ -189,6 +217,7 @@ pub struct PluginPageDeclaration {
 
 /// Plugin requirements
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginRequirements {
     /// Minimum Noteva version
     #[serde(default)]
@@ -200,6 +229,7 @@ pub struct PluginRequirements {
 
 /// Activation / license re-verification configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ActivateConfig {
     /// Re-trigger plugin_activate on startup (default true)
     #[serde(default = "default_true")]
@@ -209,7 +239,9 @@ pub struct ActivateConfig {
     pub interval_hours: u64,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 impl Default for ActivateConfig {
     fn default() -> Self {
@@ -222,6 +254,7 @@ impl Default for ActivateConfig {
 
 /// Plugin hooks configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginHooks {
     /// Backend hooks
     #[serde(default)]
@@ -229,9 +262,6 @@ pub struct PluginHooks {
     /// Frontend hooks
     #[serde(default)]
     pub frontend: Vec<String>,
-    /// Admin hooks
-    #[serde(default)]
-    pub admin: Vec<String>,
     /// Editor hooks
     #[serde(default)]
     pub editor: Vec<String>,
@@ -254,12 +284,10 @@ impl LegacyPluginStates {
     pub fn load(path: &Path) -> Option<Self> {
         if path.exists() {
             match fs::read_to_string(path) {
-                Ok(content) => {
-                    match serde_json::from_str(&content) {
-                        Ok(states) => return Some(states),
-                        Err(e) => warn!("Failed to parse plugins.json: {}", e),
-                    }
-                }
+                Ok(content) => match serde_json::from_str(&content) {
+                    Ok(states) => return Some(states),
+                    Err(e) => warn!("Failed to parse plugins.json: {}", e),
+                },
                 Err(e) => warn!("Failed to read plugins.json: {}", e),
             }
         }
@@ -286,25 +314,25 @@ impl Plugin {
         let path = self.path.join("frontend.js");
         fs::read_to_string(&path).ok()
     }
-    
+
     /// Get frontend.css content if exists
     pub fn get_frontend_css(&self) -> Option<String> {
         let path = self.path.join("frontend.css");
         fs::read_to_string(&path).ok()
     }
-    
+
     /// Get admin.js content if exists
     pub fn get_admin_js(&self) -> Option<String> {
         let path = self.path.join("admin.js");
         fs::read_to_string(&path).ok()
     }
-    
+
     /// Get admin.css content if exists
     pub fn get_admin_css(&self) -> Option<String> {
         let path = self.path.join("admin.css");
         fs::read_to_string(&path).ok()
     }
-    
+
     /// Get locale files from locales/ directory
     /// Returns Vec<(locale_name, json_content)> e.g. [("zh-CN", "{...}"), ("en", "{...}")]
     pub fn get_locales(&self) -> Vec<(String, String)> {
@@ -331,18 +359,24 @@ impl Plugin {
     /// Get settings.json schema if exists
     pub fn get_settings_schema(&self) -> Option<serde_json::Value> {
         let path = self.path.join("settings.json");
-        fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
+        let schema = super::validation::load_settings_schema(&path).ok()?;
+        if let Err(error) = super::validation::validate_settings_schema(&schema) {
+            warn!(
+                "Ignoring invalid settings schema for plugin '{}': {}",
+                self.metadata.id, error
+            );
+            return None;
+        }
+        Some(schema)
     }
-    
+
     /// Get migration SQL files
     pub fn get_migrations(&self) -> Vec<(String, String)> {
         let migrations_dir = self.path.join("migrations");
         if !migrations_dir.exists() {
             return Vec::new();
         }
-        
+
         let mut migrations = Vec::new();
         if let Ok(entries) = fs::read_dir(&migrations_dir) {
             for entry in entries.flatten() {
@@ -350,19 +384,19 @@ impl Plugin {
                 if path.extension().map_or(false, |ext| ext == "sql") {
                     if let (Some(name), Ok(content)) = (
                         path.file_name().and_then(|n| n.to_str()).map(String::from),
-                        fs::read_to_string(&path)
+                        fs::read_to_string(&path),
                     ) {
                         migrations.push((name, content));
                     }
                 }
             }
         }
-        
+
         // Sort by filename (001_init.sql, 002_update.sql, etc.)
         migrations.sort_by(|a, b| a.0.cmp(&b.0));
         migrations
     }
-    
+
     /// Get locale messages for a specific language
     pub fn get_locale(&self, lang: &str) -> Option<serde_json::Value> {
         let path = self.path.join("locales").join(format!("{}.json", lang));
@@ -370,7 +404,7 @@ impl Plugin {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
     }
-    
+
     /// Get editor.json configuration if exists
     pub fn get_editor_config(&self) -> Option<serde_json::Value> {
         let path = self.path.join("editor.json");
@@ -405,37 +439,36 @@ impl PluginManager {
             plugins: HashMap::new(),
         }
     }
-    
+
     /// Get the path to legacy plugins.json
     fn legacy_states_path(&self) -> PathBuf {
         self.data_dir.join("plugins.json")
     }
-    
+
     /// Initialize and load all plugins
     pub async fn init(&mut self) -> Result<()> {
         // Ensure plugins directory exists
         if !self.plugins_dir.exists() {
-            fs::create_dir_all(&self.plugins_dir)
-                .context("Failed to create plugins directory")?;
+            fs::create_dir_all(&self.plugins_dir).context("Failed to create plugins directory")?;
         }
-        
+
         // Migrate legacy plugins.json to database if exists
         self.migrate_legacy_states().await?;
-        
+
         // Scan for plugins
         self.scan_plugins().await?;
-        
+
         debug!("Loaded {} plugins", self.plugins.len());
         Ok(())
     }
-    
+
     /// Migrate legacy plugins.json to database
     async fn migrate_legacy_states(&self) -> Result<()> {
         let legacy_path = self.legacy_states_path();
-        
+
         if let Some(legacy_states) = LegacyPluginStates::load(&legacy_path) {
             info!("Migrating legacy plugins.json to database...");
-            
+
             for (plugin_id, state) in legacy_states.0 {
                 let db_state = PluginState {
                     plugin_id: plugin_id.clone(),
@@ -443,12 +476,12 @@ impl PluginManager {
                     settings: state.settings,
                     last_version: None,
                 };
-                
+
                 if let Err(e) = self.repo.save(&db_state).await {
                     warn!("Failed to migrate plugin state for {}: {}", plugin_id, e);
                 }
             }
-            
+
             // Rename old file to .bak
             let backup_path = legacy_path.with_extension("json.bak");
             if let Err(e) = fs::rename(&legacy_path, &backup_path) {
@@ -457,28 +490,31 @@ impl PluginManager {
                 info!("Legacy plugins.json migrated and backed up to plugins.json.bak");
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Scan plugins directory and load plugin metadata
     async fn scan_plugins(&mut self) -> Result<()> {
-        let entries = fs::read_dir(&self.plugins_dir)
-            .context("Failed to read plugins directory")?;
-        
+        let entries =
+            fs::read_dir(&self.plugins_dir).context("Failed to read plugins directory")?;
+
         // Load all states from database
         let db_states = self.repo.get_all().await.unwrap_or_default();
         let states_map: HashMap<String, PluginState> = db_states
             .into_iter()
             .map(|s| (s.plugin_id.clone(), s))
             .collect();
-        
+
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 match self.load_plugin(&path, &states_map) {
                     Ok(plugin) => {
-                        debug!("Loaded plugin: {} v{}", plugin.metadata.name, plugin.metadata.version);
+                        debug!(
+                            "Loaded plugin: {} v{}",
+                            plugin.metadata.name, plugin.metadata.version
+                        );
                         self.plugins.insert(plugin.metadata.id.clone(), plugin);
                     }
                     Err(e) => {
@@ -487,29 +523,24 @@ impl PluginManager {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Load a single plugin from directory
-    fn load_plugin(&self, path: &Path, states_map: &HashMap<String, PluginState>) -> Result<Plugin> {
-        let plugin_json = path.join("plugin.json");
-        
-        if !plugin_json.exists() {
-            anyhow::bail!("plugin.json not found");
-        }
-        
-        let content = fs::read_to_string(&plugin_json)
-            .context("Failed to read plugin.json")?;
-        
-        let metadata: PluginMetadata = serde_json::from_str(&content)
-            .context("Failed to parse plugin.json")?;
-        
+    fn load_plugin(
+        &self,
+        path: &Path,
+        states_map: &HashMap<String, PluginState>,
+    ) -> Result<Plugin> {
+        let metadata = super::validation::validate_plugin_package_dir(path)
+            .context("Invalid plugin package")?;
+
         // Get state from database
         let state = states_map.get(&metadata.id);
         let enabled = state.map(|s| s.enabled).unwrap_or(false);
         let settings = state.map(|s| s.settings.clone()).unwrap_or_default();
-        
+
         Ok(Plugin {
             metadata,
             path: path.to_path_buf(),
@@ -517,49 +548,56 @@ impl PluginManager {
             settings,
         })
     }
-    
+
     /// Get all loaded plugins
     pub fn get_all(&self) -> Vec<&Plugin> {
         self.plugins.values().collect()
     }
-    
+
     /// Get enabled plugins only
     pub fn get_enabled(&self) -> Vec<&Plugin> {
         self.plugins.values().filter(|p| p.enabled).collect()
     }
-    
+
     /// Get a plugin by ID
     pub fn get(&self, id: &str) -> Option<&Plugin> {
         self.plugins.get(id)
     }
-    
+
     /// Get a mutable plugin by ID
     pub fn get_mut(&mut self, id: &str) -> Option<&mut Plugin> {
         self.plugins.get_mut(id)
     }
-    
+
     /// Enable a plugin
     pub async fn enable(&mut self, id: &str) -> Result<()> {
         if let Some(plugin) = self.plugins.get_mut(id) {
             // Check version compatibility
-            let version_check = check_version_requirement(&plugin.metadata.requires.noteva, NOTEVA_VERSION);
+            let version_check =
+                check_version_requirement(&plugin.metadata.requires.noteva, NOTEVA_VERSION);
             if !version_check.compatible {
-                anyhow::bail!("{}", version_check.message.unwrap_or_else(|| "版本不兼容".to_string()));
+                anyhow::bail!(
+                    "{}",
+                    version_check
+                        .message
+                        .unwrap_or_else(|| "版本不兼容".to_string())
+                );
             }
-            
+
             // Run plugin database migrations if declared
             if plugin.metadata.database {
                 let migrations = plugin.get_migrations();
                 if !migrations.is_empty() {
-                    let count = plugin_db::run_plugin_migrations(&self.pool, id, &migrations).await?;
+                    let count =
+                        plugin_db::run_plugin_migrations(&self.pool, id, &migrations).await?;
                     if count > 0 {
                         info!("Plugin '{}' applied {} database migration(s)", id, count);
                     }
                 }
             }
-            
+
             plugin.enabled = true;
-            
+
             // Save to database
             let state = PluginState {
                 plugin_id: id.to_string(),
@@ -568,26 +606,26 @@ impl PluginManager {
                 last_version: None,
             };
             self.repo.save(&state).await?;
-            
+
             info!("Enabled plugin: {}", id);
             Ok(())
         } else {
             anyhow::bail!("Plugin not found: {}", id)
         }
     }
-    
+
     /// Check if a plugin is compatible with current Noteva version
     pub fn check_compatibility(&self, id: &str) -> Option<VersionCheckResult> {
         self.plugins.get(id).map(|plugin| {
             check_version_requirement(&plugin.metadata.requires.noteva, NOTEVA_VERSION)
         })
     }
-    
+
     /// Disable a plugin
     pub async fn disable(&mut self, id: &str) -> Result<()> {
         if let Some(plugin) = self.plugins.get_mut(id) {
             plugin.enabled = false;
-            
+
             // Save to database
             let state = PluginState {
                 plugin_id: id.to_string(),
@@ -596,19 +634,23 @@ impl PluginManager {
                 last_version: None,
             };
             self.repo.save(&state).await?;
-            
+
             info!("Disabled plugin: {}", id);
             Ok(())
         } else {
             anyhow::bail!("Plugin not found: {}", id)
         }
     }
-    
+
     /// Update plugin settings
-    pub async fn update_settings(&mut self, id: &str, settings: HashMap<String, serde_json::Value>) -> Result<()> {
+    pub async fn update_settings(
+        &mut self,
+        id: &str,
+        settings: HashMap<String, serde_json::Value>,
+    ) -> Result<()> {
         if let Some(plugin) = self.plugins.get_mut(id) {
             plugin.settings = settings.clone();
-            
+
             // Save to database
             let state = PluginState {
                 plugin_id: id.to_string(),
@@ -617,19 +659,19 @@ impl PluginManager {
                 last_version: None,
             };
             self.repo.save(&state).await?;
-            
+
             info!("Updated settings for plugin: {}", id);
             Ok(())
         } else {
             anyhow::bail!("Plugin not found: {}", id)
         }
     }
-    
+
     /// Delete plugin state from database (used when uninstalling)
     pub async fn delete_state(&self, id: &str) -> Result<bool> {
         self.repo.delete(id).await
     }
-    
+
     /// Ensure plugin state exists in database (used after installation)
     /// Only creates if not exists, doesn't overwrite existing state
     pub async fn ensure_state_exists(&self, state: &PluginState) -> Result<()> {
@@ -640,11 +682,11 @@ impl PluginManager {
                 return Ok(());
             }
         }
-        
+
         // Create new state
         self.repo.save(state).await
     }
-    
+
     /// Reload plugins (rescan directory)
     pub async fn reload(&mut self) -> Result<()> {
         self.plugins.clear();
@@ -661,20 +703,20 @@ impl PluginManager {
     pub async fn update_last_version(&self, plugin_id: &str, version: &str) -> Result<()> {
         self.repo.update_last_version(plugin_id, version).await
     }
-    
+
     /// Get combined frontend JS for all enabled plugins
     pub fn get_combined_frontend_js(&self) -> String {
         let mut js = String::new();
         for plugin in self.get_enabled() {
             let has_js = plugin.get_frontend_js().is_some();
             let locales = plugin.get_locales();
-            
+
             if !has_js && locales.is_empty() {
                 continue;
             }
-            
+
             js.push_str(&format!("\n// Plugin: {}\n", plugin.metadata.id));
-            
+
             // Inject locale data before plugin JS
             if !locales.is_empty() {
                 for (locale, content) in &locales {
@@ -685,7 +727,7 @@ impl PluginManager {
                     ));
                 }
             }
-            
+
             if let Some(content) = plugin.get_frontend_js() {
                 js.push_str(&content);
                 js.push('\n');
@@ -693,7 +735,7 @@ impl PluginManager {
         }
         js
     }
-    
+
     /// Get combined frontend CSS for all enabled plugins
     pub fn get_combined_frontend_css(&self) -> String {
         let mut css = String::new();
@@ -706,7 +748,7 @@ impl PluginManager {
         }
         css
     }
-    
+
     /// Get combined admin JS for all enabled plugins
     pub fn get_combined_admin_js(&self) -> String {
         let mut js = String::new();
@@ -719,7 +761,7 @@ impl PluginManager {
         }
         js
     }
-    
+
     /// Get combined admin CSS for all enabled plugins
     pub fn get_combined_admin_css(&self) -> String {
         let mut css = String::new();
@@ -732,7 +774,7 @@ impl PluginManager {
         }
         css
     }
-    
+
     /// Get all shortcodes from enabled plugins
     pub fn get_shortcodes(&self) -> Vec<(String, String)> {
         let mut shortcodes = Vec::new();

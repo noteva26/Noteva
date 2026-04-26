@@ -1,4 +1,4 @@
-﻿//! Configuration management
+//! Configuration management
 //!
 //! This module handles loading and parsing configuration for the Noteva blog system.
 //! Configuration can be loaded from:
@@ -265,20 +265,17 @@ pub enum ConfigError {
         source: std::io::Error,
     },
     #[error("Failed to parse config file '{path}': {message}")]
-    ParseError {
-        path: String,
-        message: String,
-    },
+    ParseError { path: String, message: String },
     #[error("Invalid configuration: {0}")]
     ValidationError(String),
 }
 
 impl Config {
     /// Load configuration from file
-    /// 
+    ///
     /// If the file doesn't exist, returns default configuration.
     /// If the file exists but is invalid YAML, returns an error with details.
-    /// 
+    ///
     /// Satisfies requirements:
     /// - 8.1: WHEN 系统启动 THEN Config_Manager SHALL 读取并解�?config.yml 配置文件
     /// - 8.5: WHEN 配置项缺�?THEN Config_Manager SHALL 使用合理的默认�?
@@ -300,18 +297,17 @@ impl Config {
         }
 
         // Parse YAML with detailed error messages (requirement 8.4)
-        let config: Config = serde_yaml::from_str(&content).map_err(|e| {
-            ConfigError::ParseError {
+        let config: Config =
+            serde_yaml::from_str(&content).map_err(|e| ConfigError::ParseError {
                 path: path.display().to_string(),
                 message: format_yaml_error(&e),
-            }
-        })?;
+            })?;
 
         Ok(config)
     }
 
     /// Load configuration from file with environment variable overrides
-    /// 
+    ///
     /// Environment variables follow the pattern:
     /// - NOTEVA_SERVER_HOST
     /// - NOTEVA_SERVER_PORT
@@ -322,7 +318,7 @@ impl Config {
     /// - NOTEVA_CACHE_TTL_SECONDS
     /// - NOTEVA_THEME_ACTIVE
     /// - NOTEVA_THEME_PATH
-    /// 
+    ///
     /// Satisfies requirement:
     /// - 11.5: THE Noteva_System SHALL 支持通过环境变量覆盖配置�?
     pub fn load_with_env(path: &std::path::Path) -> anyhow::Result<Self> {

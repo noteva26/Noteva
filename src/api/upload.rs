@@ -64,7 +64,7 @@ async fn upload_image(
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, ApiError> {
     let config = &state.upload_config;
-    
+
     // Ensure upload directory exists
     ensure_upload_dir(&config.path).await?;
 
@@ -112,7 +112,10 @@ async fn upload_image(
         }
 
         // Trigger image_upload_filter hook — plugins can intercept via presign or direct upload
-        if state.hook_manager.has_handlers(hook_names::IMAGE_UPLOAD_FILTER) {
+        if state
+            .hook_manager
+            .has_handlers(hook_names::IMAGE_UPLOAD_FILTER)
+        {
             let ext = get_extension(&filename, &content_type);
             let new_filename = format!("{}.{}", Uuid::new_v4(), ext);
             let hook_data = serde_json::json!({
@@ -123,8 +126,11 @@ async fn upload_image(
                 "data_base64": simple_base64_encode(&data),
                 "timestamp": Utc::now().to_rfc3339(),
             });
-            let result = state.hook_manager.trigger(hook_names::IMAGE_UPLOAD_FILTER, hook_data);
-            if let Some(url) = try_plugin_upload(&result, &data, &content_type, &new_filename).await {
+            let result = state
+                .hook_manager
+                .trigger(hook_names::IMAGE_UPLOAD_FILTER, hook_data);
+            if let Some(url) = try_plugin_upload(&result, &data, &content_type, &new_filename).await
+            {
                 return Ok(Json(UploadResponse {
                     url,
                     filename: new_filename,
@@ -165,13 +171,15 @@ async fn upload_images(
     mut multipart: Multipart,
 ) -> Result<Json<MultiUploadResponse>, ApiError> {
     let config = &state.upload_config;
-    
+
     // Ensure upload directory exists
     ensure_upload_dir(&config.path).await?;
 
     let mut files = Vec::new();
     let mut failed = Vec::new();
-    let has_upload_hook = state.hook_manager.has_handlers(hook_names::IMAGE_UPLOAD_FILTER);
+    let has_upload_hook = state
+        .hook_manager
+        .has_handlers(hook_names::IMAGE_UPLOAD_FILTER);
 
     while let Some(field) = multipart
         .next_field()
@@ -210,7 +218,11 @@ async fn upload_images(
 
         // Validate file size
         if data.len() as u64 > config.max_file_size {
-            failed.push(format!("{}: file too large (max {} MB)", filename, config.max_file_size / 1024 / 1024));
+            failed.push(format!(
+                "{}: file too large (max {} MB)",
+                filename,
+                config.max_file_size / 1024 / 1024
+            ));
             continue;
         }
 
@@ -227,8 +239,11 @@ async fn upload_images(
                 "data_base64": simple_base64_encode(&data),
                 "timestamp": Utc::now().to_rfc3339(),
             });
-            let result = state.hook_manager.trigger(hook_names::IMAGE_UPLOAD_FILTER, hook_data);
-            if let Some(url) = try_plugin_upload(&result, &data, &content_type, &new_filename).await {
+            let result = state
+                .hook_manager
+                .trigger(hook_names::IMAGE_UPLOAD_FILTER, hook_data);
+            if let Some(url) = try_plugin_upload(&result, &data, &content_type, &new_filename).await
+            {
                 files.push(UploadResponse {
                     url,
                     filename: new_filename,
@@ -277,12 +292,22 @@ async fn upload_file(
         .map_err(|e| ApiError::internal_error(format!("Failed to read multipart: {}", e)))?
     {
         let name = field.name().unwrap_or("").to_string();
-        if name != "file" { continue; }
+        if name != "file" {
+            continue;
+        }
 
-        let filename = field.file_name().map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string());
-        let content_type = field.content_type().map(|s| s.to_string()).unwrap_or_else(|| "application/octet-stream".to_string());
+        let filename = field
+            .file_name()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let content_type = field
+            .content_type()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "application/octet-stream".to_string());
 
-        let data = field.bytes().await
+        let data = field
+            .bytes()
+            .await
             .map_err(|e| ApiError::internal_error(format!("Failed to read file: {}", e)))?;
 
         if data.len() as u64 > config.max_file_size {
@@ -296,7 +321,10 @@ async fn upload_file(
         let new_filename = format!("{}.{}", Uuid::new_v4(), ext);
 
         // Try file_upload_filter hook — presign only, no data_base64
-        if state.hook_manager.has_handlers(hook_names::FILE_UPLOAD_FILTER) {
+        if state
+            .hook_manager
+            .has_handlers(hook_names::FILE_UPLOAD_FILTER)
+        {
             let hook_data = serde_json::json!({
                 "filename": new_filename,
                 "original_filename": filename,
@@ -304,8 +332,11 @@ async fn upload_file(
                 "size": data.len(),
                 "timestamp": Utc::now().to_rfc3339(),
             });
-            let result = state.hook_manager.trigger(hook_names::FILE_UPLOAD_FILTER, hook_data);
-            if let Some(url) = try_plugin_upload(&result, &data, &content_type, &new_filename).await {
+            let result = state
+                .hook_manager
+                .trigger(hook_names::FILE_UPLOAD_FILTER, hook_data);
+            if let Some(url) = try_plugin_upload(&result, &data, &content_type, &new_filename).await
+            {
                 return Ok(Json(UploadResponse {
                     url,
                     filename: new_filename,
@@ -318,7 +349,8 @@ async fn upload_file(
         // Default: save locally
         let file_path = config.path.join(&new_filename);
 
-        fs::write(&file_path, &data).await
+        fs::write(&file_path, &data)
+            .await
             .map_err(|e| ApiError::internal_error(format!("Failed to save file: {}", e)))?;
 
         return Ok(Json(UploadResponse {
@@ -351,9 +383,14 @@ async fn execute_presign_upload(
     data: &[u8],
     content_type: &str,
 ) -> Result<String, String> {
-    let url = presign.get("url").and_then(|v| v.as_str())
+    let url = presign
+        .get("url")
+        .and_then(|v| v.as_str())
         .ok_or_else(|| "presign missing 'url' field".to_string())?;
-    let method = presign.get("method").and_then(|v| v.as_str()).unwrap_or("PUT");
+    let method = presign
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("PUT");
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
@@ -376,7 +413,8 @@ async fn execute_presign_upload(
     }
 
     // Set content-type if not already in presign headers
-    let has_content_type = presign.get("headers")
+    let has_content_type = presign
+        .get("headers")
         .and_then(|v| v.as_object())
         .map(|h| h.keys().any(|k| k.to_lowercase() == "content-type"))
         .unwrap_or(false);
@@ -393,7 +431,8 @@ async fn execute_presign_upload(
     let status = response.status().as_u16();
     if status >= 200 && status < 300 {
         // Use the public_url from presign if provided, otherwise use the presign URL itself
-        let public_url = presign.get("public_url")
+        let public_url = presign
+            .get("public_url")
             .and_then(|v| v.as_str())
             .unwrap_or(url)
             .to_string();
@@ -402,7 +441,11 @@ async fn execute_presign_upload(
     } else {
         let body = response.text().await.unwrap_or_default();
         let preview_len = body.len().min(200);
-        Err(format!("Presign upload failed (HTTP {}): {}", status, &body[..preview_len]))
+        Err(format!(
+            "Presign upload failed (HTTP {}): {}",
+            status,
+            &body[..preview_len]
+        ))
     }
 }
 
@@ -443,7 +486,10 @@ async fn try_plugin_upload(
     }
 
     // handled=true but no url and no presign — treat as not handled
-    tracing::warn!("Plugin returned handled=true but no url or presign for '{}'", filename);
+    tracing::warn!(
+        "Plugin returned handled=true but no url or presign for '{}'",
+        filename
+    );
     None
 }
 
@@ -483,13 +529,15 @@ async fn upload_plugin_file(
     if plugin_id.contains("..")
         || plugin_id.contains('/')
         || plugin_id.contains('\\')
-        || !plugin_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        || !plugin_id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
     {
         return Err(ApiError::validation_error("Invalid plugin ID"));
     }
 
     let config = &state.upload_config;
-    
+
     // Create plugin-specific upload directory
     let plugin_upload_dir = config.path.join("plugins").join(&plugin_id);
     ensure_upload_dir(&plugin_upload_dir).await?;

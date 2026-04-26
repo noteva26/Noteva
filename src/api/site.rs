@@ -61,9 +61,7 @@ pub fn router() -> Router<AppState> {
 /// GET /api/v1/site/info - Get public site information
 ///
 /// No authentication required.
-async fn get_site_info(
-    State(state): State<AppState>,
-) -> Json<SiteInfoResponse> {
+async fn get_site_info(State(state): State<AppState>) -> Json<SiteInfoResponse> {
     let settings = state
         .settings_service
         .get_site_settings()
@@ -122,12 +120,19 @@ async fn get_site_info(
         .unwrap_or_default();
 
     // Gather public stats
-    let total_articles = state.article_service
-        .count_published().await.unwrap_or(0);
-    let total_categories = state.category_service
-        .list().await.map(|c| c.len() as i64).unwrap_or(0);
-    let total_tags = state.tag_service
-        .list().await.map(|t| t.len() as i64).unwrap_or(0);
+    let total_articles = state.article_service.count_published().await.unwrap_or(0);
+    let total_categories = state
+        .category_service
+        .list()
+        .await
+        .map(|c| c.len() as i64)
+        .unwrap_or(0);
+    let total_tags = state
+        .tag_service
+        .list()
+        .await
+        .map(|t| t.len() as i64)
+        .unwrap_or(0);
 
     // Get font_family
     let font_family = state
@@ -160,7 +165,6 @@ async fn get_site_info(
     })
 }
 
-
 /// POST /api/v1/site/render - Render markdown content with shortcode processing
 ///
 /// Used by admin preview to show how content will look with shortcodes processed.
@@ -169,6 +173,8 @@ async fn render_content(
     Json(req): Json<RenderRequest>,
 ) -> Json<RenderResponse> {
     // Use article service to render with shortcode processing
-    let html = state.article_service.render_markdown_with_shortcodes(&req.content, None, None);
+    let html = state
+        .article_service
+        .render_markdown_with_shortcodes(&req.content, None, None);
     Json(RenderResponse { html })
 }

@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { VersionStatus } from "@/components/admin/version-status";
 import { authApi } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -208,7 +209,8 @@ export default function ManageLayout() {
             })}
           </nav>
 
-          <div className="border-t p-4">
+          <div className="space-y-3 border-t p-4">
+            <VersionStatus />
             <div className="flex items-center gap-3 mb-3">
               <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
                 <span className="text-sm font-medium">

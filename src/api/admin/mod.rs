@@ -11,29 +11,29 @@
 //! - 5.3: System configuration
 //! - 6.1: Theme switching
 
-mod dashboard;
-mod taxonomy;
-mod themes;
-mod settings;
-mod update;
+mod backup;
 mod comments;
+mod dashboard;
+mod files;
 mod reload;
 mod security;
-mod backup;
-mod files;
+mod settings;
+mod taxonomy;
+mod themes;
+mod update;
 
 pub use comments::{
-    list_comments, list_pending_comments, approve_comment, reject_comment,
-    CommentsQuery, AdminCommentsResponse, AdminCommentResponse,
+    approve_comment, list_comments, list_pending_comments, reject_comment, AdminCommentResponse,
+    AdminCommentsResponse, CommentsQuery,
 };
 pub use security::{LoginLogEntry, LoginLogsQuery, LoginLogsResponse};
 pub use update::APP_VERSION;
 
+use crate::api::middleware::AppState;
 use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use crate::api::middleware::AppState;
 
 /// Build the admin router
 pub fn router() -> Router<AppState> {
@@ -73,7 +73,10 @@ pub fn router() -> Router<AppState> {
         // Backup & Restore
         .route("/backup", get(backup::download_backup))
         .route("/backup/restore", post(backup::restore_backup_endpoint))
-        .route("/backup/export-markdown", get(backup::export_markdown_endpoint))
+        .route(
+            "/backup/export-markdown",
+            get(backup::export_markdown_endpoint),
+        )
         .route("/backup/import", post(backup::import_articles_endpoint))
         // File management
         .route("/files", get(files::list_files))

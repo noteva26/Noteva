@@ -6,19 +6,22 @@
 //! - Shortcode parsing and rendering
 //! - WASM-based plugin execution (optional)
 
-pub mod loader;
-pub mod hooks;
-pub mod hook_registry;
 pub mod doc_gen;
-pub mod shortcode;
-pub mod wasm_bridge;
+pub mod hook_registry;
+pub mod hooks;
+pub mod loader;
 pub mod plugin_db;
+pub mod shortcode;
+pub mod validation;
+pub mod wasm_bridge;
 
 // Re-export commonly used types
-pub use loader::{Plugin, PluginManager, PluginMetadata, PluginRequirements, PluginHooks, PluginPageDeclaration,
-                 check_version_requirement, VersionCheckResult, NOTEVA_VERSION};
-pub use hooks::{HookManager, hook_names};
-pub use shortcode::{ShortcodeManager, Shortcode, ShortcodeContext};
+pub use hooks::{hook_names, HookManager};
+pub use loader::{
+    check_version_requirement, Plugin, PluginHooks, PluginManager, PluginMetadata,
+    PluginPageDeclaration, PluginRequirements, VersionCheckResult, NOTEVA_VERSION,
+};
+pub use shortcode::{Shortcode, ShortcodeContext, ShortcodeManager};
 
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
@@ -148,7 +151,6 @@ impl Default for PluginManifest {
     }
 }
 
-
 /// Error types for plugin operations
 #[derive(Debug, thiserror::Error)]
 pub enum PluginError {
@@ -231,18 +233,15 @@ impl PluginRuntime {
         // Enable epoch interruption for timeout handling
         config.epoch_interruption(true);
 
-        let engine = Engine::new(&config)
-            .map_err(|e| anyhow!("Failed to create WASM engine: {}", e))?;
+        let engine =
+            Engine::new(&config).map_err(|e| anyhow!("Failed to create WASM engine: {}", e))?;
 
         Ok(Self {
             engine,
             plugins: HashMap::new(),
             next_handle: AtomicU64::new(1),
             default_limits: limits,
-            allowed_permissions: vec![
-                Permission::ReadArticles,
-                Permission::ReadConfig,
-            ],
+            allowed_permissions: vec![Permission::ReadArticles, Permission::ReadConfig],
         })
     }
 
@@ -297,107 +296,137 @@ impl PluginRuntime {
 
         // Pre-create store and instance so we don't instantiate on every call
         let mut store = Store::new(&self.engine, ());
-        store.set_fuel(limits.fuel_limit)
+        store
+            .set_fuel(limits.fuel_limit)
             .map_err(|e| PluginError::WasmError(e.to_string()))?;
         store.epoch_deadline_trap();
 
         let mut linker = Linker::new(&self.engine);
-        
+
         // Register stub host functions so WASM modules that declare imports
         // can be instantiated for metadata tracking. Actual execution happens
         // in the wasm-worker subprocess which registers real implementations.
         let _ = linker.func_wrap(
-            "env", "host_http_request",
+            "env",
+            "host_http_request",
             |_: Caller<'_, ()>,
-             _: i32, _: i32, _: i32, _: i32,
-             _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
+             _: i32,
+             _: i32,
+             _: i32,
+             _: i32,
+             _: i32,
+             _: i32,
+             _: i32,
+             _: i32|
+             -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "env", "host_storage_get",
+            "env",
+            "host_storage_get",
             |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "env", "host_storage_set",
+            "env",
+            "host_storage_set",
             |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "env", "host_storage_delete",
+            "env",
+            "host_storage_delete",
             |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "env", "host_log",
+            "env",
+            "host_log",
             |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| {},
         );
         let _ = linker.func_wrap(
-            "env", "host_query_articles",
+            "env",
+            "host_query_articles",
             |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "env", "host_get_article",
+            "env",
+            "host_get_article",
             |_: Caller<'_, ()>, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "env", "host_get_comments",
+            "env",
+            "host_get_comments",
             |_: Caller<'_, ()>, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "env", "host_update_article_meta",
+            "env",
+            "host_update_article_meta",
             |_: Caller<'_, ()>, _: i32, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "env", "host_hmac_sha256",
+            "env",
+            "host_hmac_sha256",
             |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "env", "host_sha256",
+            "env",
+            "host_sha256",
             |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "env", "host_db_query",
+            "env",
+            "host_db_query",
             |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "env", "host_db_execute",
+            "env",
+            "host_db_execute",
             |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
         );
 
         // WASI stubs — plugins compiled with wasm32-wasip1 import these.
         // Only stubs are needed here; real execution happens in wasm-worker.
         let _ = linker.func_wrap(
-            "wasi_snapshot_preview1", "fd_write",
+            "wasi_snapshot_preview1",
+            "fd_write",
             |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "wasi_snapshot_preview1", "fd_read",
+            "wasi_snapshot_preview1",
+            "fd_read",
             |_: Caller<'_, ()>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "wasi_snapshot_preview1", "fd_close",
+            "wasi_snapshot_preview1",
+            "fd_close",
             |_: Caller<'_, ()>, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "wasi_snapshot_preview1", "fd_seek",
+            "wasi_snapshot_preview1",
+            "fd_seek",
             |_: Caller<'_, ()>, _: i32, _: i64, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "wasi_snapshot_preview1", "fd_fdstat_get",
+            "wasi_snapshot_preview1",
+            "fd_fdstat_get",
             |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "wasi_snapshot_preview1", "proc_exit",
+            "wasi_snapshot_preview1",
+            "proc_exit",
             |_: Caller<'_, ()>, _: i32| {},
         );
         let _ = linker.func_wrap(
-            "wasi_snapshot_preview1", "environ_sizes_get",
+            "wasi_snapshot_preview1",
+            "environ_sizes_get",
             |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
         );
         let _ = linker.func_wrap(
-            "wasi_snapshot_preview1", "environ_get",
+            "wasi_snapshot_preview1",
+            "environ_get",
             |_: Caller<'_, ()>, _: i32, _: i32| -> i32 { 0 },
         );
-        
-        let instance = linker.instantiate(&mut store, &module)
-            .map_err(|e| PluginError::WasmError(format!("Failed to instantiate WASM module: {}", e)))?;
+
+        let instance = linker.instantiate(&mut store, &module).map_err(|e| {
+            PluginError::WasmError(format!("Failed to instantiate WASM module: {}", e))
+        })?;
 
         let handle_id = self.next_handle.fetch_add(1, Ordering::SeqCst);
         let handle = PluginHandle(handle_id);
@@ -419,7 +448,7 @@ impl PluginRuntime {
     /// Load a plugin from file
     pub async fn load_plugin(&mut self, path: &Path) -> Result<PluginHandle, PluginError> {
         let wasm_bytes = tokio::fs::read(path).await?;
-        
+
         // For now, use a default manifest - in production, this would be read from the plugin
         let manifest = PluginManifest {
             name: path
@@ -441,16 +470,15 @@ impl PluginRuntime {
         Ok(())
     }
 
-
     /// Execute a plugin function with resource limits
-    /// 
+    ///
     /// Data passing protocol:
     /// 1. Host calls plugin's `allocate(size) -> ptr` to get a memory buffer
     /// 2. Host writes JSON input bytes into that buffer
     /// 3. Host calls `func_name(ptr, len) -> result_ptr`
     /// 4. Result is encoded as: first 4 bytes = result length, followed by result JSON bytes
     /// 5. If result_ptr is 0, no output data (function succeeded with no modifications)
-    /// 
+    ///
     /// For plugins without allocate/memory, falls back to simple () -> i32 calling convention.
     pub fn execute_with_limits(
         &mut self,
@@ -463,7 +491,8 @@ impl PluginRuntime {
             .get_mut(&handle.0)
             .ok_or(PluginError::NotFound(handle.0))?;
 
-        let instance = plugin.instance
+        let instance = plugin
+            .instance
             .ok_or_else(|| PluginError::WasmError("Plugin not instantiated".to_string()))?;
 
         // Refuel the store for this execution
@@ -477,7 +506,9 @@ impl PluginRuntime {
         // Check memory limit
         let current_memory = memory.data_size(&plugin.store) as u64;
         if current_memory > plugin.limits.memory_limit_bytes {
-            return Err(PluginError::MemoryLimitExceeded(plugin.limits.memory_limit_bytes));
+            return Err(PluginError::MemoryLimitExceeded(
+                plugin.limits.memory_limit_bytes,
+            ));
         }
 
         // Get the function to call
@@ -491,7 +522,8 @@ impl PluginRuntime {
         let output = if let Some(alloc_func) = instance.get_func(&mut plugin.store, "allocate") {
             if let Ok(alloc_typed) = alloc_func.typed::<i32, i32>(&plugin.store) {
                 let input_len = input.len() as i32;
-                let input_ptr = alloc_typed.call(&mut plugin.store, input_len)
+                let input_ptr = alloc_typed
+                    .call(&mut plugin.store, input_len)
                     .map_err(|e| PluginError::WasmError(format!("allocate failed: {}", e)))?;
 
                 // Write input data into WASM memory
@@ -500,12 +532,15 @@ impl PluginRuntime {
                 if ptr + input.len() <= mem.len() {
                     mem[ptr..ptr + input.len()].copy_from_slice(input);
                 } else {
-                    return Err(PluginError::WasmError("Input data exceeds WASM memory".to_string()));
+                    return Err(PluginError::WasmError(
+                        "Input data exceeds WASM memory".to_string(),
+                    ));
                 }
 
                 // Call the hook function with (ptr, len) -> result_ptr
                 if let Ok(typed_func) = func.typed::<(i32, i32), i32>(&plugin.store) {
-                    let result_ptr = typed_func.call(&mut plugin.store, (input_ptr, input_len))
+                    let result_ptr = typed_func
+                        .call(&mut plugin.store, (input_ptr, input_len))
                         .map_err(|e| PluginError::WasmError(e.to_string()))?;
 
                     if result_ptr > 0 {
@@ -513,8 +548,10 @@ impl PluginRuntime {
                         let rp = result_ptr as usize;
                         if rp + 4 <= mem_data.len() {
                             let result_len = u32::from_le_bytes([
-                                mem_data[rp], mem_data[rp + 1],
-                                mem_data[rp + 2], mem_data[rp + 3],
+                                mem_data[rp],
+                                mem_data[rp + 1],
+                                mem_data[rp + 2],
+                                mem_data[rp + 3],
                             ]) as usize;
                             if rp + 4 + result_len <= mem_data.len() {
                                 mem_data[rp + 4..rp + 4 + result_len].to_vec()
@@ -584,21 +621,19 @@ impl PluginRuntime {
     /// Call a hook on all plugins
     pub async fn call_hook(&mut self, hook: &str, data: &[u8]) -> Result<Vec<u8>> {
         let mut results = Vec::new();
-        
-        let handle_ids: Vec<(u64, Duration)> = self.plugins.iter()
+
+        let handle_ids: Vec<(u64, Duration)> = self
+            .plugins
+            .iter()
             .map(|(&id, p)| (id, p.limits.timeout))
             .collect();
 
         for (handle_id, timeout) in handle_ids {
             let handle = PluginHandle(handle_id);
-            
-            match self.execute_with_timeout(
-                handle,
-                &format!("hook_{}", hook),
-                data,
-                timeout,
-            )
-            .await
+
+            match self
+                .execute_with_timeout(handle, &format!("hook_{}", hook), data, timeout)
+                .await
             {
                 Ok(result) => {
                     results.extend(result.output);

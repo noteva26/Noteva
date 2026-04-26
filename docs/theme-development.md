@@ -1,144 +1,96 @@
-# Noteva 主题开发文档
+# Noteva 主题开发指南
 
-> 版本：v0.2.5
+本文档描述 Noteva Theme Runtime SDK v1 的主题开发方式。Noteva 不绑定 React、Vue 或任何特定前端框架：主题可以是纯 HTML/CSS/JavaScript，也可以是任意框架构建后的静态资源。
 
-## 快速开始
+## 主题目录
 
-Noteva 支持任意前端框架开发主题（React、Vue、原生 JS 等），只需遵循简单约定。
+主题放在 `themes/<theme-name>/` 下：
 
-### 主题目录结构
-
-```
-themes/
-└── my-theme/
-    ├── theme.json          # 主题配置（必需）
-    ├── settings.json       # 主题设置定义（可选）
-    ├── dist/               # 构建输出（必需）
-    │   └── index.html      # 入口文件
-    └── preview.png         # 预览图（推荐）
+```text
+themes/my-theme/
+├── theme.json
+├── settings.json        # 可选
+├── dist/
+│   ├── index.html
+│   └── assets/
+└── preview.png          # 可选
 ```
 
-### v0.2.5 安装包安全约束
+规则：
 
-- 主题 ZIP/TAR 包不允许路径穿越、绝对路径、Windows 盘符路径、符号链接或特殊文件。
-- 单个条目和总解包体积都有上限，避免异常压缩包占满磁盘或拖慢安装。
-- `theme.json` 必须位于包根目录或一层子目录内，安装时会读取 `short` 或 `name` 作为主题目录名，并拒绝包含 `..`、斜杠、反斜杠或冒号的名称。
-- 已构建主题仍应包含 `dist/index.html`；源码仓库安装只适合已经提交构建产物的主题。
+- `theme.json` 必须存在。
+- `dist/index.html` 必须存在，是主题运行入口。
+- `settings.json` 可选；如果存在，必须符合 Theme Settings Schema v1。
+- `preview` 可选；如果在 `theme.json` 中声明，文件必须存在且必须是相对路径。
+- 主题源码可以保留在包内，但 Noteva 只保证运行 `dist/` 中的构建产物。
 
-### theme.json 示例
+`dist/index.html` 是运行入口。Noteva 会在服务端注入站点配置、SDK、插件资源和 SEO 信息，主题无需手动引入 SDK 文件。
+
+## theme.json
+
+最小合法示例：
 
 ```json
 {
-  "name": "我的主题",
+  "schema": 1,
+  "name": "My Theme",
   "short": "my-theme",
-  "description": "一个简洁的博客主题",
+  "description": "A clean Noteva theme",
   "version": "1.0.0",
   "author": "Your Name",
+  "repository": "https://github.com/user/my-theme",
+  "requires": {
+    "noteva": ">=0.2.6"
+  }
+}
+```
+
+必填字段：
+
+- `schema`: 当前固定为 `1`。
+- `name`: 后台展示名称，可以使用中文。
+- `short`: 主题 ID，必须匹配 `^[a-z0-9][a-z0-9-]{0,62}$`，并且安装后的目录名必须与它一致。
+- `description`: 简短描述。
+- `version`: 主题版本，使用 `x.y.z` 格式。
+- `author`: 作者名称。
+- `repository`: 更新来源，必须是 GitHub URL 或 `owner/repo`。
+- `requires.noteva`: 主题要求的 Noteva 版本。
+
+可选字段：
+
+- `preview`: 预览图相对路径，例如 `preview.png`。
+- `pages`: 主题需要自动创建的页面声明。
+- `configuration`: 只读静态配置，会通过 `Noteva.theme.getConfig()` 暴露给前台主题。
+
+`pages` 示例：
+
+```json
+{
   "pages": [
-    { "slug": "about", "title": "关于" }
+    {
+      "slug": "about",
+      "title": "关于"
+    }
   ]
 }
 ```
 
-`pages` 字段声明主题需要的页面。切换到该主题时，后端自动创建缺失的 Page 记录（status=published, content 为空）。已存在的同 slug 页面不会被覆盖。用户可在管理后台编辑这些页面的内容和 SEO 信息。
+## settings.json
 
-## Noteva SDK
-
-Noteva 会自动在主题页面注入 SDK，提供 `window.Noteva` 全局对象。
-
-**重要：不要手动引入 SDK，后端会自动注入！**
-
-### 初始化
-
-```javascript
-// 等待 SDK 就绪
-Noteva.ready(() => {
-  // SDK 已加载完成，可以使用所有 API
-  init();
-});
-
-// 或使用 Promise
-await Noteva.ready();
-```
-
-## 站点 API
-
-### 获取站点信息
-
-```javascript
-const site = await Noteva.site.getInfo();
-// 返回:
-// {
-//   version: "0.2.5",
-//   name: "站点名称",
-//   description: "站点描述",
-//   subtitle: "副标题",
-//   logo: "/uploads/logo.png",
-//   footer: "页脚内容",
-//   email_verification_enabled: "false",
-//   permalink_structure: "/posts/{slug}",
-//   demo_mode: false,
-//   stats: {
-//     total_articles: 42,
-//     total_categories: 5,
-//     total_tags: 18
-//   },
-//   font_family: "Poppins",          // v0.1.9 新增
-//   custom_css: "...",               // v0.1.9 新增（全字段透传）
-//   custom_js: "...",                // v0.1.9 新增
-// }
-```
-
-### 获取导航菜单
-
-```javascript
-const nav = await Noteva.site.getNav();
-// 返回:
-// [
-//   { id: 1, name: "首页", url: "/", target: "_self", children: [] },
-//   { id: 2, name: "关于", url: "/about", target: "_self", children: [
-//     { id: 3, name: "子菜单", url: "/sub", target: "_self" }
-//   ]}
-// ]
-```
-
-### 获取主题设置
-
-主题可以通过 `settings.json` 定义自定义设置项，管理员在后台配置，主题通过 SDK 读取。
-
-```javascript
-// 获取所有设置
-const settings = await Noteva.site.getThemeSettings();
-// 返回: { "primary_color": "#3b82f6", "show_sidebar": "true", ... }
-
-// 获取单个设置
-const color = await Noteva.site.getThemeSettings('primary_color');
-```
-
-#### settings.json 格式
-
-在主题根目录创建 `settings.json`，定义可配置项。后台会自动按 `sections` 分组显示，每个分组可折叠。
-
-> v0.1.6-beta 起，主题和插件的设置界面统一使用侧边抽屉（Sheet）+ 手风琴折叠（Accordion）展示，每个 section 独立折叠，默认展开第一个。设置渲染逻辑由共享组件 `SettingsRenderer` 统一处理，主题和插件体验一致。
+`settings.json` 用来声明后台可编辑的主题设置。没有设置项的主题不需要这个文件。
 
 ```json
 {
+  "schema": 1,
   "sections": [
     {
       "id": "appearance",
-      "title": "外观设置",
+      "title": "Appearance",
       "fields": [
         {
-          "id": "primary_color",
-          "label": "主题色",
-          "type": "text",
-          "default": "#3b82f6",
-          "description": "主题的主要颜色"
-        },
-        {
-          "id": "show_sidebar",
-          "label": "显示侧边栏",
+          "id": "show_toc",
           "type": "switch",
+          "label": "Show TOC",
           "default": true
         }
       ]
@@ -147,557 +99,774 @@ const color = await Noteva.site.getThemeSettings('primary_color');
 }
 ```
 
-#### 支持的字段类型
+字段类型 v1 只承诺这些：
 
-##### text — 单行文本
+- `text`
+- `textarea`
+- `switch`
+- `select`
+- `number`
+- `color`
+- `array`
 
-```json
+通用规则：
+
+- section `id` 和 field `id` 必须匹配 `^[a-z][a-z0-9_]{0,63}$`。
+- `label` 必填，支持字符串或多语言对象。
+- `description`、`placeholder` 可选，支持字符串或多语言对象。
+- `default` 必须与字段类型匹配。
+- `secret: true` 的字段不会暴露给公开主题接口。
+- `select` 必须提供 `options`。
+- `array` 必须提供 `itemFields`，v1 的数组子字段只支持 `text` 和 `number`。
+
+## 校验时机
+
+Noteva 会在这些位置校验主题：
+
+- 安装主题包时。
+- 扫描已安装主题时。
+- 读取 `settings.json` 时。
+- 保存主题设置时。
+
+不合规主题不会进入可用主题列表；不合规设置不会被保存。
+
+## JSON Schema
+
+编辑器和主题开发工具可以使用：
+
+- `docs/schemas/theme.schema.json`
+- `docs/schemas/theme-settings.schema.json`
+
+## SDK 加载
+
+主题代码应等待 SDK 初始化：
+
+```html
+<script>
+  Noteva.ready(async () => {
+    const site = await Noteva.site.getInfo();
+    document.querySelector("#site-title").textContent = site.name;
+  });
+</script>
+```
+
+框架项目中也一样：
+
+```ts
+await window.Noteva.ready();
+const articles = await window.Noteva.articles.list({ page: 1, pageSize: 10 });
+```
+
+## 全局对象
+
+SDK 暴露在 `window.Noteva`：
+
+```ts
+Noteva = {
+  version,
+  sdkVersion,
+  ready,
+
+  api,
+  site,
+  theme,
+  articles,
+  pages,
+  categories,
+  tags,
+  comments,
+  interactions,
+  user,
+
+  urls,
+  router,
+  page,
+  utils,
+  errors,
+  search,
+  upload,
+  cache,
+  ui,
+  storage,
+  seo,
+  toc,
+  i18n,
+
+  hooks,
+  events,
+  plugins,
+  shortcodes,
+  slots,
+  emoji
+}
+```
+
+SDK v1 的公共数据字段统一使用 `camelCase`。主题代码不需要处理后端原始的 `snake_case` 字段。
+
+`Noteva.api` 是低层请求入口，适合插件或高级主题扩展兜底使用。普通主题优先使用 `site/articles/pages/categories/tags/comments/interactions/theme` 等高层 API，避免直接绑定后端路径。
+
+## SDK 稳定边界
+
+Theme Runtime SDK v1 的目标是给主题和前台插件提供稳定、轻量、框架无关的运行时能力。只要主题通过下列公开模块开发，后续小版本会尽量保持兼容：
+
+```ts
+Noteva.ready
+Noteva.site
+Noteva.theme
+Noteva.articles
+Noteva.pages
+Noteva.categories
+Noteva.tags
+Noteva.comments
+Noteva.interactions
+Noteva.user
+Noteva.urls
+Noteva.router
+Noteva.page
+Noteva.utils
+Noteva.errors
+Noteva.search
+Noteva.upload
+Noteva.cache
+Noteva.ui
+Noteva.storage
+Noteva.seo
+Noteva.toc
+Noteva.i18n
+Noteva.hooks
+Noteva.events
+Noteva.plugins
+Noteva.shortcodes
+Noteva.slots
+Noteva.emoji
+```
+
+稳定含义：
+
+- 字段统一使用 `camelCase`，主题不直接处理后端 `snake_case`。
+- 高层 API 的方法名、参数语义和返回结构会保持稳定。
+- `Noteva.urls.*` 是链接生成的标准入口，主题不直接拼永久链接。
+- `Noteva.page` 是当前页面上下文的标准入口，插件不需要各自猜 URL 或 DOM。
+- `Noteva.hooks` 和 `Noteva.events` 的回调异常不会中断后续回调。
+
+高级兜底：
+
+- `Noteva.api` 可以用于少量高级扩展，但直接依赖 `/api/v1/*` 路径会降低主题兼容性。
+- `Noteva.upload` 需要登录态，适合前台投稿、资料编辑或插件扩展，不是普通展示主题的必需能力。
+- `Noteva.cache` 是前端扩展缓存能力，不应用来保存敏感数据。
+
+不属于 Theme Runtime SDK 的范围：
+
+- 后台管理接口，例如主题安装、插件安装、用户管理、系统设置写入。
+- 插件设置写入、插件启停、插件安装卸载。
+- v0 阶段的兼容别名，例如 `site.getThemeSettings()`、`site.getArticleUrl()`、`articles.getStats()`、`articles.getExcerpt()`。
+
+如果主题必须使用低层接口，建议把调用集中封装在主题自己的适配层，避免业务组件散落硬编码 API 路径。
+
+## 站点信息
+
+```ts
+const site = await Noteva.site.getInfo();
+```
+
+返回结构：
+
+```ts
 {
-  "id": "site_title",
-  "type": "text",
-  "label": "站点标题",
-  "default": "",
-  "description": "显示在页面顶部的标题",
-  "placeholder": "输入标题"
+  version: "0.2.6",
+  name: "Noteva",
+  description: "",
+  subtitle: "",
+  logo: "/logo.png",
+  footer: "",
+  url: "https://example.com",
+  permalinkStructure: "/posts/{slug}",
+  emailVerificationEnabled: false,
+  demoMode: false,
+  customCss: "",
+  customJs: "",
+  fontFamily: "",
+  stats: {
+    totalArticles: 12,
+    totalCategories: 3,
+    totalTags: 8
+  }
 }
 ```
 
-标记 `"secret": true` 的字段会以密码框显示，且不会通过公开 API 返回（仅管理后台可见），适合存储 API Key 等敏感信息。
+导航：
 
-##### textarea — 多行文本
+```ts
+const nav = await Noteva.site.getNav();
+```
 
-```json
+导航项：
+
+```ts
 {
-  "id": "custom_css",
-  "type": "textarea",
-  "label": "自定义 CSS",
-  "default": "",
-  "description": "注入自定义样式"
+  id: 1,
+  parentId: null,
+  title: "Archives",
+  name: "Archives",
+  type: "builtin",
+  target: "archives",
+  url: "archives",
+  openNewTab: false,
+  order: 10,
+  visible: true,
+  children: []
 }
 ```
 
-##### switch — 开关
+刷新站点缓存：
 
-值为布尔类型。注意：数据库存储为字符串 `"true"` / `"false"`，读取时需要解析。
+```ts
+await Noteva.site.refresh();
+```
 
-```json
+## 主题信息与设置
+
+主题基础信息：
+
+```ts
+const info = await Noteva.theme.getInfo();
+```
+
+主题配置：
+
+```ts
+const config = await Noteva.theme.getConfig();
+const color = await Noteva.theme.getConfig("primaryColor");
+```
+
+主题设置：
+
+```ts
+const settings = await Noteva.theme.getSettings();
+const showToc = await Noteva.theme.getSetting("show_toc", true);
+```
+
+SDK 会把公开设置转换成可直接使用的类型：
+
+```ts
 {
-  "id": "show_toc",
-  "type": "switch",
-  "label": "显示目录",
-  "default": true,
-  "description": "文章页是否显示侧边目录"
+  show_toc: true,
+  posts_per_page: 12,
+  hero_links: ["about", "archive"]
 }
 ```
 
-读取示例：
-```javascript
-const settings = await Noteva.site.getThemeSettings();
-// settings.show_toc 可能是 true / false / "true" / "false"
-const showToc = settings.show_toc === true || settings.show_toc === "true";
+主题作者不需要再写：
+
+```ts
+settings.show_toc === true || settings.show_toc === "true"
 ```
 
-##### select — 下拉选择
+公开设置来自 `settings.json` 的默认值叠加数据库保存值。`secret: true` 的字段不会出现在公开接口中。
 
-`options` 必须是 `{ value, label }` 对象数组，不能是纯字符串。
+## 文章
 
-```json
-{
-  "id": "layout_mode",
-  "type": "select",
-  "label": "布局模式",
-  "default": "grid",
-  "options": [
-    { "value": "grid", "label": "网格布局" },
-    { "value": "list", "label": "列表布局" },
-    { "value": "timeline", "label": "时间线" }
-  ]
-}
-```
+列表：
 
-##### number — 数字
-
-支持 `min` / `max` 限制范围。
-
-```json
-{
-  "id": "page_size",
-  "type": "number",
-  "label": "每页文章数",
-  "default": 10,
-  "min": 1,
-  "max": 50
-}
-```
-
-##### array — 可视化数组编辑器
-
-用于管理结构化列表数据（如歌单、友链等）。后台会渲染可视化编辑器，支持添加/删除/排序。
-
-`itemFields` 定义每条数据的字段结构，支持 `text` 和 `number` 类型。
-
-```json
-{
-  "id": "friends_list",
-  "type": "array",
-  "label": "友链列表",
-  "default": [],
-  "description": "添加友情链接",
-  "itemFields": [
-    { "id": "name", "type": "text", "label": "名称" },
-    { "id": "url", "type": "text", "label": "链接" },
-    { "id": "avatar", "type": "text", "label": "头像" },
-    { "id": "desc", "type": "text", "label": "描述" }
-  ]
-}
-```
-
-数据库中存储为 JSON 字符串，读取时需要解析：
-
-```javascript
-const settings = await Noteva.site.getThemeSettings();
-let list = settings.friends_list;
-// 可能是数组（已解析）或 JSON 字符串
-if (typeof list === "string") {
-  try { list = JSON.parse(list); } catch { list = []; }
-}
-// list: [{ name: "...", url: "...", avatar: "...", desc: "..." }, ...]
-```
-
-#### 完整 settings.json 示例
-
-```json
-{
-  "sections": [
-    {
-      "id": "general",
-      "title": "基本设置",
-      "fields": [
-        { "id": "primary_color", "type": "text", "label": "主题色", "default": "#3b82f6" },
-        { "id": "layout_mode", "type": "select", "label": "布局", "default": "grid",
-          "options": [
-            { "value": "grid", "label": "网格" },
-            { "value": "list", "label": "列表" }
-          ]
-        },
-        { "id": "show_sidebar", "type": "switch", "label": "显示侧边栏", "default": true },
-        { "id": "page_size", "type": "number", "label": "每页文章数", "default": 10, "min": 1, "max": 50 }
-      ]
-    },
-    {
-      "id": "music",
-      "title": "音乐播放器",
-      "fields": [
-        { "id": "music_enabled", "type": "switch", "label": "启用播放器", "default": false },
-        {
-          "id": "music_playlist", "type": "array", "label": "歌单", "default": [],
-          "itemFields": [
-            { "id": "name", "type": "text", "label": "歌名" },
-            { "id": "artist", "type": "text", "label": "歌手" },
-            { "id": "url", "type": "text", "label": "音频地址" },
-            { "id": "cover", "type": "text", "label": "封面地址" }
-          ]
-        }
-      ]
-    }
-  ]
-}
-```
-
-#### 数据类型注意事项
-
-所有设置值在数据库中均以字符串形式存储。读取时：
-- `switch` 类型：值可能是 `true`（布尔）或 `"true"`（字符串），建议用 `val === true || val === "true"` 判断
-- `array` 类型：值可能是数组（已解析）或 JSON 字符串，建议先检查 `Array.isArray()`，否则 `JSON.parse()`
-- `number` 类型：值可能是数字或字符串，建议用 `Number()` 转换
-
-## 文章 API
-
-### 获取文章列表
-
-```javascript
-const { articles, total, page, pageSize, hasMore } = await Noteva.articles.list({
+```ts
+const result = await Noteva.articles.list({
   page: 1,
   pageSize: 10,
-  category: 'tech',     // 可选：按分类
-  tag: 'javascript',    // 可选：按标签
-  keyword: '搜索词',     // 可选：搜索
-  sort: 'latest',       // 可选：排序方式 - latest(默认), views, comments
+  category: "tech",
+  tag: "rust",
+  keyword: "noteva",
+  sort: "date"
 });
 ```
 
-### 获取文章归档
+返回：
 
-```javascript
+```ts
+{
+  articles: [],
+  total: 42,
+  page: 1,
+  pageSize: 10,
+  totalPages: 5,
+  hasMore: true
+}
+```
+
+详情：
+
+```ts
+const article = await Noteva.articles.get("hello-world");
+```
+
+文章对象：
+
+```ts
+{
+  id: 1,
+  slug: "hello-world",
+  title: "Hello World",
+  content: "# Hello",
+  html: "<h1>Hello</h1>",
+  excerpt: "Hello",
+  thumbnail: "/uploads/cover.jpg",
+  coverImage: "/uploads/cover.jpg",
+  status: "published",
+  category: { id: 1, slug: "tech", name: "Tech", articleCount: 0 },
+  tags: [{ id: 1, slug: "rust", name: "Rust", articleCount: 0 }],
+  createdAt: "2026-01-01T00:00:00Z",
+  updatedAt: "2026-01-01T00:00:00Z",
+  publishedAt: "2026-01-01T00:00:00Z",
+  viewCount: 100,
+  likeCount: 10,
+  commentCount: 5,
+  wordCount: 800,
+  readingTime: 3,
+  isPinned: false,
+  pinOrder: 0,
+  prev: null,
+  next: null,
+  related: [],
+  toc: []
+}
+```
+
+相关文章：
+
+```ts
+const related = await Noteva.articles.related("hello-world", { limit: 5 });
+```
+
+归档：
+
+```ts
 const archives = await Noteva.articles.archives();
-// 返回: [{ month: "2026-03", count: 5 }, { month: "2026-02", count: 8 }, ...]
 ```
 
-### 获取单篇文章
+归档项：
 
-```javascript
-const article = await Noteva.articles.get('hello-world');  // 通过 slug
-// 返回:
-// {
-//   id: 1,
-//   title: "文章标题",
-//   slug: "hello-world",
-//   content: "Markdown 原文",
-//   html: "渲染后的 HTML",
-//   excerpt: "摘要",
-//   cover_image: "封面图",
-//   author: { id, username, avatar },
-//   category: { id, name, slug },
-//   tags: [{ id, name }],
-//   created_at: "2026-01-01T00:00:00Z",
-//   view_count: 100,
-//   like_count: 10,
-//   comment_count: 5,
-//   is_pinned: false,
-//   word_count: 1200,                     // v0.1.8 新增
-//   reading_time: 4,                      // v0.1.8 新增（分钟）
-//   scheduled_at: "2026-03-10T08:00:00Z", // v0.1.8 新增，仅草稿
-//   prev: { id, title, slug },            // v0.1.8 新增
-//   next: { id, title, slug },            // v0.1.8 新增
-//   related: [{ id, title, slug }]        // v0.1.8 新增（同分类）
-// }
+```ts
+{ month: "2026-01", year: 2026, monthNumber: 1, count: 8 }
 ```
 
-### 文章字段兼容工具（v0.1.9 新增）
+浏览量递增：
 
-主题开发者不用关心 `snake_case` vs `camelCase` 字段名差异：
-
-```javascript
-// 获取发布日期（兼容 published_at / publishedAt / created_at / createdAt）
-const date = Noteva.articles.getDate(article);  // "2026-01-01T00:00:00Z"
-
-// 获取统计数据
-const stats = Noteva.articles.getStats(article);
-// { views: 100, likes: 10, comments: 5 }
-
-// 判断是否置顶
-const pinned = Noteva.articles.isPinned(article);  // true/false
-
-// 获取缩略图（优先 thumbnail > cover_image > 正文第一张图）
-const thumb = Noteva.articles.getThumbnail(article);  // URL 或 null
-
-// 生成纯文本摘要（优先后端 excerpt > 正文截断）
-const excerpt = Noteva.articles.getExcerpt(article, 200);
-
-// 获取渲染后的 HTML
-const html = Noteva.articles.getHtml(article);
-
-// 增加浏览计数
+```ts
 await Noteva.articles.incrementView(article.id);
 ```
 
-## 页面 API
+## 页面、分类、标签
 
-### 获取自定义页面
+页面：
 
-```javascript
-const page = await Noteva.pages.get('about');  // 通过 slug
-// 返回:
-// {
-//   id: 1,
-//   title: "关于",
-//   slug: "about",
-//   content: "Markdown",
-//   html: "HTML"
-// }
+```ts
+const pages = await Noteva.pages.list();
+const page = await Noteva.pages.get("about");
 ```
 
-## 分类和标签 API
+页面字段：
 
-```javascript
-// 获取所有分类
+```ts
+{
+  id: 1,
+  slug: "about",
+  title: "About",
+  content: "Markdown",
+  html: "<p>Markdown</p>",
+  status: "published",
+  source: "user",
+  createdAt: "2026-01-01T00:00:00Z",
+  updatedAt: "2026-01-01T00:00:00Z"
+}
+```
+
+分类：
+
+```ts
 const categories = await Noteva.categories.list();
+const category = await Noteva.categories.get("tech");
+```
 
-// 获取所有标签
+标签：
+
+```ts
 const tags = await Noteva.tags.list();
+const tag = await Noteva.tags.get("rust");
 ```
 
-## 评论 API
+分类和标签统一使用 `articleCount` 表示文章数量。
 
-### 获取文章评论
+## 评论
 
-```javascript
-const comments = await Noteva.comments.list(articleId);
-// 返回评论数组，包含嵌套的 replies
-// 每个评论包含 is_author 字段标识是否为作者/管理员评论
+读取评论：
+
+```ts
+const comments = await Noteva.comments.list(article.id);
 ```
 
-### 发表评论
+创建评论：
 
-```javascript
-// 游客评论
+```ts
 const comment = await Noteva.comments.create({
-  articleId: 1,
-  content: '评论内容',
-  nickname: '昵称',      // 游客必填
-  email: 'email@example.com',  // 可选
-  parentId: null,        // 回复时填父评论 ID
+  articleId: article.id,
+  content: "Nice post!",
+  nickname: "Alice",
+  email: "alice@example.com"
 });
+```
 
-// 管理员评论（已登录状态下自动使用账户信息）
-const comment = await Noteva.comments.create({
+回复评论：
+
+```ts
+await Noteva.comments.create({
+  articleId: article.id,
+  parentId: comment.id,
+  content: "Thanks!",
+  nickname: "Bob"
+});
+```
+
+评论字段：
+
+```ts
+{
+  id: 1,
   articleId: 1,
-  content: '评论内容',
+  userId: null,
   parentId: null,
-});
+  nickname: "Alice",
+  email: "alice@example.com",
+  content: "Nice post!",
+  html: "",
+  status: "approved",
+  createdAt: "2026-01-01T00:00:00Z",
+  avatarUrl: "https://www.gravatar.com/avatar/...",
+  likeCount: 0,
+  isLiked: false,
+  isAuthor: false,
+  replies: []
+}
 ```
 
-## 交互 API（v0.1.9 新增）
+最近评论：
 
-```javascript
-// 点赞或取消点赞
-const result = await Noteva.interactions.like('article', articleId);
-// { liked: true, like_count: 11 }
-
-// 检查是否已点赞
-const { liked } = await Noteva.interactions.checkLike('article', articleId);
+```ts
+const recent = await Noteva.comments.recent(10);
 ```
 
-## 搜索工具（v0.1.9 新增）
+## 点赞
 
-```javascript
-// 高亮搜索关键词
-const highlighted = Noteva.search.highlight('Hello World 你好世界', '世界');
-// 'Hello World 你好<mark class="noteva-highlight">世界</mark>'
+```ts
+const result = await Noteva.interactions.like("article", article.id);
 ```
 
-## 用户 API
+返回：
 
-> 注意：v0.0.7 起移除了前台用户注册/登录系统，仅保留管理员登录功能。普通访客以游客身份评论。
+```ts
+{ success: true, liked: true, likeCount: 11 }
+```
 
-```javascript
-// 检查登录状态（异步，会请求后端）
-const currentUser = await Noteva.user.check();
+检查点赞状态：
 
-// 同步检查（需先调用 check）
-const isLoggedIn = Noteva.user.isLoggedIn();
-const user = Noteva.user.getCurrent();
-// user: { id, username, email, avatar, role, display_name }
+```ts
+const status = await Noteva.interactions.checkLike("comment", comment.id);
+```
 
-// 登出（仅管理员）
+## 用户状态
+
+前台主题只暴露当前登录状态，不承担完整账户系统：
+
+```ts
+const user = await Noteva.user.check();
+
+if (user?.role === "admin") {
+  // show manage link
+}
+```
+
+可用方法：
+
+```ts
+Noteva.user.isLoggedIn();
+Noteva.user.getCurrent();
+await Noteva.user.check();
 await Noteva.user.logout();
+Noteva.user.hasPermission("admin");
 ```
 
-## 路由辅助
+## URL 生成
 
-```javascript
-// 获取当前路径
-const path = Noteva.router.getPath();  // "/posts/hello"
+不要手写文章永久链接，使用 `Noteva.urls`：
 
-// 获取查询参数
-const page = Noteva.router.getQuery('page');  // "2"
-
-// 路由匹配
-const match = Noteva.router.match('/posts/:slug');
-// { matched: true, params: { slug: "hello" } }
-
-// 导航
-Noteva.router.push('/posts/new');
+```ts
+const postUrl = Noteva.urls.article(article);
+const categoryUrl = Noteva.urls.category(category);
+const tagUrl = Noteva.urls.tag(tag);
+const pageUrl = Noteva.urls.page(page);
+const assetUrl = Noteva.urls.asset("assets/app.css");
+const uploadUrl = Noteva.urls.upload("cover.jpg");
 ```
 
-## 工具函数
+文章 URL 会遵循后台设置的 `permalinkStructure`。
 
-```javascript
-// 日期格式化
-Noteva.utils.formatDate(date, 'YYYY-MM-DD');
-Noteva.utils.formatDate(date, 'YYYY年MM月DD日');
+## 页面上下文
 
-// 相对时间
-Noteva.utils.timeAgo(date);  // "3 天前"
+SDK 会维护当前页面上下文，方便主题和插件判断当前是否处于文章页或自定义页面：
 
-// HTML 转义
-Noteva.utils.escapeHtml('<script>');
+```ts
+const current = Noteva.page.get();
 
-// 截断文本
-Noteva.utils.truncate(text, 100);
-
-// 防抖/节流
-const debouncedFn = Noteva.utils.debounce(fn, 300);
-const throttledFn = Noteva.utils.throttle(fn, 100);
-
-// 复制到剪贴板
-await Noteva.utils.copyToClipboard(text);
+if (current.type === "article") {
+  console.log(current.articleId, current.article?.title);
+}
 ```
 
-## UI 组件
+读取文章或页面时，SDK 会自动更新上下文：
 
-```javascript
-// Toast 提示
-Noteva.ui.toast('保存成功');
-Noteva.ui.toast('操作失败', 'error');
+```ts
+const article = await Noteva.articles.get("hello-world");
+console.log(Noteva.page.articleId); // article.id
 
-// 确认对话框
-const confirmed = await Noteva.ui.confirm('确定删除？');
-
-// 加载状态
-Noteva.ui.showLoading();
-Noteva.ui.hideLoading();
+const page = await Noteva.pages.get("about");
+console.log(Noteva.page.type); // "page"
 ```
 
-## 事件系统
+插件如果只需要当前文章 ID，优先使用：
 
-```javascript
-// 监听事件
-Noteva.events.on('user:login', (user) => {
-  console.log('管理员登录:', user);
+```ts
+const articleId = Noteva.page.articleId;
+```
+
+## 工具能力
+
+常用文本和浏览器工具：
+
+```ts
+const html = Noteva.utils.escapeHtml(title);
+const excerpt = Noteva.utils.excerpt(markdown, 160);
+const date = Noteva.utils.formatDate(article.publishedAt, "YYYY-MM-DD");
+const highlighted = Noteva.search.highlight(article.title, keyword);
+```
+
+本地主题状态建议使用 `Noteva.storage`，会自动加 `noteva_` 前缀：
+
+```ts
+Noteva.storage.set("theme-density", "compact");
+const density = Noteva.storage.get("theme-density", "comfortable");
+```
+
+简单交互组件：
+
+```ts
+Noteva.ui.toast("保存成功", "success");
+const confirmed = await Noteva.ui.confirm("确定继续吗？");
+```
+
+上传和前端缓存属于认证/扩展能力，不是普通文章列表渲染必须项：
+
+```ts
+const image = await Noteva.upload.image(file);
+const files = await Noteva.upload.images(fileList);
+const attachment = await Noteva.upload.file(file);
+
+await Noteva.cache.set("theme:sidebar", data, 3600);
+const cached = await Noteva.cache.get("theme:sidebar");
+await Noteva.cache.delete("theme:sidebar");
+```
+
+`Noteva.upload.*` 需要当前用户已登录。公开主题如果不提供登录态上传入口，不需要使用它。
+
+## 插件槽位
+
+主题应为常用位置预留插件槽位：
+
+```html
+<div data-noteva-slot="article_content_top"></div>
+<div data-noteva-slot="article_content_bottom"></div>
+<div data-noteva-slot="comment_form_before"></div>
+```
+
+SDK 会自动渲染：
+
+```ts
+Noteva.slots.autoRender();
+```
+
+手动渲染：
+
+```ts
+Noteva.slots.render("article_content_top", "#slot");
+```
+
+## 前端插件 API
+
+插件前端脚本同样通过 `window.Noteva` 工作。公开插件能力只包含前台安全读接口和运行时注册能力：
+
+```ts
+const settings = Noteva.plugins.getSettings("music-player");
+const data = await Noteva.plugins.getData("ip-location", "article_locs:1");
+
+Noteva.plugins.register("my-plugin", {
+  init() {
+    // plugin init
+  }
+});
+```
+
+插件设置写入、插件数据写入、插件启停和安装卸载属于后台管理能力，不放进 Theme Runtime SDK。前端插件需要写数据时，应走插件自己的 WASM API 或后端声明的插件接口。
+
+## Hooks 与 Events
+
+Hook 用于可修改数据的流程：
+
+```ts
+const off = Noteva.hooks.on("article_view", (article) => {
+  return article;
 });
 
-// 内置事件
-// - theme:ready     主题加载完成
-// - user:login      管理员登录
-// - user:logout     管理员登出
-// - route:change    路由变化
-// - comment:create  评论发表
+off();
 ```
 
-## 钩子系统
+Event 用于广播通知：
 
-```javascript
-// 注册钩子
-Noteva.hooks.on('content_render', (context) => {
-  // 内容渲染时触发
+```ts
+const unsubscribe = Noteva.events.on("comment:create", (comment) => {
+  console.log(comment);
 });
 
-// 触发钩子
-Noteva.hooks.trigger('custom_hook', data);
+unsubscribe();
 ```
 
-## 本地存储
-
-```javascript
-// 自动 JSON 序列化
-Noteva.storage.set('key', { foo: 'bar' });
-const data = Noteva.storage.get('key');
-Noteva.storage.remove('key');
-```
+单个 Hook 或 Event 回调异常不会中断后续回调，SDK 会输出错误并继续执行。
 
 ## SEO
 
-```javascript
-Noteva.seo.setTitle('页面标题');
-Noteva.seo.setMeta({ description: '描述', keywords: '关键词' });
-Noteva.seo.setOpenGraph({ title: '标题', image: '图片' });
+文章页：
+
+```ts
+Noteva.seo.setArticleMeta(article, site.name, window.location.origin);
 ```
 
-## 插件兼容
+站点页：
 
-主题需要预留插件注入点：
-
-```html
-<div id="noteva-slot-body-start"></div>
-<div id="noteva-slot-header-before"></div>
-<!-- 内容 -->
-<div id="noteva-slot-article-top"></div>
-<div id="noteva-slot-article-bottom"></div>
-<div id="noteva-slot-footer-after"></div>
-<div id="noteva-slot-body-end"></div>
+```ts
+Noteva.seo.setSiteMeta(site.name, site.description, site.url);
 ```
 
-## 完整示例：原生 JS 主题
+自定义：
 
-```html
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My Theme</title>
-  <link rel="stylesheet" href="./style.css">
-</head>
-<body>
-  <div id="app">Loading...</div>
-  <script src="./app.js"></script>
-</body>
-</html>
-```
-
-```javascript
-// app.js
-Noteva.ready(async () => {
-  const app = document.getElementById('app');
-  const site = await Noteva.site.getInfo();
-  const nav = await Noteva.site.getNav();
-  const { articles } = await Noteva.articles.list();
-  
-  app.innerHTML = `
-    <header>
-      <h1>${site.name}</h1>
-      <nav>
-        ${nav.map(item => `<a href="${item.url}">${item.name}</a>`).join('')}
-      </nav>
-    </header>
-    <main>
-      ${articles.map(a => `
-        <article>
-          <h2><a href="/posts/${a.slug}">${a.title}</a></h2>
-          <p>${a.excerpt || ''}</p>
-        </article>
-      `).join('')}
-    </main>
-    <footer>${site.footer || ''}</footer>
-  `;
+```ts
+Noteva.seo.set({
+  title: "Custom Title",
+  meta: { description: "Custom description" },
+  og: { type: "website" },
+  twitter: { card: "summary" }
 });
 ```
 
-## 开发调试
+## TOC
 
-1. 启动后端：`cargo run`（端口 8080）
-2. 主题放在 `themes/` 目录
-3. 后台切换主题测试
-4. 使用 `Noteva.debug.enable()` 开启调试模式
+```ts
+const toc = Noteva.toc.extract(".article-content", "h2,h3");
 
-## 注意事项
+const stop = Noteva.toc.observe(toc, (activeId) => {
+  console.log(activeId);
+});
 
-1. **不要手动引入 SDK** - 后端自动注入
-2. **使用 `Noteva.ready()`** - 确保 SDK 加载完成
-3. **API 路径已封装** - 直接使用 SDK 方法，不要手动拼接
-4. **导航支持二级菜单** - 检查 `children` 字段
+Noteva.toc.scrollTo("section-1", 80);
+stop();
+```
 
-## 商业主题授权
+## i18n
 
-商业主题可以通过伴生插件实现授权验证。主题本身没有 WASM，授权逻辑由伴生插件在 `theme_activate` 钩子中完成。
+```ts
+Noteva.i18n.setLocale("zh-CN");
+Noteva.i18n.addMessages("zh-CN", {
+  "theme.readMore": "阅读全文"
+});
 
-### 工作原理
+const text = Noteva.i18n.t("theme.readMore");
+```
 
-1. 主题作者发布一个伴生插件（如 `my-theme-license`），包含 `backend.wasm`
-2. 伴生插件监听 `theme_activate` 钩子
-3. 用户切换到该主题时，伴生插件验证授权码
-4. 验证失败返回 `{allow: false, message: "..."}` → 主题切换被回滚
+自定义语言包：
 
-### 伴生插件示例
+```ts
+const locales = Noteva.i18n.getLocales();
+const customLocales = Noteva.i18n.getCustomLocales();
+```
 
-```json
-{
-  "id": "my-theme-license",
-  "name": "My Theme 授权",
-  "version": "1.0.0",
-  "hooks": { "backend": ["theme_activate"] },
-  "permissions": ["network", "storage"],
-  "settings": true
+## 错误处理
+
+SDK 请求错误会抛出 `NotevaError`：
+
+```ts
+try {
+  await Noteva.articles.get("missing");
+} catch (error) {
+  if (Noteva.errors.isNotFound(error)) {
+    // render 404
+  }
 }
 ```
 
-`settings.json` 中定义授权码输入框：
+可用判断：
 
-```json
-{
-  "sections": [{
-    "id": "license",
-    "title": "授权设置",
-    "fields": [{
-      "id": "license_key",
-      "type": "text",
-      "label": "授权码",
-      "secret": true,
-      "placeholder": "输入授权码"
-    }]
-  }]
-}
+```ts
+Noteva.errors.isNotFound(error);
+Noteva.errors.isUnauthorized(error);
+Noteva.errors.isForbidden(error);
+Noteva.errors.isValidation(error);
 ```
 
-详细的 WASM 授权验证实现参见 `docs/plugin-development.md` 中的 `plugin_activate` / `theme_activate` 章节。
+## 纯 HTML 主题示例
+
+```html
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Noteva Theme</title>
+  </head>
+  <body>
+    <header>
+      <h1 id="site-title"></h1>
+      <nav id="nav"></nav>
+    </header>
+    <main id="articles"></main>
+
+    <script>
+      Noteva.ready(async () => {
+        const site = await Noteva.site.getInfo();
+        document.querySelector("#site-title").textContent = site.name;
+
+        const nav = await Noteva.site.getNav();
+        document.querySelector("#nav").innerHTML = nav
+          .filter((item) => item.visible)
+          .map((item) => `<a href="${item.url}">${item.title}</a>`)
+          .join("");
+
+        const result = await Noteva.articles.list({ page: 1, pageSize: 10 });
+        document.querySelector("#articles").innerHTML = result.articles
+          .map((article) => `
+            <article>
+              <h2><a href="${Noteva.urls.article(article)}">${article.title}</a></h2>
+              <p>${article.excerpt}</p>
+            </article>
+          `)
+          .join("");
+      });
+    </script>
+  </body>
+</html>
+```
+
+## 规则
+
+- 使用 `Noteva.ready()` 等待 SDK 初始化。
+- 使用 `Noteva.*` 访问公开能力，不硬编码 `/api/v1/*`。
+- 主题代码使用 SDK v1 的 `camelCase` 字段。
+- 文章链接使用 `Noteva.urls.article()`，不要手写 `/posts/${slug}`。
+- 公开主题设置通过 `Noteva.theme.getSettings()` 或 `Noteva.theme.getSetting()` 读取。
+- 深色模式使用 `.dark` 类选择器。
+- 插件扩展位置使用 `data-noteva-slot` 或 `Noteva.slots.render()`。
+- 插件前端只读取公开 settings/data；写入插件设置或状态走后台或插件自有 API。
+- 不要依赖 v0 阶段的兼容别名和字段兜底。

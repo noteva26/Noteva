@@ -119,24 +119,26 @@ impl ModuleCache {
     fn new() -> Result<Self, String> {
         let mut config = wasmtime::Config::new();
         config.consume_fuel(true);
-        let engine = wasmtime::Engine::new(&config)
-            .map_err(|e| format!("Engine creation failed: {}", e))?;
-        Ok(Self { engine, modules: HashMap::new() })
+        let engine =
+            wasmtime::Engine::new(&config).map_err(|e| format!("Engine creation failed: {}", e))?;
+        Ok(Self {
+            engine,
+            modules: HashMap::new(),
+        })
     }
 
     fn get_or_compile(&mut self, wasm_path: &str) -> Result<wasmtime::Module, String> {
         if let Some(module) = self.modules.get(wasm_path) {
             return Ok(module.clone());
         }
-        let wasm_bytes = std::fs::read(wasm_path)
-            .map_err(|e| format!("Failed to read WASM file: {}", e))?;
+        let wasm_bytes =
+            std::fs::read(wasm_path).map_err(|e| format!("Failed to read WASM file: {}", e))?;
         let module = wasmtime::Module::new(&self.engine, &wasm_bytes)
             .map_err(|e| format!("Failed to compile WASM: {}", e))?;
         self.modules.insert(wasm_path.to_string(), module.clone());
         Ok(module)
     }
 }
-
 
 fn main() {
     let mut cache = match ModuleCache::new() {
@@ -160,12 +162,18 @@ fn main() {
         };
 
         let line = line.trim().to_string();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
 
         let request: serde_json::Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(e) => {
-                let _ = writeln!(stdout_lock, "{}", serde_json::json!({ "success": false, "error": format!("Invalid JSON: {}", e) }));
+                let _ = writeln!(
+                    stdout_lock,
+                    "{}",
+                    serde_json::json!({ "success": false, "error": format!("Invalid JSON: {}", e) })
+                );
                 let _ = stdout_lock.flush();
                 continue;
             }
@@ -194,24 +202,37 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
     let input_b64 = request.get("input").and_then(|v| v.as_str()).unwrap_or("");
     let input_bytes = match base64_decode(input_b64) {
         Ok(b) => b,
-        Err(e) => return serde_json::json!({ "success": false, "error": format!("Failed to decode input: {}", e) }),
+        Err(e) => {
+            return serde_json::json!({ "success": false, "error": format!("Failed to decode input: {}", e) })
+        }
     };
 
     // Parse permissions
     let permissions: Vec<String> = request
         .get("permissions")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     let has_network = permissions.iter().any(|p| p == "network");
     let has_storage = permissions.iter().any(|p| p == "storage");
     let has_database = permissions.iter().any(|p| p == "database" || p == "db");
-    let has_read_articles = permissions.iter().any(|p| p == "read_articles" || p == "read-articles");
-    let has_read_comments = permissions.iter().any(|p| p == "read_comments" || p == "read-comments");
-    let has_write_articles = permissions.iter().any(|p| p == "write_articles" || p == "write-articles");
+    let has_read_articles = permissions
+        .iter()
+        .any(|p| p == "read_articles" || p == "read-articles");
+    let has_read_comments = permissions
+        .iter()
+        .any(|p| p == "read_comments" || p == "read-comments");
+    let has_write_articles = permissions
+        .iter()
+        .any(|p| p == "write_articles" || p == "write-articles");
 
-    let plugin_id = request.get("plugin_id")
+    let plugin_id = request
+        .get("plugin_id")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
@@ -226,11 +247,13 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
         })
         .unwrap_or_default();
 
-    let articles_json = request.get("articles")
+    let articles_json = request
+        .get("articles")
         .map(|v| v.to_string())
         .unwrap_or_else(|| "[]".to_string());
 
-    let comments_json = request.get("comments")
+    let comments_json = request
+        .get("comments")
         .map(|v| v.to_string())
         .unwrap_or_else(|| "{}".to_string());
 
@@ -266,34 +289,45 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
     match execute_wasm(wasm_path, func_name, &input_bytes, state, cache) {
         Ok(output) => {
             let output_b64 = base64_encode(&output);
-            let ops: Vec<serde_json::Value> = storage_ops.lock().unwrap().iter().map(|op| {
-                match op {
+            let ops: Vec<serde_json::Value> = storage_ops
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|op| match op {
                     StorageOp::Set { key, value } => serde_json::json!({
                         "op": "set", "key": key, "value": value
                     }),
                     StorageOp::Delete { key } => serde_json::json!({
                         "op": "delete", "key": key
                     }),
-                }
-            }).collect();
-
-            let mops: Vec<serde_json::Value> = meta_ops.lock().unwrap().iter().map(|op| {
-                serde_json::json!({
-                    "article_id": op.article_id,
-                    "data": op.data,
                 })
-            }).collect();
+                .collect();
 
-            let dops: Vec<serde_json::Value> = db_ops.lock().unwrap().iter().map(|op| {
-                match op {
+            let mops: Vec<serde_json::Value> = meta_ops
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|op| {
+                    serde_json::json!({
+                        "article_id": op.article_id,
+                        "data": op.data,
+                    })
+                })
+                .collect();
+
+            let dops: Vec<serde_json::Value> = db_ops
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|op| match op {
                     DbOp::Query { sql, params } => serde_json::json!({
                         "op": "query", "sql": sql, "params": params
                     }),
                     DbOp::Execute { sql, params } => serde_json::json!({
                         "op": "execute", "sql": sql, "params": params
                     }),
-                }
-            }).collect();
+                })
+                .collect();
 
             serde_json::json!({
                 "success": true,
@@ -314,8 +348,13 @@ fn handle_request(request: &serde_json::Value, cache: &mut ModuleCache) -> serde
                 .trim();
             let clean_err = if clean_err.is_empty() {
                 // If first line was just the backtrace header, try to get the root cause
-                full_err.lines()
-                    .find(|l| l.contains("Caused by") || l.contains("wasm trap") || l.contains("unreachable"))
+                full_err
+                    .lines()
+                    .find(|l| {
+                        l.contains("Caused by")
+                            || l.contains("wasm trap")
+                            || l.contains("unreachable")
+                    })
                     .unwrap_or("unknown WASM error")
                     .trim()
             } else {
@@ -503,8 +542,13 @@ fn is_allowed_outbound_header(name: &str) -> bool {
     )
 }
 
-
-fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerState, cache: &mut ModuleCache) -> Result<Vec<u8>, String> {
+fn execute_wasm(
+    wasm_path: &str,
+    func_name: &str,
+    input: &[u8],
+    state: WorkerState,
+    cache: &mut ModuleCache,
+) -> Result<Vec<u8>, String> {
     if input.len() > MAX_PLUGIN_INPUT_BYTES {
         return Err("Input data exceeds plugin limit".to_string());
     }
@@ -514,424 +558,571 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
 
     let mut store = wasmtime::Store::new(engine, state);
     store.limiter(|state| &mut state.limits);
-    store.set_fuel(100_000_000).map_err(|e| format!("Failed to set fuel: {}", e))?;
+    store
+        .set_fuel(100_000_000)
+        .map_err(|e| format!("Failed to set fuel: {}", e))?;
 
     let mut linker = wasmtime::Linker::new(engine);
 
     // ---- host_http_request (network permission) ----
-    linker.func_wrap(
-        "env", "host_http_request",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         method_ptr: i32, method_len: i32,
-         url_ptr: i32, url_len: i32,
-         headers_ptr: i32, headers_len: i32,
-         body_ptr: i32, body_len: i32| -> i32 {
+    linker
+        .func_wrap(
+            "env",
+            "host_http_request",
+            |mut caller: wasmtime::Caller<'_, WorkerState>,
+             method_ptr: i32,
+             method_len: i32,
+             url_ptr: i32,
+             url_len: i32,
+             headers_ptr: i32,
+             headers_len: i32,
+             body_ptr: i32,
+             body_len: i32|
+             -> i32 {
+                if !caller.data().has_network {
+                    return 0;
+                }
 
-            if !caller.data().has_network { return 0; }
+                let memory = match caller.get_export("memory") {
+                    Some(wasmtime::Extern::Memory(mem)) => mem,
+                    _ => return 0,
+                };
+                let mem_data = memory.data(&caller);
 
-            let memory = match caller.get_export("memory") {
-                Some(wasmtime::Extern::Memory(mem)) => mem,
-                _ => return 0,
-            };
-            let mem_data = memory.data(&caller);
+                let method = read_wasm_string_limited(
+                    mem_data,
+                    method_ptr,
+                    method_len,
+                    MAX_HTTP_METHOD_BYTES,
+                );
+                let url = read_wasm_string_limited(mem_data, url_ptr, url_len, MAX_HTTP_URL_BYTES);
+                let headers = read_wasm_string_limited(
+                    mem_data,
+                    headers_ptr,
+                    headers_len,
+                    MAX_HTTP_HEADERS_BYTES,
+                );
+                let body =
+                    read_wasm_bytes_limited(mem_data, body_ptr, body_len, MAX_HTTP_BODY_BYTES);
 
-            let method = read_wasm_string_limited(mem_data, method_ptr, method_len, MAX_HTTP_METHOD_BYTES);
-            let url = read_wasm_string_limited(mem_data, url_ptr, url_len, MAX_HTTP_URL_BYTES);
-            let headers = read_wasm_string_limited(mem_data, headers_ptr, headers_len, MAX_HTTP_HEADERS_BYTES);
-            let body = read_wasm_bytes_limited(mem_data, body_ptr, body_len, MAX_HTTP_BODY_BYTES);
+                let (method, url, headers) = match (method, url, headers) {
+                    (Some(m), Some(u), Some(h)) => (m, u, h),
+                    _ => return 0,
+                };
+                let body = body.unwrap_or_default();
 
-            let (method, url, headers) = match (method, url, headers) {
-                (Some(m), Some(u), Some(h)) => (m, u, h),
-                _ => return 0,
-            };
-            let body = body.unwrap_or_default();
-
-            let response_bytes = do_http_request(&method, &url, &headers, &body);
-            write_to_wasm_memory(&mut caller, &response_bytes)
-        },
-    ).map_err(|e| format!("Failed to register host_http_request: {}", e))?;
+                let response_bytes = do_http_request(&method, &url, &headers, &body);
+                write_to_wasm_memory(&mut caller, &response_bytes)
+            },
+        )
+        .map_err(|e| format!("Failed to register host_http_request: {}", e))?;
 
     // ---- host_storage_get (storage permission) ----
-    linker.func_wrap(
-        "env", "host_storage_get",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         key_ptr: i32, key_len: i32| -> i32 {
-
-            if !caller.data().has_storage { return 0; }
-
-            let memory = match caller.get_export("memory") {
-                Some(wasmtime::Extern::Memory(mem)) => mem,
-                _ => return 0,
-            };
-            let mem_data = memory.data(&caller);
-            let key = match read_wasm_string_limited(mem_data, key_ptr, key_len, MAX_STORAGE_KEY_BYTES) {
-                Some(k) => k,
-                None => return 0,
-            };
-
-            let value = caller.data().plugin_data.get(&key).cloned();
-
-            match value {
-                Some(val) => {
-                    let response = serde_json::json!({"found": true, "value": val});
-                    write_to_wasm_memory(&mut caller, response.to_string().as_bytes())
+    linker
+        .func_wrap(
+            "env",
+            "host_storage_get",
+            |mut caller: wasmtime::Caller<'_, WorkerState>, key_ptr: i32, key_len: i32| -> i32 {
+                if !caller.data().has_storage {
+                    return 0;
                 }
-                None => {
-                    let response = serde_json::json!({"found": false, "value": ""});
-                    write_to_wasm_memory(&mut caller, response.to_string().as_bytes())
+
+                let memory = match caller.get_export("memory") {
+                    Some(wasmtime::Extern::Memory(mem)) => mem,
+                    _ => return 0,
+                };
+                let mem_data = memory.data(&caller);
+                let key = match read_wasm_string_limited(
+                    mem_data,
+                    key_ptr,
+                    key_len,
+                    MAX_STORAGE_KEY_BYTES,
+                ) {
+                    Some(k) => k,
+                    None => return 0,
+                };
+
+                let value = caller.data().plugin_data.get(&key).cloned();
+
+                match value {
+                    Some(val) => {
+                        let response = serde_json::json!({"found": true, "value": val});
+                        write_to_wasm_memory(&mut caller, response.to_string().as_bytes())
+                    }
+                    None => {
+                        let response = serde_json::json!({"found": false, "value": ""});
+                        write_to_wasm_memory(&mut caller, response.to_string().as_bytes())
+                    }
                 }
-            }
-        },
-    ).map_err(|e| format!("Failed to register host_storage_get: {}", e))?;
+            },
+        )
+        .map_err(|e| format!("Failed to register host_storage_get: {}", e))?;
 
     // ---- host_storage_set (storage permission) ----
-    linker.func_wrap(
-        "env", "host_storage_set",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         key_ptr: i32, key_len: i32,
-         value_ptr: i32, value_len: i32| -> i32 {
-
-            if !caller.data().has_storage { return 0; }
-
-            let memory = match caller.get_export("memory") {
-                Some(wasmtime::Extern::Memory(mem)) => mem,
-                _ => return 0,
-            };
-            let mem_data = memory.data(&caller);
-            let key = match read_wasm_string_limited(mem_data, key_ptr, key_len, MAX_STORAGE_KEY_BYTES) {
-                Some(k) => k,
-                None => return 0,
-            };
-            let value = match read_wasm_string_limited(mem_data, value_ptr, value_len, MAX_STORAGE_VALUE_BYTES) {
-                Some(v) => v,
-                None => return 0,
-            };
-
-            caller.data_mut().plugin_data.insert(key.clone(), value.clone());
-
-            if let Ok(mut ops) = caller.data().storage_ops.lock() {
-                if ops.len() >= MAX_STORAGE_OPS {
+    linker
+        .func_wrap(
+            "env",
+            "host_storage_set",
+            |mut caller: wasmtime::Caller<'_, WorkerState>,
+             key_ptr: i32,
+             key_len: i32,
+             value_ptr: i32,
+             value_len: i32|
+             -> i32 {
+                if !caller.data().has_storage {
                     return 0;
                 }
-                ops.push(StorageOp::Set { key, value });
-            }
-            1
-        },
-    ).map_err(|e| format!("Failed to register host_storage_set: {}", e))?;
+
+                let memory = match caller.get_export("memory") {
+                    Some(wasmtime::Extern::Memory(mem)) => mem,
+                    _ => return 0,
+                };
+                let mem_data = memory.data(&caller);
+                let key = match read_wasm_string_limited(
+                    mem_data,
+                    key_ptr,
+                    key_len,
+                    MAX_STORAGE_KEY_BYTES,
+                ) {
+                    Some(k) => k,
+                    None => return 0,
+                };
+                let value = match read_wasm_string_limited(
+                    mem_data,
+                    value_ptr,
+                    value_len,
+                    MAX_STORAGE_VALUE_BYTES,
+                ) {
+                    Some(v) => v,
+                    None => return 0,
+                };
+
+                caller
+                    .data_mut()
+                    .plugin_data
+                    .insert(key.clone(), value.clone());
+
+                if let Ok(mut ops) = caller.data().storage_ops.lock() {
+                    if ops.len() >= MAX_STORAGE_OPS {
+                        return 0;
+                    }
+                    ops.push(StorageOp::Set { key, value });
+                }
+                1
+            },
+        )
+        .map_err(|e| format!("Failed to register host_storage_set: {}", e))?;
 
     // ---- host_storage_delete (storage permission) ----
-    linker.func_wrap(
-        "env", "host_storage_delete",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         key_ptr: i32, key_len: i32| -> i32 {
-
-            if !caller.data().has_storage { return 0; }
-
-            let memory = match caller.get_export("memory") {
-                Some(wasmtime::Extern::Memory(mem)) => mem,
-                _ => return 0,
-            };
-            let mem_data = memory.data(&caller);
-            let key = match read_wasm_string_limited(mem_data, key_ptr, key_len, MAX_STORAGE_KEY_BYTES) {
-                Some(k) => k,
-                None => return 0,
-            };
-
-            caller.data_mut().plugin_data.remove(&key);
-
-            if let Ok(mut ops) = caller.data().storage_ops.lock() {
-                if ops.len() >= MAX_STORAGE_OPS {
+    linker
+        .func_wrap(
+            "env",
+            "host_storage_delete",
+            |mut caller: wasmtime::Caller<'_, WorkerState>, key_ptr: i32, key_len: i32| -> i32 {
+                if !caller.data().has_storage {
                     return 0;
                 }
-                ops.push(StorageOp::Delete { key });
-            }
-            1
-        },
-    ).map_err(|e| format!("Failed to register host_storage_delete: {}", e))?;
+
+                let memory = match caller.get_export("memory") {
+                    Some(wasmtime::Extern::Memory(mem)) => mem,
+                    _ => return 0,
+                };
+                let mem_data = memory.data(&caller);
+                let key = match read_wasm_string_limited(
+                    mem_data,
+                    key_ptr,
+                    key_len,
+                    MAX_STORAGE_KEY_BYTES,
+                ) {
+                    Some(k) => k,
+                    None => return 0,
+                };
+
+                caller.data_mut().plugin_data.remove(&key);
+
+                if let Ok(mut ops) = caller.data().storage_ops.lock() {
+                    if ops.len() >= MAX_STORAGE_OPS {
+                        return 0;
+                    }
+                    ops.push(StorageOp::Delete { key });
+                }
+                1
+            },
+        )
+        .map_err(|e| format!("Failed to register host_storage_delete: {}", e))?;
 
     // ---- host_log (no permission required) ----
-    linker.func_wrap(
-        "env", "host_log",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         level_ptr: i32, level_len: i32,
-         msg_ptr: i32, msg_len: i32| {
+    linker
+        .func_wrap(
+            "env",
+            "host_log",
+            |mut caller: wasmtime::Caller<'_, WorkerState>,
+             level_ptr: i32,
+             level_len: i32,
+             msg_ptr: i32,
+             msg_len: i32| {
+                if caller.data().log_count >= MAX_LOG_OPS {
+                    return;
+                }
+                caller.data_mut().log_count += 1;
 
-            if caller.data().log_count >= MAX_LOG_OPS {
-                return;
-            }
-            caller.data_mut().log_count += 1;
+                let memory = match caller.get_export("memory") {
+                    Some(wasmtime::Extern::Memory(mem)) => mem,
+                    _ => return,
+                };
+                let mem_data = memory.data(&caller);
+                let level =
+                    read_wasm_string_limited(mem_data, level_ptr, level_len, MAX_HTTP_METHOD_BYTES)
+                        .unwrap_or_default();
+                let msg = read_wasm_string_limited(mem_data, msg_ptr, msg_len, MAX_LOG_BYTES)
+                    .unwrap_or_default();
+                let plugin_id = &caller.data().plugin_id;
 
-            let memory = match caller.get_export("memory") {
-                Some(wasmtime::Extern::Memory(mem)) => mem,
-                _ => return,
-            };
-            let mem_data = memory.data(&caller);
-            let level = read_wasm_string_limited(mem_data, level_ptr, level_len, MAX_HTTP_METHOD_BYTES)
-                .unwrap_or_default();
-            let msg = read_wasm_string_limited(mem_data, msg_ptr, msg_len, MAX_LOG_BYTES)
-                .unwrap_or_default();
-            let plugin_id = &caller.data().plugin_id;
-
-            eprintln!("[wasm:{}][{}] {}", plugin_id, level, msg);
-        },
-    ).map_err(|e| format!("Failed to register host_log: {}", e))?;
+                eprintln!("[wasm:{}][{}] {}", plugin_id, level, msg);
+            },
+        )
+        .map_err(|e| format!("Failed to register host_log: {}", e))?;
 
     // ---- host_query_articles (read_articles permission) ----
-    linker.func_wrap(
-        "env", "host_query_articles",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         _filter_ptr: i32, _filter_len: i32| -> i32 {
-
-            if !caller.data().has_read_articles { return 0; }
-
-            let json_bytes = caller.data().articles_json.as_bytes().to_vec();
-            write_to_wasm_memory(&mut caller, &json_bytes)
-        },
-    ).map_err(|e| format!("Failed to register host_query_articles: {}", e))?;
-
-    // ---- host_get_article (read_articles permission) ----
-    linker.func_wrap(
-        "env", "host_get_article",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         article_id: i32| -> i32 {
-
-            if !caller.data().has_read_articles { return 0; }
-
-            let articles_str = caller.data().articles_json.clone();
-            let articles: Vec<serde_json::Value> = serde_json::from_str(&articles_str).unwrap_or_default();
-
-            let article = articles.into_iter().find(|a| {
-                a.get("id").and_then(|v| v.as_i64()) == Some(article_id as i64)
-            });
-
-            match article {
-                Some(a) => {
-                    let json = a.to_string();
-                    write_to_wasm_memory(&mut caller, json.as_bytes())
-                }
-                None => 0,
-            }
-        },
-    ).map_err(|e| format!("Failed to register host_get_article: {}", e))?;
-
-    // ---- host_get_comments (read_comments permission) ----
-    linker.func_wrap(
-        "env", "host_get_comments",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         article_id: i32| -> i32 {
-
-            if !caller.data().has_read_comments { return 0; }
-
-            let comments_str = caller.data().comments_json.clone();
-            let comments_map: serde_json::Value = serde_json::from_str(&comments_str).unwrap_or(serde_json::json!({}));
-
-            let key = article_id.to_string();
-            let article_comments = comments_map.get(&key)
-                .cloned()
-                .unwrap_or(serde_json::json!([]));
-
-            let json = article_comments.to_string();
-            write_to_wasm_memory(&mut caller, json.as_bytes())
-        },
-    ).map_err(|e| format!("Failed to register host_get_comments: {}", e))?;
-
-    // ---- host_update_article_meta (write_articles permission) ----
-    linker.func_wrap(
-        "env", "host_update_article_meta",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         article_id: i32,
-         data_ptr: i32, data_len: i32| -> i32 {
-
-            if !caller.data().has_write_articles { return 0; }
-
-            let memory = match caller.get_export("memory") {
-                Some(wasmtime::Extern::Memory(mem)) => mem,
-                _ => return 0,
-            };
-            let mem_data = memory.data(&caller);
-            let data_json = match read_wasm_string_limited(mem_data, data_ptr, data_len, MAX_META_VALUE_BYTES) {
-                Some(s) => s,
-                None => return 0,
-            };
-
-            if serde_json::from_str::<serde_json::Value>(&data_json).is_err() {
-                return 0;
-            }
-
-            if let Ok(mut ops) = caller.data().meta_ops.lock() {
-                if ops.len() >= MAX_META_OPS {
+    linker
+        .func_wrap(
+            "env",
+            "host_query_articles",
+            |mut caller: wasmtime::Caller<'_, WorkerState>,
+             _filter_ptr: i32,
+             _filter_len: i32|
+             -> i32 {
+                if !caller.data().has_read_articles {
                     return 0;
                 }
-                ops.push(MetaOp {
-                    article_id: article_id as i64,
-                    data: data_json,
-                });
-            }
-            1
-        },
-    ).map_err(|e| format!("Failed to register host_update_article_meta: {}", e))?;
+
+                let json_bytes = caller.data().articles_json.as_bytes().to_vec();
+                write_to_wasm_memory(&mut caller, &json_bytes)
+            },
+        )
+        .map_err(|e| format!("Failed to register host_query_articles: {}", e))?;
+
+    // ---- host_get_article (read_articles permission) ----
+    linker
+        .func_wrap(
+            "env",
+            "host_get_article",
+            |mut caller: wasmtime::Caller<'_, WorkerState>, article_id: i32| -> i32 {
+                if !caller.data().has_read_articles {
+                    return 0;
+                }
+
+                let articles_str = caller.data().articles_json.clone();
+                let articles: Vec<serde_json::Value> =
+                    serde_json::from_str(&articles_str).unwrap_or_default();
+
+                let article = articles
+                    .into_iter()
+                    .find(|a| a.get("id").and_then(|v| v.as_i64()) == Some(article_id as i64));
+
+                match article {
+                    Some(a) => {
+                        let json = a.to_string();
+                        write_to_wasm_memory(&mut caller, json.as_bytes())
+                    }
+                    None => 0,
+                }
+            },
+        )
+        .map_err(|e| format!("Failed to register host_get_article: {}", e))?;
+
+    // ---- host_get_comments (read_comments permission) ----
+    linker
+        .func_wrap(
+            "env",
+            "host_get_comments",
+            |mut caller: wasmtime::Caller<'_, WorkerState>, article_id: i32| -> i32 {
+                if !caller.data().has_read_comments {
+                    return 0;
+                }
+
+                let comments_str = caller.data().comments_json.clone();
+                let comments_map: serde_json::Value =
+                    serde_json::from_str(&comments_str).unwrap_or(serde_json::json!({}));
+
+                let key = article_id.to_string();
+                let article_comments = comments_map
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or(serde_json::json!([]));
+
+                let json = article_comments.to_string();
+                write_to_wasm_memory(&mut caller, json.as_bytes())
+            },
+        )
+        .map_err(|e| format!("Failed to register host_get_comments: {}", e))?;
+
+    // ---- host_update_article_meta (write_articles permission) ----
+    linker
+        .func_wrap(
+            "env",
+            "host_update_article_meta",
+            |mut caller: wasmtime::Caller<'_, WorkerState>,
+             article_id: i32,
+             data_ptr: i32,
+             data_len: i32|
+             -> i32 {
+                if !caller.data().has_write_articles {
+                    return 0;
+                }
+
+                let memory = match caller.get_export("memory") {
+                    Some(wasmtime::Extern::Memory(mem)) => mem,
+                    _ => return 0,
+                };
+                let mem_data = memory.data(&caller);
+                let data_json = match read_wasm_string_limited(
+                    mem_data,
+                    data_ptr,
+                    data_len,
+                    MAX_META_VALUE_BYTES,
+                ) {
+                    Some(s) => s,
+                    None => return 0,
+                };
+
+                if serde_json::from_str::<serde_json::Value>(&data_json).is_err() {
+                    return 0;
+                }
+
+                if let Ok(mut ops) = caller.data().meta_ops.lock() {
+                    if ops.len() >= MAX_META_OPS {
+                        return 0;
+                    }
+                    ops.push(MetaOp {
+                        article_id: article_id as i64,
+                        data: data_json,
+                    });
+                }
+                1
+            },
+        )
+        .map_err(|e| format!("Failed to register host_update_article_meta: {}", e))?;
 
     // ---- host_hmac_sha256 (no special permission — crypto primitive) ----
-    linker.func_wrap(
-        "env", "host_hmac_sha256",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         key_ptr: i32, key_len: i32,
-         data_ptr: i32, data_len: i32| -> i32 {
+    linker
+        .func_wrap(
+            "env",
+            "host_hmac_sha256",
+            |mut caller: wasmtime::Caller<'_, WorkerState>,
+             key_ptr: i32,
+             key_len: i32,
+             data_ptr: i32,
+             data_len: i32|
+             -> i32 {
+                let memory = match caller.get_export("memory") {
+                    Some(wasmtime::Extern::Memory(mem)) => mem,
+                    _ => return 0,
+                };
+                let mem_data = memory.data(&caller);
+                let key = match read_wasm_bytes(mem_data, key_ptr, key_len) {
+                    Some(k) => k,
+                    None => return 0,
+                };
+                let data = match read_wasm_bytes(mem_data, data_ptr, data_len) {
+                    Some(d) => d,
+                    None => return 0,
+                };
 
-            let memory = match caller.get_export("memory") {
-                Some(wasmtime::Extern::Memory(mem)) => mem,
-                _ => return 0,
-            };
-            let mem_data = memory.data(&caller);
-            let key = match read_wasm_bytes(mem_data, key_ptr, key_len) {
-                Some(k) => k,
-                None => return 0,
-            };
-            let data = match read_wasm_bytes(mem_data, data_ptr, data_len) {
-                Some(d) => d,
-                None => return 0,
-            };
+                type HmacSha256 = Hmac<Sha256>;
+                let mut mac = match HmacSha256::new_from_slice(&key) {
+                    Ok(m) => m,
+                    Err(_) => return 0,
+                };
+                mac.update(&data);
+                let result = mac.finalize().into_bytes();
 
-            type HmacSha256 = Hmac<Sha256>;
-            let mut mac = match HmacSha256::new_from_slice(&key) {
-                Ok(m) => m,
-                Err(_) => return 0,
-            };
-            mac.update(&data);
-            let result = mac.finalize().into_bytes();
-
-            // Return hex-encoded result as a string
-            let hex = result.iter().map(|b| format!("{:02x}", b)).collect::<String>();
-            write_to_wasm_memory(&mut caller, hex.as_bytes())
-        },
-    ).map_err(|e| format!("Failed to register host_hmac_sha256: {}", e))?;
+                // Return hex-encoded result as a string
+                let hex = result
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>();
+                write_to_wasm_memory(&mut caller, hex.as_bytes())
+            },
+        )
+        .map_err(|e| format!("Failed to register host_hmac_sha256: {}", e))?;
 
     // ---- host_sha256 (no special permission — crypto primitive) ----
-    linker.func_wrap(
-        "env", "host_sha256",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         data_ptr: i32, data_len: i32| -> i32 {
+    linker
+        .func_wrap(
+            "env",
+            "host_sha256",
+            |mut caller: wasmtime::Caller<'_, WorkerState>, data_ptr: i32, data_len: i32| -> i32 {
+                let memory = match caller.get_export("memory") {
+                    Some(wasmtime::Extern::Memory(mem)) => mem,
+                    _ => return 0,
+                };
+                let mem_data = memory.data(&caller);
+                let data = match read_wasm_bytes(mem_data, data_ptr, data_len) {
+                    Some(d) => d,
+                    None => return 0,
+                };
 
-            let memory = match caller.get_export("memory") {
-                Some(wasmtime::Extern::Memory(mem)) => mem,
-                _ => return 0,
-            };
-            let mem_data = memory.data(&caller);
-            let data = match read_wasm_bytes(mem_data, data_ptr, data_len) {
-                Some(d) => d,
-                None => return 0,
-            };
-
-            let hash = Sha256::digest(&data);
-            let hex = hash.iter().map(|b| format!("{:02x}", b)).collect::<String>();
-            write_to_wasm_memory(&mut caller, hex.as_bytes())
-        },
-    ).map_err(|e| format!("Failed to register host_sha256: {}", e))?;
+                let hash = Sha256::digest(&data);
+                let hex = hash
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>();
+                write_to_wasm_memory(&mut caller, hex.as_bytes())
+            },
+        )
+        .map_err(|e| format!("Failed to register host_sha256: {}", e))?;
 
     // ---- host_db_query (database permission) ----
     // Plugin calls host_db_query(sql_ptr, sql_len, params_ptr, params_len) -> result_ptr
     // Returns JSON string of rows, or empty on error/no permission.
-    linker.func_wrap(
-        "env", "host_db_query",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         sql_ptr: i32, sql_len: i32,
-         params_ptr: i32, params_len: i32| -> i32 {
-
-            if !caller.data().has_database { return 0; }
-
-            let memory = match caller.get_export("memory") {
-                Some(wasmtime::Extern::Memory(mem)) => mem,
-                _ => return 0,
-            };
-            let mem_data = memory.data(&caller);
-            let sql = match read_wasm_string_limited(mem_data, sql_ptr, sql_len, MAX_SQL_BYTES) {
-                Some(s) => s,
-                None => return 0,
-            };
-            let params = read_wasm_string_limited(mem_data, params_ptr, params_len, MAX_DB_PARAMS_BYTES)
-                .unwrap_or_else(|| "[]".to_string());
-
-            // Collect the operation — actual execution happens in the bridge
-            if let Ok(mut ops) = caller.data().db_ops.lock() {
-                if ops.len() >= MAX_DB_OPS {
+    linker
+        .func_wrap(
+            "env",
+            "host_db_query",
+            |mut caller: wasmtime::Caller<'_, WorkerState>,
+             sql_ptr: i32,
+             sql_len: i32,
+             params_ptr: i32,
+             params_len: i32|
+             -> i32 {
+                if !caller.data().has_database {
                     return 0;
                 }
-                ops.push(DbOp::Query { sql, params });
-            }
 
-            // Return a placeholder — the bridge will replace with real results
-            // For now, return empty array as the WASM side gets results asynchronously
-            let placeholder = b"[]";
-            write_to_wasm_memory(&mut caller, placeholder)
-        },
-    ).map_err(|e| format!("Failed to register host_db_query: {}", e))?;
+                let memory = match caller.get_export("memory") {
+                    Some(wasmtime::Extern::Memory(mem)) => mem,
+                    _ => return 0,
+                };
+                let mem_data = memory.data(&caller);
+                let sql = match read_wasm_string_limited(mem_data, sql_ptr, sql_len, MAX_SQL_BYTES)
+                {
+                    Some(s) => s,
+                    None => return 0,
+                };
+                let params =
+                    read_wasm_string_limited(mem_data, params_ptr, params_len, MAX_DB_PARAMS_BYTES)
+                        .unwrap_or_else(|| "[]".to_string());
+
+                // Collect the operation — actual execution happens in the bridge
+                if let Ok(mut ops) = caller.data().db_ops.lock() {
+                    if ops.len() >= MAX_DB_OPS {
+                        return 0;
+                    }
+                    ops.push(DbOp::Query { sql, params });
+                }
+
+                // Return a placeholder — the bridge will replace with real results
+                // For now, return empty array as the WASM side gets results asynchronously
+                let placeholder = b"[]";
+                write_to_wasm_memory(&mut caller, placeholder)
+            },
+        )
+        .map_err(|e| format!("Failed to register host_db_query: {}", e))?;
 
     // ---- host_db_execute (database permission) ----
     // Plugin calls host_db_execute(sql_ptr, sql_len, params_ptr, params_len) -> i32
     // Returns 1 on success (op queued), 0 on no permission.
-    linker.func_wrap(
-        "env", "host_db_execute",
-        |mut caller: wasmtime::Caller<'_, WorkerState>,
-         sql_ptr: i32, sql_len: i32,
-         params_ptr: i32, params_len: i32| -> i32 {
-
-            if !caller.data().has_database { return 0; }
-
-            let memory = match caller.get_export("memory") {
-                Some(wasmtime::Extern::Memory(mem)) => mem,
-                _ => return 0,
-            };
-            let mem_data = memory.data(&caller);
-            let sql = match read_wasm_string_limited(mem_data, sql_ptr, sql_len, MAX_SQL_BYTES) {
-                Some(s) => s,
-                None => return 0,
-            };
-            let params = read_wasm_string_limited(mem_data, params_ptr, params_len, MAX_DB_PARAMS_BYTES)
-                .unwrap_or_else(|| "[]".to_string());
-
-            if let Ok(mut ops) = caller.data().db_ops.lock() {
-                if ops.len() >= MAX_DB_OPS {
+    linker
+        .func_wrap(
+            "env",
+            "host_db_execute",
+            |mut caller: wasmtime::Caller<'_, WorkerState>,
+             sql_ptr: i32,
+             sql_len: i32,
+             params_ptr: i32,
+             params_len: i32|
+             -> i32 {
+                if !caller.data().has_database {
                     return 0;
                 }
-                ops.push(DbOp::Execute { sql, params });
-            }
-            1
-        },
-    ).map_err(|e| format!("Failed to register host_db_execute: {}", e))?;
+
+                let memory = match caller.get_export("memory") {
+                    Some(wasmtime::Extern::Memory(mem)) => mem,
+                    _ => return 0,
+                };
+                let mem_data = memory.data(&caller);
+                let sql = match read_wasm_string_limited(mem_data, sql_ptr, sql_len, MAX_SQL_BYTES)
+                {
+                    Some(s) => s,
+                    None => return 0,
+                };
+                let params =
+                    read_wasm_string_limited(mem_data, params_ptr, params_len, MAX_DB_PARAMS_BYTES)
+                        .unwrap_or_else(|| "[]".to_string());
+
+                if let Ok(mut ops) = caller.data().db_ops.lock() {
+                    if ops.len() >= MAX_DB_OPS {
+                        return 0;
+                    }
+                    ops.push(DbOp::Execute { sql, params });
+                }
+                1
+            },
+        )
+        .map_err(|e| format!("Failed to register host_db_execute: {}", e))?;
 
     // ---- WASI stubs (for wasm32-wasip1 compiled modules) ----
-    let _ = linker.func_wrap("wasi_snapshot_preview1", "fd_write",
-        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 });
-    let _ = linker.func_wrap("wasi_snapshot_preview1", "fd_read",
-        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 });
-    let _ = linker.func_wrap("wasi_snapshot_preview1", "fd_close",
-        |_: wasmtime::Caller<'_, WorkerState>, _: i32| -> i32 { 0 });
-    let _ = linker.func_wrap("wasi_snapshot_preview1", "fd_seek",
-        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i64, _: i32, _: i32| -> i32 { 0 });
-    let _ = linker.func_wrap("wasi_snapshot_preview1", "fd_fdstat_get",
-        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i32| -> i32 { 0 });
-    let _ = linker.func_wrap("wasi_snapshot_preview1", "proc_exit",
-        |_: wasmtime::Caller<'_, WorkerState>, _: i32| {});
-    let _ = linker.func_wrap("wasi_snapshot_preview1", "environ_sizes_get",
-        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i32| -> i32 { 0 });
-    let _ = linker.func_wrap("wasi_snapshot_preview1", "environ_get",
-        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i32| -> i32 { 0 });
+    let _ = linker.func_wrap(
+        "wasi_snapshot_preview1",
+        "fd_write",
+        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
+    );
+    let _ = linker.func_wrap(
+        "wasi_snapshot_preview1",
+        "fd_read",
+        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i32, _: i32, _: i32| -> i32 { 0 },
+    );
+    let _ = linker.func_wrap(
+        "wasi_snapshot_preview1",
+        "fd_close",
+        |_: wasmtime::Caller<'_, WorkerState>, _: i32| -> i32 { 0 },
+    );
+    let _ = linker.func_wrap(
+        "wasi_snapshot_preview1",
+        "fd_seek",
+        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i64, _: i32, _: i32| -> i32 { 0 },
+    );
+    let _ = linker.func_wrap(
+        "wasi_snapshot_preview1",
+        "fd_fdstat_get",
+        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i32| -> i32 { 0 },
+    );
+    let _ = linker.func_wrap(
+        "wasi_snapshot_preview1",
+        "proc_exit",
+        |_: wasmtime::Caller<'_, WorkerState>, _: i32| {},
+    );
+    let _ = linker.func_wrap(
+        "wasi_snapshot_preview1",
+        "environ_sizes_get",
+        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i32| -> i32 { 0 },
+    );
+    let _ = linker.func_wrap(
+        "wasi_snapshot_preview1",
+        "environ_get",
+        |_: wasmtime::Caller<'_, WorkerState>, _: i32, _: i32| -> i32 { 0 },
+    );
 
     // Instantiate
-    let instance = linker.instantiate(&mut store, &module)
+    let instance = linker
+        .instantiate(&mut store, &module)
         .map_err(|e| format!("Instantiation failed: {}", e))?;
 
-    let memory = instance.get_memory(&mut store, "memory")
+    let memory = instance
+        .get_memory(&mut store, "memory")
         .ok_or_else(|| "No memory export".to_string())?;
 
-    let func = instance.get_func(&mut store, func_name)
+    let func = instance
+        .get_func(&mut store, func_name)
         .ok_or_else(|| format!("Function '{}' not found", func_name))?;
 
     // Data-passing protocol: allocate -> write -> call(ptr, len) -> read result
     let output = if let Some(alloc_func) = instance.get_func(&mut store, "allocate") {
         if let Ok(alloc_typed) = alloc_func.typed::<i32, i32>(&store) {
             let input_len = input.len() as i32;
-            let input_ptr = alloc_typed.call(&mut store, input_len)
+            let input_ptr = alloc_typed
+                .call(&mut store, input_len)
                 .map_err(|e| format!("allocate failed: {}", e))?;
             if input_ptr < 0 {
                 return Err("WASM allocate returned an invalid pointer".to_string());
@@ -948,15 +1139,20 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
             mem[ptr..input_end].copy_from_slice(input);
 
             if let Ok(typed_func) = func.typed::<(i32, i32), i32>(&store) {
-                let result_ptr = typed_func.call(&mut store, (input_ptr, input_len))
+                let result_ptr = typed_func
+                    .call(&mut store, (input_ptr, input_len))
                     .map_err(|e| format!("Function call failed: {}", e))?;
 
                 if result_ptr > 0 {
                     let mem_data = memory.data(&store);
                     let rp = result_ptr as usize;
-                    if let Some(header_end) = rp.checked_add(4).filter(|end| *end <= mem_data.len()) {
+                    if let Some(header_end) = rp.checked_add(4).filter(|end| *end <= mem_data.len())
+                    {
                         let result_len = u32::from_le_bytes([
-                            mem_data[rp], mem_data[rp + 1], mem_data[rp + 2], mem_data[rp + 3],
+                            mem_data[rp],
+                            mem_data[rp + 1],
+                            mem_data[rp + 2],
+                            mem_data[rp + 3],
                         ]) as usize;
                         if result_len <= MAX_HOST_RETURN_BYTES {
                             if let Some(result_end) = header_end
@@ -964,17 +1160,27 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
                                 .filter(|end| *end <= mem_data.len())
                             {
                                 mem_data[header_end..result_end].to_vec()
-                            } else { vec![] }
-                        } else { vec![] }
-                    } else { vec![] }
-                } else { vec![] }
+                            } else {
+                                vec![]
+                            }
+                        } else {
+                            vec![]
+                        }
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                }
             } else {
                 if let Ok(typed_func) = func.typed::<(), i32>(&store) {
                     let _ = typed_func.call(&mut store, ());
                 }
                 vec![]
             }
-        } else { vec![] }
+        } else {
+            vec![]
+        }
     } else {
         if let Ok(typed_func) = func.typed::<(), i32>(&store) {
             let _ = typed_func.call(&mut store, ());
@@ -984,7 +1190,6 @@ fn execute_wasm(wasm_path: &str, func_name: &str, input: &[u8], state: WorkerSta
 
     Ok(output)
 }
-
 
 /// Write data to WASM memory via the allocate function.
 /// Returns the pointer (with 4-byte length prefix) or 0 on failure.
@@ -1073,8 +1278,16 @@ fn base64_encode(data: &[u8]) -> String {
         let triple = (b0 << 16) | (b1 << 8) | b2;
         result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
         result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
-        if chunk.len() > 1 { result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char); } else { result.push('='); }
-        if chunk.len() > 2 { result.push(CHARS[(triple & 0x3F) as usize] as char); } else { result.push('='); }
+        if chunk.len() > 1 {
+            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(triple & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
     }
     result
 }
@@ -1086,7 +1299,9 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     let mut bits: u32 = 0;
     for c in input.bytes() {
         let val = decode_b64_char(c);
-        if val == u32::MAX { return Err(format!("Invalid base64 char: {}", c as char)); }
+        if val == u32::MAX {
+            return Err(format!("Invalid base64 char: {}", c as char));
+        }
         buf = (buf << 6) | val;
         bits += 6;
         if bits >= 8 {

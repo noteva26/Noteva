@@ -16,13 +16,13 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::models::{User, UserRole};
+use crate::plugin::{HookManager, PluginManager, ShortcodeManager};
 use crate::services::user::UserService;
-use crate::plugin::{PluginManager, HookManager, ShortcodeManager};
 
 // ============================================================================
 // Request Statistics
@@ -47,18 +47,19 @@ impl RequestStats {
             start_time: Instant::now(),
         }
     }
-    
+
     /// Record a request with its response time
     pub fn record(&self, duration_us: u64) {
         self.total_requests.fetch_add(1, Ordering::Relaxed);
-        self.total_response_time_us.fetch_add(duration_us, Ordering::Relaxed);
+        self.total_response_time_us
+            .fetch_add(duration_us, Ordering::Relaxed);
     }
-    
+
     /// Get total request count
     pub fn total_requests(&self) -> u64 {
         self.total_requests.load(Ordering::Relaxed)
     }
-    
+
     /// Get average response time in microseconds
     pub fn avg_response_time_us(&self) -> f64 {
         let total = self.total_requests.load(Ordering::Relaxed);
@@ -68,7 +69,7 @@ impl RequestStats {
         let total_time = self.total_response_time_us.load(Ordering::Relaxed);
         total_time as f64 / total as f64
     }
-    
+
     /// Get uptime in seconds
     pub fn uptime_seconds(&self) -> u64 {
         self.start_time.elapsed().as_secs()
@@ -273,7 +274,7 @@ pub async fn require_editor(request: Request, next: Next) -> Result<Response, Ap
 }
 
 /// API hooks middleware
-/// 
+///
 /// Triggers `api_request_before` before processing and `api_request_after` after processing.
 /// This allows plugins to intercept, log, or modify API requests/responses.
 pub async fn api_hooks_middleware(
@@ -282,19 +283,23 @@ pub async fn api_hooks_middleware(
     next: Next,
 ) -> Response {
     use crate::plugin::hook_names;
-    
+
     // Extract request info for hooks
     let method = request.method().to_string();
     let uri = request.uri().to_string();
     let path = request.uri().path().to_string();
-    let ip = request.headers().get("x-forwarded-for")
+    let ip = request
+        .headers()
+        .get("x-forwarded-for")
         .or_else(|| request.headers().get("x-real-ip"))
         .and_then(|h| h.to_str().ok())
         .map(|s| s.split(',').next().unwrap_or("").trim().to_string());
-    let ua = request.headers().get(header::USER_AGENT)
+    let ua = request
+        .headers()
+        .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
         .map(String::from);
-    
+
     // Trigger api_request_before hook
     let before_data = serde_json::json!({
         "method": method,
@@ -304,11 +309,13 @@ pub async fn api_hooks_middleware(
         "user_agent": ua,
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
-    state.hook_manager.trigger(hook_names::API_REQUEST_BEFORE, before_data);
-    
+    state
+        .hook_manager
+        .trigger(hook_names::API_REQUEST_BEFORE, before_data);
+
     // Process the request
     let response = next.run(request).await;
-    
+
     // Trigger api_request_after hook
     let status = response.status().as_u16();
     let after_data = serde_json::json!({
@@ -320,13 +327,15 @@ pub async fn api_hooks_middleware(
         "user_agent": ua,
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
-    state.hook_manager.trigger(hook_names::API_REQUEST_AFTER, after_data);
-    
+    state
+        .hook_manager
+        .trigger(hook_names::API_REQUEST_AFTER, after_data);
+
     response
 }
 
 /// Request statistics middleware
-/// 
+///
 /// Records request count and response time for performance monitoring.
 /// Uses atomic operations for minimal overhead.
 pub async fn request_stats_middleware(
@@ -335,20 +344,23 @@ pub async fn request_stats_middleware(
     next: Next,
 ) -> Response {
     let start = Instant::now();
-    
+
     // Process the request
     let response = next.run(request).await;
-    
+
     // Record stats (microseconds for precision)
     let duration_us = start.elapsed().as_micros() as u64;
     state.request_stats.record(duration_us);
-    
+
     response
 }
 
 /// Extract authenticated user from request extensions
 pub fn get_authenticated_user(request: &Request) -> Option<&User> {
-    request.extensions().get::<AuthenticatedUser>().map(|au| &au.0)
+    request
+        .extensions()
+        .get::<AuthenticatedUser>()
+        .map(|au| &au.0)
 }
 
 // ============================================================================
@@ -356,67 +368,64 @@ pub fn get_authenticated_user(request: &Request) -> Option<&User> {
 // ============================================================================
 
 /// Demo mode guard middleware
-/// 
+///
 /// When compiled with `--features demo`, this middleware intercepts write operations
 /// (POST, PUT, DELETE) and returns a friendly error message, except for whitelisted
 /// endpoints like login.
-/// 
+///
 /// This allows users to explore the admin interface without making actual changes.
 #[cfg(feature = "demo")]
-pub async fn demo_guard(
-    request: Request,
-    next: Next,
-) -> Result<Response, ApiError> {
+pub async fn demo_guard(request: Request, next: Next) -> Result<Response, ApiError> {
     use axum::http::Method;
-    
+
     let method = request.method().clone();
     let path = request.uri().path().to_string();
-    
+
     // Allow all GET requests
     if method == Method::GET {
         return Ok(next.run(request).await);
     }
-    
+
     // Whitelist: endpoints that should work in demo mode
     // Principle: allow read-like and interactive features, block data mutation
     let whitelisted = [
-        "/api/v1/auth/login",          // Login
-        "/api/v1/auth/logout",         // Logout
-        "/api/v1/auth/register",       // Register (let users try the flow)
-        "/api/v1/auth/2fa",            // 2FA verify (part of login flow)
-        "/api/v1/comments",            // Post comments (demo interaction)
-        "/api/v1/like",                // Like/unlike (demo interaction)
-        "/api/v1/view/",               // View count increment (not real data)
-        "/api/v1/site/render",         // Markdown preview
-        "/api/v1/cache/",              // Frontend cache read/write
-        "/api/v1/plugins/proxy",       // Plugin proxy (for plugin demos)
-        "/api/v1/plugins/",            // Plugin API routes (read-like)
+        "/api/v1/auth/login",    // Login
+        "/api/v1/auth/logout",   // Logout
+        "/api/v1/auth/register", // Register (let users try the flow)
+        "/api/v1/auth/2fa",      // 2FA verify (part of login flow)
+        "/api/v1/comments",      // Post comments (demo interaction)
+        "/api/v1/like",          // Like/unlike (demo interaction)
+        "/api/v1/view/",         // View count increment (not real data)
+        "/api/v1/site/render",   // Markdown preview
+        "/api/v1/cache/",        // Frontend cache read/write
+        "/api/v1/plugins/proxy", // Plugin proxy (for plugin demos)
+        "/api/v1/plugins/",      // Plugin API routes (read-like)
     ];
-    
+
     // Check if path is whitelisted
     for allowed in &whitelisted {
         if path.starts_with(allowed) {
             return Ok(next.run(request).await);
         }
     }
-    
+
     // Block write operations
-    if matches!(method, Method::POST | Method::PUT | Method::DELETE | Method::PATCH) {
+    if matches!(
+        method,
+        Method::POST | Method::PUT | Method::DELETE | Method::PATCH
+    ) {
         return Err(ApiError::new(
             "DEMO_MODE",
-            "This is a demo site. Write operations are disabled."
+            "This is a demo site. Write operations are disabled.",
         ));
     }
-    
+
     Ok(next.run(request).await)
 }
 
 /// No-op demo guard when demo feature is not enabled
 #[cfg(not(feature = "demo"))]
-pub async fn demo_guard(
-    request: Request,
-    next: Next,
-) -> Response {
+pub async fn demo_guard(request: Request, next: Next) -> Response {
     next.run(request).await
 }
 
@@ -439,12 +448,19 @@ pub fn generate_csrf_token() -> String {
 
 /// Extract CSRF token from cookie
 fn extract_csrf_cookie(request: &Request) -> Option<String> {
-    request.headers().get(header::COOKIE)
+    request
+        .headers()
+        .get(header::COOKIE)
         .and_then(|h| h.to_str().ok())
         .and_then(|s| {
             s.split(';')
                 .find(|c| c.trim().starts_with("csrf_token="))
-                .map(|c| c.trim().strip_prefix("csrf_token=").unwrap_or("").to_string())
+                .map(|c| {
+                    c.trim()
+                        .strip_prefix("csrf_token=")
+                        .unwrap_or("")
+                        .to_string()
+                })
         })
 }
 
@@ -454,66 +470,66 @@ fn extract_csrf_cookie(request: &Request) -> Option<String> {
 /// the `X-CSRF-Token` header matches the `csrf_token` cookie.
 /// Exempts public auth endpoints (login, register, send-code, has-admin)
 /// and non-mutating requests (GET, HEAD, OPTIONS).
-pub async fn csrf_protection(
-    request: Request,
-    next: Next,
-) -> Result<Response, ApiError> {
+pub async fn csrf_protection(request: Request, next: Next) -> Result<Response, ApiError> {
     use axum::http::Method;
-    
+
     let method = request.method().clone();
     let path = request.uri().path().to_string();
-    
+
     // Skip non-mutating methods
     if matches!(method, Method::GET | Method::HEAD | Method::OPTIONS) {
         return Ok(next.run(request).await);
     }
-    
+
     // Skip public auth endpoints that don't require CSRF
     let csrf_exempt = [
         "/api/v1/auth/login",
         "/api/v1/auth/register",
         "/api/v1/auth/logout",
         "/api/v1/auth/has-admin",
-        "/api/v1/comments",        // public comment posting (uses its own auth)
-        "/api/v1/like",            // public like
-        "/api/v1/view/",           // public view count
-        "/api/v1/site/render",     // markdown preview
-        "/api/v1/plugins/proxy",   // plugin proxy
+        "/api/v1/comments",      // public comment posting (uses its own auth)
+        "/api/v1/like",          // public like
+        "/api/v1/view/",         // public view count
+        "/api/v1/site/render",   // markdown preview
+        "/api/v1/plugins/proxy", // plugin proxy
     ];
-    
+
     for exempt in &csrf_exempt {
         if path.starts_with(exempt) {
             return Ok(next.run(request).await);
         }
     }
-    
+
     // Skip if no session cookie (not logged in → nothing to protect)
-    let has_session = request.headers().get(header::COOKIE)
+    let has_session = request
+        .headers()
+        .get(header::COOKIE)
         .and_then(|h| h.to_str().ok())
         .map(|s| s.contains("session="))
         .unwrap_or(false);
-    
+
     if !has_session {
         return Ok(next.run(request).await);
     }
-    
+
     // Validate CSRF token
     let cookie_token = extract_csrf_cookie(&request);
-    let header_token = request.headers()
+    let header_token = request
+        .headers()
         .get("x-csrf-token")
         .and_then(|h| h.to_str().ok())
         .map(String::from);
-    
+
     match (cookie_token, header_token) {
         (Some(cookie), Some(header)) if !cookie.is_empty() && cookie == header => {
             Ok(next.run(request).await)
         }
-        _ => {
-            Err(ApiError::new("CSRF_INVALID", "CSRF token missing or invalid"))
-        }
+        _ => Err(ApiError::new(
+            "CSRF_INVALID",
+            "CSRF token missing or invalid",
+        )),
     }
 }
-
 
 // ============================================================================
 // HTTP Cache Headers
@@ -579,7 +595,10 @@ pub fn cache_control_static(max_age: u32, immutable: bool) -> String {
 /// Build Cache-Control header for API responses
 pub fn cache_control_api(max_age: u32, stale_while_revalidate: Option<u32>) -> String {
     match stale_while_revalidate {
-        Some(swr) => format!("public, max-age={}, stale-while-revalidate={}", max_age, swr),
+        Some(swr) => format!(
+            "public, max-age={}, stale-while-revalidate={}",
+            max_age, swr
+        ),
         None => format!("public, max-age={}", max_age),
     }
 }
@@ -598,7 +617,9 @@ pub fn cache_control_no_cache() -> String {
 pub async fn add_static_cache_headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     let cache_control = cache_control_static(31536000, true);
-    response.headers_mut().insert(header::CACHE_CONTROL, cache_control.parse().unwrap());
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, cache_control.parse().unwrap());
     response
 }
 
@@ -607,7 +628,9 @@ pub async fn add_api_cache_headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     if response.status().is_success() {
         let cache_control = cache_control_api(300, Some(3600));
-        response.headers_mut().insert(header::CACHE_CONTROL, cache_control.parse().unwrap());
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, cache_control.parse().unwrap());
     }
     response
 }
@@ -654,14 +677,13 @@ pub fn check_if_none_match(request: &Request, etag: &str) -> Option<Response> {
                         .status(StatusCode::NOT_MODIFIED)
                         .header(header::ETAG, etag)
                         .body(axum::body::Body::empty())
-                        .unwrap()
+                        .unwrap(),
                 );
             }
         }
     }
     None
 }
-
 
 // ============================================================================
 // Tests
@@ -691,13 +713,19 @@ mod tests {
     #[test]
     fn test_extract_session_token_from_bearer() {
         let request = create_request_with_auth("test-token-123");
-        assert_eq!(extract_session_token(&request), Some("test-token-123".to_string()));
+        assert_eq!(
+            extract_session_token(&request),
+            Some("test-token-123".to_string())
+        );
     }
 
     #[test]
     fn test_extract_session_token_from_cookie() {
         let request = create_request_with_cookie("test-token-456");
-        assert_eq!(extract_session_token(&request), Some("test-token-456".to_string()));
+        assert_eq!(
+            extract_session_token(&request),
+            Some("test-token-456".to_string())
+        );
     }
 
     #[test]
@@ -708,7 +736,10 @@ mod tests {
             .header(header::COOKIE, "session=cookie-token")
             .body(Body::empty())
             .unwrap();
-        assert_eq!(extract_session_token(&request), Some("bearer-token".to_string()));
+        assert_eq!(
+            extract_session_token(&request),
+            Some("bearer-token".to_string())
+        );
     }
 
     #[test]
@@ -754,7 +785,11 @@ mod property_tests {
     use proptest::prelude::*;
 
     fn role_strategy() -> impl Strategy<Value = UserRole> {
-        prop_oneof![Just(UserRole::Admin), Just(UserRole::Editor), Just(UserRole::Author)]
+        prop_oneof![
+            Just(UserRole::Admin),
+            Just(UserRole::Editor),
+            Just(UserRole::Author)
+        ]
     }
 
     fn non_admin_role_strategy() -> impl Strategy<Value = UserRole> {
@@ -833,7 +868,6 @@ mod property_tests {
         }
     }
 }
-
 
 #[cfg(test)]
 mod cache_header_tests {

@@ -259,6 +259,14 @@
   display: contents;
 }
 
+/* Search highlight */
+.noteva-highlight {
+  border-radius: 3px;
+  background: rgba(250, 204, 21, 0.34);
+  color: inherit;
+  padding: 0 2px;
+}
+
 /* 隐藏内容样式（用于回复可见等插件） */
 .noteva-hidden-content {
   position: relative;

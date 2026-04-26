@@ -1,13 +1,13 @@
 {
+  "schema": 1,
   "name": "Noteva Default Theme",
   "short": "default",
   "description": "The default theme for Noteva blog system",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "author": "Noteva Team",
-  "url": "https://github.com/noteva26/noteva-themes",
+  "repository": "https://github.com/noteva26/noteva-themes",
   "preview": "preview.png",
   "requires": {
-    "noteva": ">=0.1.1"
-  },
-  "configuration": {}
+    "noteva": ">=0.2.7"
+  }
 }

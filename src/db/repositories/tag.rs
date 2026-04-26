@@ -48,17 +48,19 @@ pub trait TagRepository: Send + Sync {
 
     /// Remove tag from article
     async fn remove_from_article(&self, tag_id: i64, article_id: i64) -> Result<()>;
-    
+
     /// Get tags for an article
     async fn get_by_article_id(&self, article_id: i64) -> Result<Vec<Tag>>;
 
     /// Get tags for multiple articles in one query (batch, avoids N+1)
-    async fn get_by_article_ids(&self, article_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<Tag>>>;
+    async fn get_by_article_ids(
+        &self,
+        article_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, Vec<Tag>>>;
 
     /// Remove all tags from an article (for re-tagging)
     async fn remove_all_by_article(&self, article_id: i64) -> Result<()>;
 }
-
 
 /// SQLx-based tag repository implementation
 ///
@@ -116,12 +118,15 @@ impl TagRepository for SqlxTagRepository {
     async fn remove_from_article(&self, tag_id: i64, article_id: i64) -> Result<()> {
         dispatch!(self, remove_tag_from_article, tag_id, article_id)
     }
-    
+
     async fn get_by_article_id(&self, article_id: i64) -> Result<Vec<Tag>> {
         dispatch!(self, get_tags_by_article, article_id)
     }
 
-    async fn get_by_article_ids(&self, article_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<Tag>>> {
+    async fn get_by_article_ids(
+        &self,
+        article_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, Vec<Tag>>> {
         if article_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
@@ -132,7 +137,6 @@ impl TagRepository for SqlxTagRepository {
         dispatch!(self, remove_all_tags_by_article, article_id)
     }
 }
-
 
 // ============================================================================
 // SQLite implementations
@@ -241,7 +245,6 @@ async fn list_tags_sqlite(pool: &SqlitePool) -> Result<Vec<Tag>> {
     Ok(tags)
 }
 
-
 /// Get tags with article counts for tag cloud functionality (SQLite)
 /// Returns tags sorted by article count in descending order
 async fn get_tags_with_counts_sqlite(pool: &SqlitePool, limit: usize) -> Result<Vec<TagWithCount>> {
@@ -325,7 +328,6 @@ fn row_to_tag_sqlite(row: &sqlx::sqlite::SqliteRow) -> Result<Tag> {
         created_at: row.get("created_at"),
     })
 }
-
 
 // ============================================================================
 // MySQL implementations
@@ -433,7 +435,6 @@ async fn list_tags_mysql(pool: &MySqlPool) -> Result<Vec<Tag>> {
 
     Ok(tags)
 }
-
 
 /// Get tags with article counts for tag cloud functionality (MySQL)
 /// Returns tags sorted by article count in descending order
@@ -563,8 +564,10 @@ fn row_to_tag_mysql(row: &sqlx::mysql::MySqlRow) -> Result<Tag> {
     })
 }
 
-
-async fn get_tags_by_article_ids_sqlite(pool: &SqlitePool, article_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<Tag>>> {
+async fn get_tags_by_article_ids_sqlite(
+    pool: &SqlitePool,
+    article_ids: &[i64],
+) -> Result<std::collections::HashMap<i64, Vec<Tag>>> {
     if article_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
@@ -583,7 +586,10 @@ async fn get_tags_by_article_ids_sqlite(pool: &SqlitePool, article_ids: &[i64]) 
     for id in article_ids {
         query = query.bind(id);
     }
-    let rows = query.fetch_all(pool).await.context("Failed to batch get tags by article IDs")?;
+    let rows = query
+        .fetch_all(pool)
+        .await
+        .context("Failed to batch get tags by article IDs")?;
     let mut map: std::collections::HashMap<i64, Vec<Tag>> = std::collections::HashMap::new();
     for row in &rows {
         let article_id: i64 = row.get("article_id");
@@ -593,7 +599,10 @@ async fn get_tags_by_article_ids_sqlite(pool: &SqlitePool, article_ids: &[i64]) 
     Ok(map)
 }
 
-async fn get_tags_by_article_ids_mysql(pool: &MySqlPool, article_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<Tag>>> {
+async fn get_tags_by_article_ids_mysql(
+    pool: &MySqlPool,
+    article_ids: &[i64],
+) -> Result<std::collections::HashMap<i64, Vec<Tag>>> {
     if article_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
@@ -612,7 +621,10 @@ async fn get_tags_by_article_ids_mysql(pool: &MySqlPool, article_ids: &[i64]) ->
     for id in article_ids {
         query = query.bind(id);
     }
-    let rows = query.fetch_all(pool).await.context("Failed to batch get tags by article IDs")?;
+    let rows = query
+        .fetch_all(pool)
+        .await
+        .context("Failed to batch get tags by article IDs")?;
     let mut map: std::collections::HashMap<i64, Vec<Tag>> = std::collections::HashMap::new();
     for row in &rows {
         let article_id: i64 = row.get("article_id");
@@ -634,14 +646,15 @@ impl_dual_fn! {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db::{create_test_pool, migrations};
 
     async fn setup_test_repo() -> (DynDatabasePool, SqlxTagRepository) {
-        let pool = create_test_pool().await.expect("Failed to create test pool");
+        let pool = create_test_pool()
+            .await
+            .expect("Failed to create test pool");
         migrations::run_migrations(&pool)
             .await
             .expect("Failed to run migrations");
@@ -837,12 +850,14 @@ mod tests {
             .expect("Failed to add tag to article");
 
         // Verify association exists
-        let row = sqlx::query("SELECT COUNT(*) as count FROM article_tags WHERE article_id = ? AND tag_id = ?")
-            .bind(article_id)
-            .bind(tag.id)
-            .fetch_one(sqlite_pool)
-            .await
-            .expect("Failed to query article_tags");
+        let row = sqlx::query(
+            "SELECT COUNT(*) as count FROM article_tags WHERE article_id = ? AND tag_id = ?",
+        )
+        .bind(article_id)
+        .bind(tag.id)
+        .fetch_one(sqlite_pool)
+        .await
+        .expect("Failed to query article_tags");
 
         let count: i64 = row.get("count");
         assert_eq!(count, 1);
@@ -872,12 +887,14 @@ mod tests {
             .expect("Failed to add tag to article again");
 
         // Verify only one association exists
-        let row = sqlx::query("SELECT COUNT(*) as count FROM article_tags WHERE article_id = ? AND tag_id = ?")
-            .bind(article_id)
-            .bind(tag.id)
-            .fetch_one(sqlite_pool)
-            .await
-            .expect("Failed to query article_tags");
+        let row = sqlx::query(
+            "SELECT COUNT(*) as count FROM article_tags WHERE article_id = ? AND tag_id = ?",
+        )
+        .bind(article_id)
+        .bind(tag.id)
+        .fetch_one(sqlite_pool)
+        .await
+        .expect("Failed to query article_tags");
 
         let count: i64 = row.get("count");
         assert_eq!(count, 1);
@@ -907,12 +924,14 @@ mod tests {
             .expect("Failed to remove tag from article");
 
         // Verify association is removed
-        let row = sqlx::query("SELECT COUNT(*) as count FROM article_tags WHERE article_id = ? AND tag_id = ?")
-            .bind(article_id)
-            .bind(tag.id)
-            .fetch_one(sqlite_pool)
-            .await
-            .expect("Failed to query article_tags");
+        let row = sqlx::query(
+            "SELECT COUNT(*) as count FROM article_tags WHERE article_id = ? AND tag_id = ?",
+        )
+        .bind(article_id)
+        .bind(tag.id)
+        .fetch_one(sqlite_pool)
+        .await
+        .expect("Failed to query article_tags");
 
         let count: i64 = row.get("count");
         assert_eq!(count, 0);
@@ -982,12 +1001,22 @@ mod tests {
             .expect("Failed to create tag");
 
         // Associate tags with articles (popular: 3, medium: 2, rare: 1)
-        repo.add_to_article(tag_popular.id, article1_id).await.unwrap();
-        repo.add_to_article(tag_popular.id, article2_id).await.unwrap();
-        repo.add_to_article(tag_popular.id, article3_id).await.unwrap();
+        repo.add_to_article(tag_popular.id, article1_id)
+            .await
+            .unwrap();
+        repo.add_to_article(tag_popular.id, article2_id)
+            .await
+            .unwrap();
+        repo.add_to_article(tag_popular.id, article3_id)
+            .await
+            .unwrap();
 
-        repo.add_to_article(tag_medium.id, article1_id).await.unwrap();
-        repo.add_to_article(tag_medium.id, article2_id).await.unwrap();
+        repo.add_to_article(tag_medium.id, article1_id)
+            .await
+            .unwrap();
+        repo.add_to_article(tag_medium.id, article2_id)
+            .await
+            .unwrap();
 
         repo.add_to_article(tag_rare.id, article1_id).await.unwrap();
 
@@ -998,14 +1027,14 @@ mod tests {
             .expect("Failed to get tags with counts");
 
         assert_eq!(tags_with_counts.len(), 3);
-        
+
         // Should be sorted by count descending
         assert_eq!(tags_with_counts[0].tag.slug, "popular");
         assert_eq!(tags_with_counts[0].article_count, 3);
-        
+
         assert_eq!(tags_with_counts[1].tag.slug, "medium");
         assert_eq!(tags_with_counts[1].article_count, 2);
-        
+
         assert_eq!(tags_with_counts[2].tag.slug, "rare");
         assert_eq!(tags_with_counts[2].article_count, 1);
     }
@@ -1022,7 +1051,10 @@ mod tests {
         // Create 5 tags
         for i in 1..=5 {
             let tag = repo
-                .create(&create_test_tag(&format!("tag{}", i), &format!("Tag {}", i)))
+                .create(&create_test_tag(
+                    &format!("tag{}", i),
+                    &format!("Tag {}", i),
+                ))
                 .await
                 .expect("Failed to create tag");
             repo.add_to_article(tag.id, article_id).await.unwrap();

@@ -94,10 +94,57 @@ export async function waitForNoteva(
 
 export function getArticleUrl(article: { id: number | string; slug?: string }): string {
   const noteva = getNoteva();
-  if (noteva?.site?.getArticleUrl) {
-    return noteva.site.getArticleUrl(article);
+  if (noteva?.urls?.article) {
+    return noteva.urls.article(article);
   }
   return `/posts/${article.slug || article.id}`;
+}
+
+export function getCategoryUrl(category: string | { slug?: string }): string {
+  const noteva = getNoteva();
+  if (noteva?.urls?.category) {
+    return noteva.urls.category(category);
+  }
+
+  const slug = typeof category === "string" ? category : category.slug || "";
+  return `/categories?c=${encodeURIComponent(slug)}`;
+}
+
+export function getTagUrl(tag: string | { slug?: string }): string {
+  const noteva = getNoteva();
+  if (noteva?.urls?.tag) {
+    return noteva.urls.tag(tag);
+  }
+
+  const slug = typeof tag === "string" ? tag : tag.slug || "";
+  return `/tags?t=${encodeURIComponent(slug)}`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+export function highlightSearchText(text: string, query?: string): string {
+  const keyword = query?.trim();
+  const safeText = getNoteva()?.utils?.escapeHtml?.(text) ?? escapeHtml(text);
+  if (!keyword) return safeText;
+
+  const noteva = getNoteva();
+  if (noteva?.search?.highlight) {
+    return noteva.search.highlight(safeText, keyword);
+  }
+
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  return safeText.replace(
+    regex,
+    '<mark class="noteva-highlight">$1</mark>'
+  );
 }
 
 export function useNoteva() {
@@ -373,16 +420,6 @@ export function useAuth() {
     };
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const noteva = await waitForNoteva();
-    if (!noteva) throw new Error("SDK not ready");
-
-    const result = await noteva.user.login({ username, password });
-    setUser(result.user);
-    setIsAuthenticated(true);
-    return result;
-  }, []);
-
   const logout = useCallback(async () => {
     const noteva = await waitForNoteva();
     if (!noteva) return;
@@ -392,7 +429,7 @@ export function useAuth() {
     setIsAuthenticated(false);
   }, []);
 
-  return { user, isAuthenticated, loading, login, logout };
+  return { user, isAuthenticated, loading, logout };
 }
 
 export default useNoteva;
