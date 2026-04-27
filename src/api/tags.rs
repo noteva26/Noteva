@@ -139,7 +139,7 @@ async fn get_tag_articles(
 
     let result = state
         .article_service
-        .list_by_tag(tag.id, &params, ArticleSortBy::default())
+        .list_published_by_tag(tag.id, &params, ArticleSortBy::default())
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 

@@ -15,6 +15,50 @@ const CACHE_KEY_NAV_LIST: &str = "nav:list";
 const CACHE_KEY_NAV_TREE: &str = "nav:tree";
 const CACHE_KEY_NAV_VISIBLE_TREE: &str = "nav:visible:tree";
 
+fn parse_nav_type(value: &str) -> Result<NavItemType> {
+    value
+        .parse()
+        .with_context(|| format!("Invalid nav item type: {}", value))
+}
+
+fn validate_nav_target(nav_type: &NavItemType, target: &str) -> Result<()> {
+    let trimmed = target.trim();
+    if trimmed.chars().any(char::is_control) {
+        anyhow::bail!("Navigation target contains invalid characters");
+    }
+
+    match nav_type {
+        NavItemType::Builtin => {
+            if trimmed.is_empty() || matches!(trimmed, "home" | "archives" | "categories" | "tags")
+            {
+                Ok(())
+            } else {
+                anyhow::bail!("Invalid built-in navigation target: {}", trimmed)
+            }
+        }
+        NavItemType::Page => {
+            if trimmed.is_empty() {
+                anyhow::bail!("Page navigation target cannot be empty");
+            }
+            Ok(())
+        }
+        NavItemType::External => {
+            let lower = trimmed.to_ascii_lowercase();
+            if lower.starts_with("http://")
+                || lower.starts_with("https://")
+                || lower.starts_with("mailto:")
+                || lower.starts_with("tel:")
+            {
+                Ok(())
+            } else {
+                anyhow::bail!(
+                    "External navigation URL must start with http://, https://, mailto:, or tel:"
+                )
+            }
+        }
+    }
+}
+
 pub struct NavItemService {
     repo: Arc<dyn NavItemRepository>,
     cache: Arc<Cache>,
@@ -40,7 +84,10 @@ impl NavItemService {
         sort_order: i32,
         visible: bool,
     ) -> Result<NavItem> {
-        let nav_type: NavItemType = nav_type.parse().unwrap_or_default();
+        let nav_type = parse_nav_type(&nav_type)?;
+        let target = target.trim().to_string();
+        validate_nav_target(&nav_type, &target)?;
+
         let mut item = NavItem::new(title, nav_type, target);
         item.parent_id = parent_id;
         item.open_new_tab = open_new_tab;
@@ -145,10 +192,10 @@ impl NavItemService {
             item.title = t;
         }
         if let Some(nt) = nav_type {
-            item.nav_type = nt.parse().unwrap_or_default();
+            item.nav_type = parse_nav_type(&nt)?;
         }
         if let Some(tg) = target {
-            item.target = tg;
+            item.target = tg.trim().to_string();
         }
         if let Some(o) = open_new_tab {
             item.open_new_tab = o;
@@ -159,6 +206,8 @@ impl NavItemService {
         if let Some(v) = visible {
             item.visible = v;
         }
+
+        validate_nav_target(&item.nav_type, &item.target)?;
 
         let updated = self.repo.update(&item).await?;
 

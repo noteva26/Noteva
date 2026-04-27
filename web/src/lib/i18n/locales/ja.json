@@ -244,6 +244,7 @@
     "switch": "テーマを切り替え",
     "switchSuccess": "テーマが切り替わりました",
     "install": "テーマをインストール",
+    "installTheme": "テーマをインストール",
     "upload": "テーマをアップロード",
     "delete": "テーマを削除",
     "deleteConfirm": "このテーマを削除しますか？"
@@ -254,6 +255,7 @@
     "enable": "有効にする",
     "disable": "無効にする",
     "install": "プラグインをインストール",
+    "installPlugin": "プラグインをインストール",
     "upload": "プラグインをアップロード",
     "uninstall": "アンインストール",
     "settings": "プラグイン設定",

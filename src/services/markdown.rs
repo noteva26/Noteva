@@ -221,9 +221,11 @@ impl MarkdownRenderer {
             .unwrap_or(&html_output)
             .to_string();
 
+        let safe_html = Self::sanitize_rendered_html(&html_after_hook);
+
         // Keep emoji native in article content; external emoji images are fragile
         // and can render as broken images when their CDN is unavailable.
-        emoji::process_shortcodes_to_unicode(&html_after_hook)
+        emoji::process_shortcodes_to_unicode(&safe_html)
     }
 
     /// Extract a table of contents from markdown content.
@@ -644,6 +646,173 @@ impl MarkdownRenderer {
         result
     }
 
+    fn sanitize_rendered_html(html: &str) -> String {
+        let mut result = html.to_string();
+
+        for tag in ["script", "style", "object", "embed"] {
+            let paired = Regex::new(&format!(
+                r"(?is)<\s*{}\b[^>]*>.*?<\s*/\s*{}\s*>",
+                regex::escape(tag),
+                regex::escape(tag)
+            ))
+            .unwrap();
+            result = paired.replace_all(&result, "").to_string();
+
+            let standalone =
+                Regex::new(&format!(r"(?is)<\s*{}\b[^>]*\/?\s*>", regex::escape(tag))).unwrap();
+            result = standalone.replace_all(&result, "").to_string();
+        }
+
+        for tag in ["base", "link", "meta"] {
+            let standalone =
+                Regex::new(&format!(r"(?is)<\s*{}\b[^>]*\/?\s*>", regex::escape(tag))).unwrap();
+            result = standalone.replace_all(&result, "").to_string();
+        }
+
+        let event_attr =
+            Regex::new(r#"(?is)\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)"#).unwrap();
+        result = event_attr.replace_all(&result, "").to_string();
+
+        let srcdoc_attr =
+            Regex::new(r#"(?is)\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)"#).unwrap();
+        result = srcdoc_attr.replace_all(&result, "").to_string();
+
+        result = Self::sanitize_url_attributes(&result);
+        Self::sanitize_style_attributes(&result)
+    }
+
+    fn sanitize_url_attributes(html: &str) -> String {
+        let attrs = r"(href|src|action|formaction|xlink:href|poster)";
+
+        let double_quoted = Regex::new(&format!(r#"(?is)\s+{}\s*=\s*"([^"]*)""#, attrs)).unwrap();
+        let result = double_quoted
+            .replace_all(html, |caps: &regex::Captures| {
+                if Self::is_safe_url(&caps[2]) {
+                    caps[0].to_string()
+                } else {
+                    format!(" {}=\"#\"", &caps[1])
+                }
+            })
+            .to_string();
+
+        let single_quoted = Regex::new(&format!(r#"(?is)\s+{}\s*=\s*'([^']*)'"#, attrs)).unwrap();
+        let result = single_quoted
+            .replace_all(&result, |caps: &regex::Captures| {
+                if Self::is_safe_url(&caps[2]) {
+                    caps[0].to_string()
+                } else {
+                    format!(" {}=\"#\"", &caps[1])
+                }
+            })
+            .to_string();
+
+        let unquoted = Regex::new(&format!(r#"(?is)\s+{}\s*=\s*([^\s>"']+)"#, attrs)).unwrap();
+        unquoted
+            .replace_all(&result, |caps: &regex::Captures| {
+                if Self::is_safe_url(&caps[2]) {
+                    caps[0].to_string()
+                } else {
+                    format!(" {}=\"#\"", &caps[1])
+                }
+            })
+            .to_string()
+    }
+
+    fn sanitize_style_attributes(html: &str) -> String {
+        let double_quoted = Regex::new(r#"(?is)\s+style\s*=\s*"([^"]*)""#).unwrap();
+        let result = double_quoted
+            .replace_all(html, |caps: &regex::Captures| {
+                if Self::is_safe_style(&caps[1]) {
+                    caps[0].to_string()
+                } else {
+                    String::new()
+                }
+            })
+            .to_string();
+
+        let single_quoted = Regex::new(r#"(?is)\s+style\s*=\s*'([^']*)'"#).unwrap();
+        let result = single_quoted
+            .replace_all(&result, |caps: &regex::Captures| {
+                if Self::is_safe_style(&caps[1]) {
+                    caps[0].to_string()
+                } else {
+                    String::new()
+                }
+            })
+            .to_string();
+
+        let unquoted = Regex::new(r#"(?is)\s+style\s*=\s*([^\s>"']+)"#).unwrap();
+        unquoted
+            .replace_all(&result, |caps: &regex::Captures| {
+                if Self::is_safe_style(&caps[1]) {
+                    caps[0].to_string()
+                } else {
+                    String::new()
+                }
+            })
+            .to_string()
+    }
+
+    fn is_safe_url(value: &str) -> bool {
+        let trimmed = value.trim_matches(|c: char| c.is_whitespace() || c.is_control());
+        if trimmed.is_empty() {
+            return true;
+        }
+
+        let lower = trimmed.to_ascii_lowercase();
+        let compact = lower
+            .chars()
+            .filter(|c| !c.is_ascii_whitespace() && !c.is_control())
+            .collect::<String>();
+
+        if compact.starts_with("javascript:")
+            || compact.starts_with("vbscript:")
+            || compact.starts_with("data:text/html")
+            || compact.starts_with("data:application/xhtml")
+            || compact.starts_with("data:image/svg")
+        {
+            return false;
+        }
+
+        if compact.starts_with('#')
+            || compact.starts_with('/')
+            || compact.starts_with("./")
+            || compact.starts_with("../")
+            || compact.starts_with('?')
+        {
+            return true;
+        }
+
+        if compact.starts_with("data:image/png;")
+            || compact.starts_with("data:image/jpeg;")
+            || compact.starts_with("data:image/jpg;")
+            || compact.starts_with("data:image/gif;")
+            || compact.starts_with("data:image/webp;")
+            || compact.starts_with("data:image/avif;")
+            || compact.starts_with("data:image/bmp;")
+        {
+            return true;
+        }
+
+        let boundary = compact
+            .find(|c| matches!(c, '/' | '?' | '#'))
+            .unwrap_or(compact.len());
+        if let Some(colon) = compact[..boundary].find(':') {
+            return matches!(&compact[..colon], "http" | "https" | "mailto" | "tel");
+        }
+
+        !compact[..boundary].contains('&') && !compact.starts_with("data:")
+    }
+
+    fn is_safe_style(value: &str) -> bool {
+        let lower = value.to_ascii_lowercase();
+        !(lower.contains("url(")
+            || lower.contains("expression(")
+            || lower.contains("javascript:")
+            || lower.contains("vbscript:")
+            || lower.contains("-moz-binding"))
+    }
+
     /// Pre-process image resize syntax: ![alt|50%](url) or ![alt|300px](url)
     /// Converts to raw HTML <img> tags with style width before markdown parsing.
     fn preprocess_image_resize(content: &str) -> String {
@@ -872,6 +1041,35 @@ mod tests {
         // Should escape HTML in code blocks
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;") || html.contains("&lt;"));
+    }
+
+    #[test]
+    fn test_render_sanitizes_raw_html() {
+        let renderer = MarkdownRenderer::new();
+        let html =
+            renderer.render(r#"<img src="/x.png" onerror="alert(1)"><script>alert(1)</script>"#);
+
+        assert!(!html.to_ascii_lowercase().contains("<script"));
+        assert!(!html.to_ascii_lowercase().contains("onerror"));
+        assert!(html.contains("<img"));
+    }
+
+    #[test]
+    fn test_render_sanitizes_dangerous_links() {
+        let renderer = MarkdownRenderer::new();
+        let html = renderer.render("[x](javascript:alert(1))");
+
+        assert!(!html.to_ascii_lowercase().contains("javascript:"));
+        assert!(html.contains("href=\"#\""));
+    }
+
+    #[test]
+    fn test_render_keeps_image_resize_style() {
+        let renderer = MarkdownRenderer::new();
+        let html = renderer.render("![Alt|50%](/uploads/a.png)");
+
+        assert!(html.contains("<img"));
+        assert!(html.contains("width: 50%;"));
     }
 
     #[test]

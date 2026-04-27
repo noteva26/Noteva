@@ -12,6 +12,7 @@ interface AuthState {
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  setUser: (user: User | null) => void;
   clearError: () => void;
 }
 
@@ -25,8 +26,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true, error: null });
     try {
       const { data } = await authApi.login(usernameOrEmail, password);
+      if ("requires_2fa" in data && data.requires_2fa) {
+        throw { is2FA: true, challengeToken: data.challenge_token };
+      }
       // Cookie is set automatically by the server (httpOnly)
-      set({ user: data.user, isAuthenticated: true, isLoading: false });
+      if ("user" in data) {
+        set({ user: data.user, isAuthenticated: true, isLoading: false });
+      } else {
+        throw new Error("Invalid login response");
+      }
     } catch (error) {
       const message = getApiErrorMessage(error, "Login failed");
       set({ error: message, isLoading: false });
@@ -72,6 +80,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user: null, isAuthenticated: false });
     }
   },
+
+  setUser: (user: User | null) => set({ user, isAuthenticated: Boolean(user) }),
 
   clearError: () => set({ error: null }),
 }));

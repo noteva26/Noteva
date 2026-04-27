@@ -1,10 +1,17 @@
-import { useEffect, useOptimistic, useState, useTransition } from "react";
+import { useEffect, useMemo, useOptimistic, useState, useTransition } from "react";
 import { motion } from "motion/react";
 import { categoriesApi, Category, CreateCategoryInput } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -29,7 +36,11 @@ import { useTranslation } from "@/lib/i18n";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataSyncBadge, DataSyncBar } from "@/components/admin/data-sync-bar";
 
-export default function CategoriesPage() {
+interface CategoriesPageProps {
+  embedded?: boolean;
+}
+
+export default function CategoriesPage({ embedded = false }: CategoriesPageProps) {
   const { t } = useTranslation();
   const [categories, setCategories] = useState<Category[]>([]);
   const [optimisticCategories, removeOptimisticCategories] = useOptimistic(
@@ -51,7 +62,32 @@ export default function CategoriesPage() {
     name: "",
     slug: "",
     description: "",
+    parent_id: null as number | null,
   });
+
+  const categoryById = useMemo(
+    () => new Map(categories.map((category) => [category.id, category])),
+    [categories]
+  );
+
+  const availableParentCategories = useMemo(() => {
+    if (!editingCategory) return categories;
+
+    const descendantIds = new Set<number>();
+    const collectDescendants = (parentId: number) => {
+      categories
+        .filter((category) => category.parent_id === parentId)
+        .forEach((category) => {
+          descendantIds.add(category.id);
+          collectDescendants(category.id);
+        });
+    };
+    collectDescendants(editingCategory.id);
+
+    return categories.filter(
+      (category) => category.id !== editingCategory.id && !descendantIds.has(category.id)
+    );
+  }, [categories, editingCategory]);
 
   useEffect(() => {
     let active = true;
@@ -90,7 +126,7 @@ export default function CategoriesPage() {
 
   const openCreateDialog = () => {
     setEditingCategory(null);
-    setForm({ name: "", slug: "", description: "" });
+    setForm({ name: "", slug: "", description: "", parent_id: null });
     setDialogOpen(true);
   };
 
@@ -100,6 +136,7 @@ export default function CategoriesPage() {
       name: category.name,
       slug: category.slug,
       description: category.description || "",
+      parent_id: category.parent_id ?? null,
     });
     setDialogOpen(true);
   };
@@ -112,8 +149,15 @@ export default function CategoriesPage() {
 
     startMutationTransition(async () => {
       try {
+        const payload = {
+          name: form.name,
+          slug: form.slug,
+          description: form.description,
+          parent_id: form.parent_id,
+        };
+
         if (editingCategory) {
-          const response = await categoriesApi.update(editingCategory.id, form);
+          const response = await categoriesApi.update(editingCategory.id, payload);
           setCategories((current) =>
             current.map((category) =>
               category.id === editingCategory.id ? response.data : category
@@ -121,7 +165,7 @@ export default function CategoriesPage() {
           );
           toast.success(t("category.updateSuccess"));
         } else {
-          const response = await categoriesApi.create(form as CreateCategoryInput);
+          const response = await categoriesApi.create(payload as CreateCategoryInput);
           setCategories((current) => [...current, response.data]);
           toast.success(t("category.createSuccess"));
         }
@@ -164,8 +208,14 @@ export default function CategoriesPage() {
         className="flex items-center justify-between"
       >
         <div>
-          <h1 className="text-3xl font-bold">{t("manage.categories")}</h1>
-          <p className="text-muted-foreground">{t("category.totalCategories")}</p>
+          {embedded ? (
+            <h2 className="text-xl font-semibold">{t("manage.categories")}</h2>
+          ) : (
+            <h1 className="text-3xl font-bold">{t("manage.categories")}</h1>
+          )}
+          <p className={embedded ? "text-sm text-muted-foreground" : "text-muted-foreground"}>
+            {t("category.totalCategories")}
+          </p>
         </div>
         <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
           <Button onClick={openCreateDialog}>
@@ -201,6 +251,9 @@ export default function CategoriesPage() {
               <div className={`space-y-1 transition-opacity ${isSyncing ? "opacity-70" : ""}`}>
                 {optimisticCategories.map((category, i) => {
                   const isDefault = category.slug === "uncategorized";
+                  const parentName = category.parent_id
+                    ? categoryById.get(category.parent_id)?.name
+                    : null;
                   return (
                     <motion.div
                       key={category.id}
@@ -213,6 +266,11 @@ export default function CategoriesPage() {
                       <span className="flex-1 font-medium">
                         {isDefault ? t("category.uncategorized") : category.name}
                       </span>
+                      {parentName ? (
+                        <span className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                          {parentName}
+                        </span>
+                      ) : null}
                       <span className="text-sm text-muted-foreground">{category.slug}</span>
                       <div className="flex items-center gap-1">
                         <Button variant="ghost" size="icon" onClick={() => openEditDialog(category)}>
@@ -262,6 +320,30 @@ export default function CategoriesPage() {
                 onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
                 placeholder="url-friendly-slug"
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="parent_id">Parent</Label>
+              <Select
+                value={form.parent_id ? String(form.parent_id) : "none"}
+                onValueChange={(value) =>
+                  setForm((f) => ({
+                    ...f,
+                    parent_id: value === "none" ? null : Number(value),
+                  }))
+                }
+              >
+                <SelectTrigger id="parent_id">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {availableParentCategories.map((category) => (
+                    <SelectItem key={category.id} value={String(category.id)}>
+                      {category.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="description">{t("category.description")}</Label>

@@ -109,6 +109,16 @@ function reduceOptimisticNavAction(items: NavItem[], action: NavOptimisticAction
   }));
 }
 
+function isSafeExternalUrl(value: string): boolean {
+  const url = value.trim().toLowerCase();
+  return (
+    url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("mailto:") ||
+    url.startsWith("tel:")
+  );
+}
+
 export default function NavManagePage() {
   const { t } = useTranslation();
   const [navItems, setNavItems] = useState<NavItem[]>([]);
@@ -228,6 +238,10 @@ export default function NavManagePage() {
       return;
     }
     if (formData.nav_type === "external" && !formData.target.trim()) {
+      toast.error(t("navManage.fillUrl"));
+      return;
+    }
+    if (formData.nav_type === "external" && !isSafeExternalUrl(formData.target)) {
       toast.error(t("navManage.fillUrl"));
       return;
     }

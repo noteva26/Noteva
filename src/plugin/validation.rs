@@ -46,6 +46,13 @@ pub fn validate_plugin_package_dir(plugin_dir: &Path) -> Result<PluginMetadata> 
     Ok(manifest)
 }
 
+pub fn validate_plugin_package_contents(plugin_dir: &Path) -> Result<PluginMetadata> {
+    let manifest = load_plugin_manifest(plugin_dir)?;
+    validate_plugin_manifest(&manifest, None)?;
+    validate_package_files(plugin_dir, &manifest)?;
+    Ok(manifest)
+}
+
 pub fn load_plugin_manifest(plugin_dir: &Path) -> Result<PluginMetadata> {
     let path = plugin_dir.join("plugin.json");
     let content = fs::read_to_string(&path)
@@ -547,14 +554,20 @@ fn validate_plugin_id(id: &str) -> Result<()> {
         return Err(anyhow!("plugin id cannot be empty"));
     };
 
-    let valid = id.len() <= 63
-        && (first.is_ascii_lowercase() || first.is_ascii_digit())
-        && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-');
+    let valid = id.chars().count() <= 63
+        && is_plugin_id_alphanumeric(first)
+        && chars.all(|ch| is_plugin_id_alphanumeric(ch) || ch == '-');
     if valid {
         Ok(())
     } else {
-        Err(anyhow!("plugin id must match ^[a-z0-9][a-z0-9-]{{0,62}}$"))
+        Err(anyhow!(
+            "plugin id must use lowercase ASCII letters, numbers, hyphens, or non-ASCII letters/numbers"
+        ))
     }
+}
+
+fn is_plugin_id_alphanumeric(ch: char) -> bool {
+    ch.is_ascii_lowercase() || ch.is_ascii_digit() || (!ch.is_ascii() && ch.is_alphanumeric())
 }
 
 fn validate_shortcode(shortcode: &str) -> Result<()> {
@@ -689,7 +702,7 @@ mod tests {
             repository: "noteva26/noteva-plugins".to_string(),
             license: "MIT".to_string(),
             requires: crate::plugin::loader::PluginRequirements {
-                noteva: ">=0.2.8".to_string(),
+                noteva: ">=0.2.9".to_string(),
                 plugins: Vec::new(),
             },
             hooks: Default::default(),
@@ -701,6 +714,50 @@ mod tests {
             activate: Default::default(),
             pages: Vec::new(),
         }
+    }
+
+    #[test]
+    fn plugin_ids_accept_unicode_letters_and_numbers() {
+        let mut manifest = base_manifest();
+        manifest.id = "评论插件-1".to_string();
+        manifest.requires.plugins = vec!["表情包-2".to_string()];
+
+        assert!(validate_plugin_manifest(&manifest, None).is_ok());
+    }
+
+    #[test]
+    fn plugin_ids_reject_unsafe_or_non_canonical_values() {
+        for id in [
+            "Plugin",
+            "plugin_name",
+            "plugin.name",
+            "plugin/name",
+            "plugin name",
+            "-plugin",
+        ] {
+            let mut manifest = base_manifest();
+            manifest.id = id.to_string();
+
+            assert!(
+                validate_plugin_manifest(&manifest, None).is_err(),
+                "expected plugin id '{}' to be rejected",
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn package_content_validation_allows_temporary_directory_names() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let plugin_dir = temp_dir.path().join("repo-main");
+        fs::create_dir(&plugin_dir).expect("plugin dir");
+
+        let manifest = base_manifest();
+        let manifest_json = serde_json::to_string_pretty(&manifest).expect("manifest json");
+        fs::write(plugin_dir.join("plugin.json"), manifest_json).expect("plugin json");
+
+        assert!(validate_plugin_package_contents(&plugin_dir).is_ok());
+        assert!(validate_plugin_package_dir(&plugin_dir).is_err());
     }
 
     #[test]

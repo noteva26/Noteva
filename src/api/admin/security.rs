@@ -61,7 +61,9 @@ pub async fn list_login_logs(
 ) -> Result<Json<LoginLogsResponse>, ApiError> {
     use crate::config::DatabaseDriver;
 
-    let offset = (query.page - 1) * query.per_page;
+    let page = query.page.max(1);
+    let per_page = query.per_page.clamp(1, 100);
+    let offset = (page - 1) * per_page;
 
     // Build WHERE clause
     let mut where_clauses = Vec::new();
@@ -243,7 +245,7 @@ pub async fn list_login_logs(
                 query_builder = query_builder.bind(if success { 1 } else { 0 });
             }
             query_builder
-                .bind(query.per_page)
+                .bind(per_page)
                 .bind(offset)
                 .fetch_all(state.pool.as_sqlite().expect("sqlite pool"))
                 .await
@@ -295,7 +297,7 @@ pub async fn list_login_logs(
                 query_builder = query_builder.bind(if success { 1 } else { 0 });
             }
             query_builder
-                .bind(query.per_page)
+                .bind(per_page)
                 .bind(offset)
                 .fetch_all(state.pool.as_mysql().expect("mysql pool"))
                 .await
@@ -329,8 +331,8 @@ pub async fn list_login_logs(
     Ok(Json(LoginLogsResponse {
         logs,
         total,
-        page: query.page,
-        per_page: query.per_page,
+        page,
+        per_page,
         success_count,
         failed_count,
     }))

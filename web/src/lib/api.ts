@@ -157,12 +157,17 @@ export interface ListParams {
   per_page?: number;
   page_size?: number;
   status?: string;
+  keyword?: string;
 }
+
+export type LoginResponse =
+  | { token: string; user: User }
+  | { requires_2fa: true; challenge_token: string };
 
 // Auth API
 export const authApi = {
   login: (usernameOrEmail: string, password: string) =>
-    api.post<{ token: string; user: User }>("/auth/login", { username_or_email: usernameOrEmail, password }),
+    api.post<LoginResponse>("/auth/login", { username_or_email: usernameOrEmail, password }),
 
   register: (username: string, email: string, password: string) =>
     api.post<{ user: User }>("/auth/register", { username, email, password }),
@@ -200,7 +205,7 @@ export const authApi = {
 export const articlesApi = {
   list: (params?: ListParams) => {
     const { per_page, page_size, ...rest } = params ?? {};
-    return api.get<ArticleListResult>("/articles", {
+    return api.get<ArticleListResult>("/admin/articles", {
       params: {
         ...rest,
         page_size: page_size ?? per_page,
@@ -214,7 +219,7 @@ export const articlesApi = {
   getById: (id: number) => api.get<Article>(`/admin/articles/${id}`),
 
   create: (data: CreateArticleInput) =>
-    api.post<Article>("/articles", data),
+    api.post<Article>("/admin/articles", data),
 
   update: (id: number, data: UpdateArticleInput) =>
     api.put<Article>(`/admin/articles/${id}`, data),
@@ -258,7 +263,7 @@ export const adminApi = {
 
   themes: () => api.get<ThemeListResponse>("/admin/themes"),
 
-  reloadThemes: () => api.post<{ success: boolean; message: string; plugin_count: number }>("/admin/themes/reload"),
+  reloadThemes: () => api.post<{ success: boolean; message: string; theme_count?: number }>("/admin/themes/reload"),
 
   switchTheme: (theme: string) =>
     api.post<ThemeResponse>("/admin/themes/switch", { theme }),
@@ -282,7 +287,7 @@ export const adminApi = {
     api.post<ThemeInstallResponse>("/admin/themes/install-from-repo", { repo, slug }),
 
   deleteTheme: (name: string) =>
-    api.delete(`/admin/themes/${name}`),
+    api.delete(`/admin/themes/${encodeURIComponent(name)}`),
 
   // Theme store
   getThemeStore: () => api.get<ThemeStoreResponse>("/admin/themes/store"),
@@ -292,14 +297,14 @@ export const adminApi = {
 
   // Update theme
   updateTheme: (name: string) =>
-    api.post<ThemeInstallResponse>(`/admin/themes/${name}/update`),
+    api.post<ThemeInstallResponse>(`/admin/themes/${encodeURIComponent(name)}/update`),
 
   // Theme settings
   getThemeSettings: (name: string) =>
-    api.get<PluginSettingsResponse>(`/admin/themes/${name}/settings`),
+    api.get<PluginSettingsResponse>(`/admin/themes/${encodeURIComponent(name)}/settings`),
 
   updateThemeSettings: (name: string, settings: Record<string, unknown>) =>
-    api.put<{ success: boolean }>(`/admin/themes/${name}/settings`, settings),
+    api.put<{ success: boolean }>(`/admin/themes/${encodeURIComponent(name)}/settings`, settings),
 
   getSettings: () => api.get<SiteSettings>("/admin/settings"),
 
@@ -307,7 +312,10 @@ export const adminApi = {
     api.put<SiteSettings>("/admin/settings", data),
 
   checkUpdate: () =>
-    api.get<UpdateCheckResponse>("/admin/update-check"),
+    api.get<UpdateCheckResponse>("/admin/update-check", {
+      headers: { "Cache-Control": "no-cache" },
+      params: { _: Date.now() },
+    }),
 
   performUpdate: (version: string) =>
     api.post<PerformUpdateResponse>("/admin/update-perform", { version }),
@@ -339,18 +347,18 @@ export const siteApi = {
 export const pluginsApi = {
   list: () => api.get<PluginListResponse>("/admin/plugins"),
 
-  reload: () => api.post<{ success: boolean; message: string; plugin_count: number }>("/admin/plugins/reload"),
+  reload: () => api.post<{ success: boolean; message: string; plugin_count?: number }>("/admin/plugins/reload"),
 
-  get: (id: string) => api.get<Plugin>(`/admin/plugins/${id}`),
+  get: (id: string) => api.get<Plugin>(`/admin/plugins/${encodeURIComponent(id)}`),
 
   toggle: (id: string, enabled: boolean) =>
-    api.post<Plugin>(`/admin/plugins/${id}/toggle`, { enabled }),
+    api.post<Plugin>(`/admin/plugins/${encodeURIComponent(id)}/toggle`, { enabled }),
 
   getSettings: (id: string) =>
-    api.get<PluginSettingsResponse>(`/admin/plugins/${id}/settings`),
+    api.get<PluginSettingsResponse>(`/admin/plugins/${encodeURIComponent(id)}/settings`),
 
   updateSettings: (id: string, settings: Record<string, unknown>) =>
-    api.post<{ success: boolean; settings: Record<string, unknown> }>(`/admin/plugins/${id}/settings`, settings),
+    api.post<{ success: boolean; settings: Record<string, unknown> }>(`/admin/plugins/${encodeURIComponent(id)}/settings`, settings),
 
   // Plugin installation
   uploadPlugin: (file: File) => {
@@ -368,7 +376,7 @@ export const pluginsApi = {
     api.post<PluginInstallResponse>("/admin/plugins/github/install", { download_url: downloadUrl }),
 
   uninstall: (id: string) =>
-    api.delete(`/admin/plugins/${id}/uninstall`),
+    api.delete(`/admin/plugins/${encodeURIComponent(id)}/uninstall`),
 
   // Plugin store
   getStore: () => api.get<PluginStoreResponse>("/admin/plugins/store"),
@@ -377,12 +385,16 @@ export const pluginsApi = {
   checkUpdates: () => api.get<PluginUpdatesResponse>("/admin/plugins/updates"),
 
   // Install plugin from repo
-  installFromRepo: (data: { repo: string; pluginId: string }) =>
-    api.post<PluginInstallResponse>("/admin/plugins/install-from-repo", { repo: data.repo, plugin_id: data.pluginId }),
+  installFromRepo: (data: { repo: string; pluginId?: string; storeSlug?: string }) =>
+    api.post<PluginInstallResponse>("/admin/plugins/install-from-repo", {
+      repo: data.repo,
+      plugin_id: data.pluginId,
+      store_slug: data.storeSlug,
+    }),
 
   // Update plugin
   updatePlugin: (id: string) =>
-    api.post<PluginInstallResponse>(`/admin/plugins/${id}/update`),
+    api.post<PluginInstallResponse>(`/admin/plugins/${encodeURIComponent(id)}/update`),
 };
 
 // Upload API
@@ -493,7 +505,7 @@ export interface CreateCategoryInput {
   name: string;
   slug?: string;
   description?: string;
-  parent_id?: number;
+  parent_id?: number | null;
 }
 
 export interface UpdateCategoryInput {
@@ -645,6 +657,7 @@ export interface PluginListResponse {
 
 export interface StorePluginInfo {
   slug: string;
+  plugin_id: string;
   name: string;
   version: string;
   description: string;

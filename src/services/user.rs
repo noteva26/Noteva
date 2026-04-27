@@ -256,11 +256,24 @@ impl UserService {
         ip: Option<String>,
         user_agent: Option<String>,
     ) -> Result<Session, UserServiceError> {
+        let user = self.authenticate_login(&input, ip.clone()).await?;
+        self.create_login_session(&user, ip, user_agent).await
+    }
+
+    /// Validate login credentials without creating a session.
+    ///
+    /// This is used by two-factor authentication so a usable session is not
+    /// issued until the TOTP challenge has been completed.
+    pub async fn authenticate_login(
+        &self,
+        input: &LoginInput,
+        ip: Option<String>,
+    ) -> Result<User, UserServiceError> {
         // Trigger user_login_before hook
         let hook_data = self.trigger_hook(
             hook_names::USER_LOGIN_BEFORE,
             json!({
-                "username_or_email": input.username_or_email,
+                "username_or_email": input.username_or_email.clone(),
                 "ip": ip,
             }),
         );
@@ -287,7 +300,7 @@ impl UserService {
                 self.trigger_hook(
                     hook_names::USER_LOGIN_FAILED,
                     json!({
-                        "username_or_email": input.username_or_email,
+                        "username_or_email": input.username_or_email.clone(),
                         "reason": "user_not_found",
                         "ip": ip,
                     }),
@@ -304,7 +317,7 @@ impl UserService {
             self.trigger_hook(
                 hook_names::USER_LOGIN_FAILED,
                 json!({
-                    "username_or_email": input.username_or_email,
+                    "username_or_email": input.username_or_email.clone(),
                     "user_id": user.id,
                     "reason": "invalid_password",
                     "ip": ip,
@@ -321,7 +334,7 @@ impl UserService {
             self.trigger_hook(
                 hook_names::USER_LOGIN_FAILED,
                 json!({
-                    "username_or_email": input.username_or_email,
+                    "username_or_email": input.username_or_email.clone(),
                     "user_id": user.id,
                     "reason": "user_banned",
                     "ip": ip,
@@ -332,7 +345,16 @@ impl UserService {
             ));
         }
 
-        // Create session
+        Ok(user)
+    }
+
+    /// Create a login session after credentials and any required second factor are complete.
+    pub async fn create_login_session(
+        &self,
+        user: &User,
+        ip: Option<String>,
+        user_agent: Option<String>,
+    ) -> Result<Session, UserServiceError> {
         let session = self.create_session(user.id).await?;
 
         // Trigger user_login_after hook

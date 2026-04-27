@@ -249,9 +249,15 @@ pub async fn restore_backup(
     // Restore uploads directory
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
-        let name = file.name().to_string();
-        if name.starts_with("uploads/") && !file.is_dir() {
-            let rel = name.strip_prefix("uploads/").unwrap_or(&name);
+        let Some(enclosed_name) = file.enclosed_name().map(|p| p.to_owned()) else {
+            warn!(name = file.name(), "skipping unsafe backup entry path");
+            continue;
+        };
+        if enclosed_name.starts_with("uploads") && !file.is_dir() {
+            let rel = match enclosed_name.strip_prefix("uploads") {
+                Ok(rel) if !rel.as_os_str().is_empty() => rel,
+                _ => continue,
+            };
             let dest = upload_dir.join(rel);
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;

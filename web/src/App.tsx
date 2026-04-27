@@ -13,8 +13,7 @@ const DashboardPage = lazy(managePageLoaders.dashboard);
 const ArticlesPage = lazy(managePageLoaders.articles);
 const ArticleNewPage = lazy(managePageLoaders.articleNew);
 const ArticleEditPage = lazy(managePageLoaders.articleEdit);
-const CategoriesPage = lazy(managePageLoaders.categories);
-const TagsPage = lazy(managePageLoaders.tags);
+const TaxonomyPage = lazy(managePageLoaders.taxonomy);
 const PagesPage = lazy(managePageLoaders.pages);
 const NavPage = lazy(managePageLoaders.nav);
 const CommentsPage = lazy(managePageLoaders.comments);
@@ -50,8 +49,9 @@ export default function App() {
             <Route path="articles" element={<ArticlesPage />} />
             <Route path="articles/new" element={<ArticleNewPage />} />
             <Route path="articles/:id" element={<ArticleEditPage />} />
-            <Route path="categories" element={<CategoriesPage />} />
-            <Route path="tags" element={<TagsPage />} />
+            <Route path="taxonomy" element={<TaxonomyPage />} />
+            <Route path="categories" element={<Navigate to="/manage/taxonomy" replace />} />
+            <Route path="tags" element={<Navigate to="/manage/taxonomy" replace />} />
             <Route path="pages" element={<PagesPage />} />
             <Route path="nav" element={<NavPage />} />
             <Route path="comments" element={<CommentsPage />} />

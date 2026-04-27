@@ -103,6 +103,15 @@ fn parse_article_status_filter(status: Option<&str>) -> Result<Option<ArticleSta
     }
 }
 
+fn parse_article_status_input(status: Option<&str>) -> Result<Option<ArticleStatus>, ApiError> {
+    match status {
+        None | Some("") => Ok(None),
+        Some(value) => ArticleStatus::from_str(value).map(Some).ok_or_else(|| {
+            ApiError::validation_error(format!("Invalid article status: {}", value))
+        }),
+    }
+}
+
 /// Build the public articles router (read-only)
 pub fn public_router() -> Router<AppState> {
     Router::new()
@@ -122,6 +131,7 @@ pub use delete_article as delete_article_handler;
 pub use get_article as get_article_handler;
 pub use get_article_by_id as get_article_by_id_handler;
 pub use list_articles as list_articles_handler;
+pub use list_articles_admin as list_articles_admin_handler;
 pub use resolve_article as resolve_article_handler;
 pub use update_article as update_article_handler;
 
@@ -142,15 +152,33 @@ pub async fn list_articles(
     State(state): State<AppState>,
     Query(query): Query<ListArticlesQuery>,
 ) -> Result<Json<PaginatedArticlesResponse>, ApiError> {
+    list_articles_inner(state, query, true).await
+}
+
+/// GET /api/v1/admin/articles - List articles for admin management.
+pub async fn list_articles_admin(
+    _user: AuthenticatedUser,
+    State(state): State<AppState>,
+    Query(query): Query<ListArticlesQuery>,
+) -> Result<Json<PaginatedArticlesResponse>, ApiError> {
+    list_articles_inner(state, query, false).await
+}
+
+async fn list_articles_inner(
+    state: AppState,
+    query: ListArticlesQuery,
+    public_only: bool,
+) -> Result<Json<PaginatedArticlesResponse>, ApiError> {
     let params = ListParams::new(query.page, query.page_size);
 
-    let status_filter = parse_article_status_filter(query.status.as_deref())?;
-    let status_filter = if query.published_only {
+    let status_filter = if public_only {
+        Some(ArticleStatus::Published)
+    } else if query.published_only {
         Some(ArticleStatus::Published)
     } else {
-        status_filter
+        parse_article_status_filter(query.status.as_deref())?
     };
-    let filter_published = status_filter == Some(ArticleStatus::Published);
+    let filter_published = public_only || status_filter == Some(ArticleStatus::Published);
 
     // Resolve category: try as ID first, then as slug
     let category_id = if let Some(ref cat) = query.category {
@@ -200,18 +228,39 @@ pub async fn list_articles(
             .map_err(|e| ApiError::internal_error(e.to_string()))?
     } else if let Some(cat_id) = category_id {
         // Filter by category
-        state
-            .article_service
-            .list_by_category(cat_id, &params, sort_by)
-            .await
-            .map_err(|e| ApiError::internal_error(e.to_string()))?
+        if filter_published {
+            let category_ids = state
+                .category_service
+                .get_all_descendants(cat_id)
+                .await
+                .map_err(|e| ApiError::internal_error(e.to_string()))?;
+            state
+                .article_service
+                .list_published_by_category_ids(&category_ids, &params, sort_by)
+                .await
+                .map_err(|e| ApiError::internal_error(e.to_string()))?
+        } else {
+            state
+                .article_service
+                .list_by_category(cat_id, &params, sort_by)
+                .await
+                .map_err(|e| ApiError::internal_error(e.to_string()))?
+        }
     } else if let Some(t_id) = tag_id {
         // Filter by tag
-        state
-            .article_service
-            .list_by_tag(t_id, &params, sort_by)
-            .await
-            .map_err(|e| ApiError::internal_error(e.to_string()))?
+        if filter_published {
+            state
+                .article_service
+                .list_published_by_tag(t_id, &params, sort_by)
+                .await
+                .map_err(|e| ApiError::internal_error(e.to_string()))?
+        } else {
+            state
+                .article_service
+                .list_by_tag(t_id, &params, sort_by)
+                .await
+                .map_err(|e| ApiError::internal_error(e.to_string()))?
+        }
     } else if filter_published {
         state
             .article_service
@@ -566,10 +615,19 @@ pub async fn create_article(
     user: AuthenticatedUser,
     Json(body): Json<CreateArticleRequest>,
 ) -> Result<(StatusCode, Json<ArticleResponse>), ApiError> {
-    let status = body
-        .status
-        .as_ref()
-        .and_then(|s| ArticleStatus::from_str(s));
+    let status = parse_article_status_input(body.status.as_deref())?;
+    let category_id = match body.category_id {
+        Some(id) => id,
+        None => {
+            state
+                .category_service
+                .get_default()
+                .await
+                .map_err(|e| ApiError::internal_error(e.to_string()))?
+                .ok_or_else(|| ApiError::internal_error("Default category not found"))?
+                .id
+        }
+    };
 
     let scheduled_at = body
         .scheduled_at
@@ -584,7 +642,7 @@ pub async fn create_article(
         content_html: None,
         slug: body.slug,
         author_id: user.0.id,
-        category_id: body.category_id.unwrap_or(1), // Default category
+        category_id,
         status,
         scheduled_at,
     };
@@ -634,10 +692,7 @@ pub async fn update_article(
         ));
     }
 
-    let status = body
-        .status
-        .as_ref()
-        .and_then(|s| ArticleStatus::from_str(s));
+    let status = parse_article_status_input(body.status.as_deref())?;
 
     let scheduled_at = match body.scheduled_at {
         Some(Some(value)) if value.trim().is_empty() => Some(None),

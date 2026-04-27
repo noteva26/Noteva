@@ -16,7 +16,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { defaultKeymap, history, historyKeymap, undo, redo } from "@codemirror/commands";
 import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
-import { uploadApi, filesApi, type FileInfo } from "@/lib/api";
+import { api, uploadApi, filesApi, type FileInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2 } from "lucide-react";
@@ -171,6 +171,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         const [libraryFiles, setLibraryFiles] = useState<FileInfo[]>([]);
         const [libraryLoading, setLibraryLoading] = useState(false);
         const [librarySearch, setLibrarySearch] = useState("");
+        const libraryRequestIdRef = useRef(0);
+        const librarySearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         // Image resize state
         const [pendingImage, setPendingImage] = useState<{ name: string; url: string } | null>(null);
         const [imageSize, setImageSize] = useState<string>("100%");
@@ -210,13 +212,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 previewAbortRef.current = controller;
                 setPreviewLoading(true);
                 try {
-                    const res = await fetch("/api/v1/site/render", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ content }),
+                    const { data } = await api.post<{ html: string }>("/site/render", { content }, {
                         signal: controller.signal,
                     });
-                    const data = await res.json();
                     if (requestId !== previewRequestIdRef.current) return;
                     setPreviewHtml(data.html || "");
                 } catch {
@@ -238,6 +236,15 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 previewAbortRef.current?.abort();
                 if (previewTimerRef.current) {
                     clearTimeout(previewTimerRef.current);
+                }
+            };
+        }, []);
+
+        useEffect(() => {
+            return () => {
+                libraryRequestIdRef.current += 1;
+                if (librarySearchTimerRef.current) {
+                    clearTimeout(librarySearchTimerRef.current);
                 }
             };
         }, []);
@@ -440,15 +447,31 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
 
         // Load library files
         const loadLibraryFiles = async (search?: string) => {
+            const requestId = ++libraryRequestIdRef.current;
             setLibraryLoading(true);
             try {
                 const res = await filesApi.list({ search: search || undefined });
-                setLibraryFiles(res.data.files);
+                if (requestId === libraryRequestIdRef.current) {
+                    setLibraryFiles(res.data.files);
+                }
             } catch {
-                setLibraryFiles([]);
+                if (requestId === libraryRequestIdRef.current) {
+                    setLibraryFiles([]);
+                }
             } finally {
-                setLibraryLoading(false);
+                if (requestId === libraryRequestIdRef.current) {
+                    setLibraryLoading(false);
+                }
             }
+        };
+
+        const scheduleLibrarySearch = (search: string) => {
+            if (librarySearchTimerRef.current) {
+                clearTimeout(librarySearchTimerRef.current);
+            }
+            librarySearchTimerRef.current = setTimeout(() => {
+                void loadLibraryFiles(search.trim());
+            }, 250);
         };
 
         // Insert file from library
@@ -705,7 +728,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                                                         value={librarySearch}
                                                         onChange={(e) => {
                                                             setLibrarySearch(e.target.value);
-                                                            loadLibraryFiles(e.target.value);
+                                                            scheduleLibrarySearch(e.target.value);
                                                         }}
                                                     />
                                                     <div className="max-h-48 overflow-y-auto space-y-1">

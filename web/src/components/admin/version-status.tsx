@@ -30,57 +30,40 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 
-const CACHE_KEY = "noteva-update-check";
-const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const LEGACY_CACHE_KEY = "noteva-update-check";
+const POST_UPDATE_TARGET_KEY = "noteva-post-update-target";
 const RELEASES_URL = "https://github.com/noteva26/Noteva/releases";
-
-interface CachedUpdateCheck {
-  checkedAt: number;
-  info: UpdateCheckResponse;
-}
-
-function readCachedUpdate(): CachedUpdateCheck | null {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<CachedUpdateCheck>;
-    if (!parsed.checkedAt || !parsed.info) return null;
-    return parsed as CachedUpdateCheck;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedUpdate(info: UpdateCheckResponse) {
-  if (info.error) return;
-  localStorage.setItem(
-    CACHE_KEY,
-    JSON.stringify({
-      checkedAt: Date.now(),
-      info,
-    } satisfies CachedUpdateCheck)
-  );
-}
 
 function normalizeVersion(version: string | null | undefined) {
   if (!version) return "";
   return version.startsWith("v") ? version : `v${version}`;
 }
 
+function clearCachedUpdate() {
+  localStorage.removeItem(LEGACY_CACHE_KEY);
+}
+
+function readPostUpdateTarget() {
+  return localStorage.getItem(POST_UPDATE_TARGET_KEY);
+}
+
+function writePostUpdateTarget(version: string) {
+  localStorage.setItem(POST_UPDATE_TARGET_KEY, normalizeVersion(version));
+}
+
+function clearPostUpdateTarget() {
+  localStorage.removeItem(POST_UPDATE_TARGET_KEY);
+}
+
 export function VersionStatus() {
   const { t } = useTranslation();
-  const cached = useMemo(readCachedUpdate, []);
   const [open, setOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [checking, setChecking] = useState(false);
   const [performingUpdate, setPerformingUpdate] = useState(false);
   const [updateRestarting, setUpdateRestarting] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(
-    () => cached?.info ?? null
-  );
-  const [checkedAt, setCheckedAt] = useState<number | null>(
-    () => cached?.checkedAt ?? null
-  );
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null);
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const autoCheckedRef = useRef(false);
 
   const currentVersion = normalizeVersion(updateInfo?.current_version || packageInfo.version);
@@ -163,7 +146,6 @@ export function VersionStatus() {
         const now = Date.now();
         setUpdateInfo(data);
         setCheckedAt(now);
-        writeCachedUpdate(data);
 
         if (!silent) {
           if (data.error) {
@@ -205,36 +187,48 @@ export function VersionStatus() {
     if (autoCheckedRef.current) return;
     autoCheckedRef.current = true;
 
-    const cachedUpdate = readCachedUpdate();
-    if (cachedUpdate && Date.now() - cachedUpdate.checkedAt < CACHE_TTL_MS) {
-      return;
+    const postUpdateTarget = readPostUpdateTarget();
+    if (postUpdateTarget) {
+      clearCachedUpdate();
+      setUpdateInfo(null);
+      setCheckedAt(null);
+
+      const timer = window.setTimeout(async () => {
+        await checkUpdate(true);
+        clearPostUpdateTarget();
+      }, 800);
+
+      return () => window.clearTimeout(timer);
     }
 
-    const timer = window.setTimeout(() => {
-      void checkUpdate(true);
-    }, 1800);
-
-    return () => window.clearTimeout(timer);
+    clearCachedUpdate();
+    void checkUpdate(true);
   }, [checkUpdate]);
 
   useEffect(() => {
     if (!updateRestarting) return;
 
     let cancelled = false;
+    const targetVersion = readPostUpdateTarget();
     const poll = async () => {
       await new Promise((resolve) => window.setTimeout(resolve, 5000));
       while (!cancelled) {
         try {
-          await fetch("/api/v1/site/info", { cache: "no-store" });
-          if (!cancelled) {
+          const { data } = await adminApi.checkUpdate();
+          const restartedToTarget =
+            !targetVersion || normalizeVersion(data.current_version) === targetVersion;
+          if (!cancelled && restartedToTarget) {
+            clearCachedUpdate();
+            clearPostUpdateTarget();
             toast.success(t("settings.updateRestartDone"));
             await new Promise((resolve) => window.setTimeout(resolve, 1500));
             window.location.reload();
+            return;
           }
-          return;
         } catch {
-          await new Promise((resolve) => window.setTimeout(resolve, 3000));
+          // Server is likely still restarting.
         }
+        await new Promise((resolve) => window.setTimeout(resolve, 3000));
       }
     };
 
@@ -258,14 +252,18 @@ export function VersionStatus() {
   const handleConfirmUpdate = useCallback(async () => {
     if (!updateInfo?.latest_version) return;
 
+    const targetVersion = updateInfo.latest_version;
     setConfirmOpen(false);
     setOpen(false);
     setPerformingUpdate(true);
+    clearCachedUpdate();
+    writePostUpdateTarget(targetVersion);
     try {
-      await adminApi.performUpdate(updateInfo.latest_version);
+      await adminApi.performUpdate(targetVersion);
       toast.success(t("settings.updateSuccess"));
       setUpdateRestarting(true);
     } catch (error) {
+      clearPostUpdateTarget();
       toast.error(getApiErrorMessage(error, t("settings.updateFailed")));
     } finally {
       setPerformingUpdate(false);

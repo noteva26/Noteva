@@ -8,6 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
+use crate::services::category::CategoryServiceError;
 use serde_json::json;
 
 /// Request for creating/updating a category
@@ -17,8 +18,31 @@ pub struct CategoryRequest {
     #[serde(default)]
     pub slug: String,
     pub description: Option<String>,
-    #[allow(dead_code)]
-    pub parent_id: Option<i64>,
+    #[serde(default)]
+    pub parent_id: Option<Option<i64>>,
+}
+
+fn map_category_error(error: CategoryServiceError) -> ApiError {
+    match error {
+        CategoryServiceError::DuplicateName(name) => ApiError::with_details(
+            "CONFLICT",
+            format!("Category name already exists: {}", name),
+            json!({}),
+        ),
+        CategoryServiceError::DuplicateSlug(slug) => ApiError::with_details(
+            "CONFLICT",
+            format!("Category slug already exists: {}", slug),
+            json!({}),
+        ),
+        CategoryServiceError::NotFound(message) => ApiError::not_found(message),
+        CategoryServiceError::ParentNotFound(id) => {
+            ApiError::not_found(format!("Parent category not found: {}", id))
+        }
+        CategoryServiceError::CannotDeleteDefault
+        | CategoryServiceError::ValidationError(_)
+        | CategoryServiceError::CircularReference => ApiError::validation_error(error.to_string()),
+        CategoryServiceError::InternalError(_) => ApiError::internal_error(error.to_string()),
+    }
 }
 
 /// Response for a category
@@ -88,12 +112,17 @@ pub async fn create_category(
     } else {
         input
     };
+    let input = if let Some(Some(parent_id)) = body.parent_id {
+        input.with_parent(parent_id)
+    } else {
+        input
+    };
 
     let category = state
         .category_service
         .create(input)
         .await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+        .map_err(map_category_error)?;
 
     // Hook: category_after_create
     state.hook_manager.trigger(
@@ -122,12 +151,15 @@ pub async fn update_category(
     if let Some(desc) = body.description {
         input = input.with_description(Some(desc));
     }
+    if let Some(parent_id) = body.parent_id {
+        input = input.with_parent(parent_id);
+    }
 
     let category = state
         .category_service
         .update(id, input)
         .await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+        .map_err(map_category_error)?;
 
     Ok(Json(category.into()))
 }
@@ -144,7 +176,7 @@ pub async fn delete_category(
         .category_service
         .delete(id)
         .await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+        .map_err(map_category_error)?;
 
     // Hook: category_after_delete
     state

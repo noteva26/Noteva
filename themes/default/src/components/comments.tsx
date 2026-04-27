@@ -102,13 +102,27 @@ function getCommentIndentClass(depth: number) {
   return "mt-4";
 }
 
-function getSubmitErrorMessage(error: unknown, fallback: string) {
-  if (typeof error !== "object" || error === null || !("data" in error)) {
-    return fallback;
+function readErrorMessage(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value.trim() ? value : null;
   }
 
-  const data = (error as { data?: { error?: unknown } }).data;
-  return typeof data?.error === "string" ? data.error : fallback;
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const direct = readErrorMessage(record.message);
+  if (direct) return direct;
+
+  const error = readErrorMessage(record.error);
+  if (error) return error;
+
+  return readErrorMessage(record.data);
+}
+
+function getSubmitErrorMessage(error: unknown, fallback: string) {
+  return readErrorMessage(error) || fallback;
 }
 
 export function Comments({ articleId, authorId }: CommentsProps) {

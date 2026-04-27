@@ -500,6 +500,31 @@ impl ArticleService {
         Ok(PagedResult::new(articles, total, params))
     }
 
+    /// List published articles by multiple category IDs with pagination.
+    pub async fn list_published_by_category_ids(
+        &self,
+        category_ids: &[i64],
+        params: &ListParams,
+        sort_by: ArticleSortBy,
+    ) -> Result<PagedResult<Article>, ArticleServiceError> {
+        let offset = params.offset();
+        let limit = params.limit();
+
+        let articles = self
+            .repo
+            .list_published_by_category_ids(category_ids, offset, limit, sort_by)
+            .await
+            .context("Failed to list published articles by category")?;
+
+        let total = self
+            .repo
+            .count_published_by_category_ids(category_ids)
+            .await
+            .context("Failed to count published articles by category")?;
+
+        Ok(PagedResult::new(articles, total, params))
+    }
+
     /// List articles by tag with pagination
     ///
     /// # Arguments
@@ -528,6 +553,31 @@ impl ArticleService {
             .count_by_tag(tag_id)
             .await
             .context("Failed to count articles by tag")?;
+
+        Ok(PagedResult::new(articles, total, params))
+    }
+
+    /// List published articles by tag with pagination.
+    pub async fn list_published_by_tag(
+        &self,
+        tag_id: i64,
+        params: &ListParams,
+        sort_by: ArticleSortBy,
+    ) -> Result<PagedResult<Article>, ArticleServiceError> {
+        let offset = params.offset();
+        let limit = params.limit();
+
+        let articles = self
+            .repo
+            .list_published_by_tag(tag_id, offset, limit, sort_by)
+            .await
+            .context("Failed to list published articles by tag")?;
+
+        let total = self
+            .repo
+            .count_published_by_tag(tag_id)
+            .await
+            .context("Failed to count published articles by tag")?;
 
         Ok(PagedResult::new(articles, total, params))
     }

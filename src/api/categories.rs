@@ -89,10 +89,15 @@ async fn get_category_articles(
         .ok_or_else(|| ApiError::not_found(format!("Category not found: {}", slug)))?;
 
     let params = ListParams::new(query.page, query.page_size);
+    let category_ids = state
+        .category_service
+        .get_all_descendants(category.id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     let result = state
         .article_service
-        .list_by_category(category.id, &params, ArticleSortBy::default())
+        .list_published_by_category_ids(&category_ids, &params, ArticleSortBy::default())
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 

@@ -11,6 +11,7 @@ import {
   waitForNoteva,
   type NotevaArticle,
 } from "@/hooks/useNoteva";
+import { fetchAllArticles } from "@/lib/articles";
 import { useI18nStore, useTranslation } from "@/lib/i18n";
 
 interface ArchiveGroup {
@@ -92,10 +93,10 @@ export default function ArchivesPage() {
       }
 
       try {
-        const result = await noteva.articles.list({ pageSize: 100 });
+        const articles = await fetchAllArticles(noteva);
         if (!active) return;
 
-        setArchives(groupByYearMonth(result.articles || []));
+        setArchives(groupByYearMonth(articles));
       } catch {
         if (active) setArchives([]);
       } finally {

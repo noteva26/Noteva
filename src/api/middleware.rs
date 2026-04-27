@@ -16,6 +16,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -82,6 +83,18 @@ impl Default for RequestStats {
     }
 }
 
+/// Pending login state for accounts that must pass TOTP before a real session is issued.
+#[derive(Debug, Clone)]
+pub struct TwoFactorLoginChallenge {
+    pub user_id: i64,
+    pub expires_at: Instant,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+pub type TwoFactorChallengeStore =
+    Arc<tokio::sync::RwLock<HashMap<String, TwoFactorLoginChallenge>>>;
+
 /// Application state containing shared services
 #[derive(Clone)]
 pub struct AppState {
@@ -104,6 +117,7 @@ pub struct AppState {
     pub rate_limiter: Arc<crate::services::LoginRateLimiter>,
     pub wasm_runtime: Arc<tokio::sync::RwLock<crate::plugin::PluginRuntime>>,
     pub wasm_registry: Arc<tokio::sync::RwLock<crate::plugin::wasm_bridge::WasmPluginRegistry>>,
+    pub two_factor_challenges: TwoFactorChallengeStore,
     pub store_url: Option<String>,
 }
 
@@ -485,12 +499,10 @@ pub async fn csrf_protection(request: Request, next: Next) -> Result<Response, A
     let csrf_exempt = [
         "/api/v1/auth/login",
         "/api/v1/auth/register",
-        "/api/v1/auth/logout",
         "/api/v1/auth/has-admin",
         "/api/v1/comments",      // public comment posting (uses its own auth)
         "/api/v1/like",          // public like
         "/api/v1/view/",         // public view count
-        "/api/v1/site/render",   // markdown preview
         "/api/v1/plugins/proxy", // plugin proxy
     ];
 

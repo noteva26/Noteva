@@ -8,7 +8,6 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use tokio::fs;
 
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
@@ -246,11 +245,17 @@ pub async fn delete_file(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let upload_path = &state.upload_config.path;
 
-    // Sanitize filename to prevent path traversal
-    let safe_name = PathBuf::from(&filename)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .ok_or_else(|| ApiError::validation_error("Invalid filename"))?;
+    if filename.is_empty()
+        || filename == "."
+        || filename == ".."
+        || filename.contains("..")
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename.contains(':')
+    {
+        return Err(ApiError::validation_error("Invalid filename"));
+    }
+    let safe_name = filename;
 
     let file_path = upload_path.join(&safe_name);
 

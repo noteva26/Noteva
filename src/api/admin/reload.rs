@@ -10,7 +10,10 @@ use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 pub struct ReloadResponse {
     pub success: bool,
     pub message: String,
-    pub plugin_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme_count: Option<usize>,
 }
 
 /// POST /api/v1/admin/plugins/reload - Reload plugins from disk
@@ -34,7 +37,8 @@ pub async fn reload_plugins(
     Ok(Json(ReloadResponse {
         success: true,
         message: "Plugins reloaded successfully".to_string(),
-        plugin_count,
+        plugin_count: Some(plugin_count),
+        theme_count: None,
     }))
 }
 
@@ -61,6 +65,7 @@ pub async fn reload_themes(
     Ok(Json(ReloadResponse {
         success: true,
         message: "Themes reloaded successfully".to_string(),
-        plugin_count: theme_count,
+        plugin_count: None,
+        theme_count: Some(theme_count),
     }))
 }

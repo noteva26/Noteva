@@ -21,6 +21,41 @@
     }
   }
 
+  const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+  function getCookie(name) {
+    if (typeof document === 'undefined' || !document.cookie) return '';
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = document.cookie.match(new RegExp(`(?:^|; )${escapedName}=([^;]*)`));
+    return match ? decodeURIComponent(match[1]) : '';
+  }
+
+  function csrfHeaders(method) {
+    if (!MUTATION_METHODS.has(String(method || 'GET').toUpperCase())) return {};
+    const token = getCookie('csrf_token');
+    return token ? { 'X-CSRF-Token': token } : {};
+  }
+
+  function extractErrorMessage(result, fallback) {
+    if (typeof result === 'string' && result.trim()) return result;
+    if (!result || typeof result !== 'object') return fallback;
+
+    if (typeof result.message === 'string' && result.message.trim()) {
+      return result.message;
+    }
+
+    if (typeof result.error === 'string' && result.error.trim()) {
+      return result.error;
+    }
+
+    if (result.error && typeof result.error === 'object') {
+      const message = result.error.message || result.error.error;
+      if (typeof message === 'string' && message.trim()) return message;
+    }
+
+    return fallback;
+  }
+
   // ============================================
   // 钩子系统
   // ============================================
@@ -138,6 +173,7 @@
       headers: {
         'Content-Type': 'application/json',
         ...options.headers,
+        ...csrfHeaders(method),
       },
       credentials: 'include',
     };
@@ -157,7 +193,7 @@
       hooks.trigger('api_request_after', { method, url, response, result });
 
       if (!response.ok) {
-        throw new NotevaError(result.message || result.error || `HTTP ${response.status}`, {
+        throw new NotevaError(extractErrorMessage(result, `HTTP ${response.status}`), {
           status: response.status,
           code: result.code,
           data: result,
@@ -1445,13 +1481,14 @@
 
     const response = await fetch(API_BASE + url, {
       method: 'POST',
+      headers: csrfHeaders('POST'),
       body: formData,
       credentials: 'include',
     });
 
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new NotevaError(result.message || result.error?.message || result.error || `HTTP ${response.status}`, {
+      throw new NotevaError(extractErrorMessage(result, `HTTP ${response.status}`), {
         status: response.status,
         code: result.code,
         data: result,
@@ -1901,6 +1938,7 @@
           headers['Content-Type'] = 'application/json';
         }
       }
+      Object.assign(headers, csrfHeaders(method));
 
       hooks.trigger('api_request_before', { method, url, data: body });
 
@@ -1920,9 +1958,10 @@
 
         if (!response.ok) {
           throw new NotevaError(
-            result?.message || result?.error || `HTTP ${response.status}`,
+            extractErrorMessage(result, `HTTP ${response.status}`),
             {
               status: response.status,
+              code: result?.code || result?.error?.code || null,
               data: result,
               url,
               method,
@@ -2698,7 +2737,7 @@
   // ============================================
   window.Noteva = {
     // 版本
-    version: '0.2.8',
+    version: '0.2.9',
     sdkVersion: SDK_VERSION,
 
     // 核心系统

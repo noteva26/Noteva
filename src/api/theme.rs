@@ -128,14 +128,15 @@ pub async fn get_theme_settings_public(
         })?;
 
         let name = theme_engine.get_current_theme().to_string();
-        let schema = theme_engine
-            .get_settings_schema(&name)
-            .unwrap_or(serde_json::json!({}));
+        let schema = match theme_engine.get_settings_schema(&name) {
+            Some(schema) => schema,
+            None => return Ok(Json(serde_json::json!({}))),
+        };
         (name, schema)
     };
 
-    // Collect secret field IDs to exclude them
-    let mut secret_fields = std::collections::HashSet::new();
+    // Collect public field IDs; undeclared fields are not exposed publicly.
+    let mut public_fields = std::collections::HashSet::new();
     let mut public_defaults = serde_json::Map::new();
     if let Some(sections) = schema.get("sections").and_then(|s| s.as_array()) {
         for section in sections {
@@ -147,10 +148,10 @@ pub async fn get_theme_settings_public(
                             .and_then(|s| s.as_bool())
                             .unwrap_or(false)
                         {
-                            secret_fields.insert(id.to_string());
                             continue;
                         }
 
+                        public_fields.insert(id.to_string());
                         if let Some(default_value) = field.get("default") {
                             public_defaults.insert(id.to_string(), default_value.clone());
                         }
@@ -171,10 +172,10 @@ pub async fn get_theme_settings_public(
     let mut values = public_defaults;
     for (field_id, value) in all_settings.into_iter().filter_map(|(k, v)| {
         k.strip_prefix(&prefix).and_then(|field_id| {
-            if secret_fields.contains(field_id) {
-                None // Exclude secret fields
-            } else {
+            if public_fields.contains(field_id) {
                 Some((field_id.to_string(), v))
+            } else {
+                None
             }
         })
     }) {

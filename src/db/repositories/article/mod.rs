@@ -82,6 +82,30 @@ pub trait ArticleRepository: Send + Sync {
     /// Count published articles
     async fn count_published(&self) -> Result<i64>;
 
+    /// List published articles in any of the provided categories.
+    async fn list_published_by_category_ids(
+        &self,
+        category_ids: &[i64],
+        offset: i64,
+        limit: i64,
+        sort_by: ArticleSortBy,
+    ) -> Result<Vec<Article>>;
+
+    /// Count published articles in any of the provided categories.
+    async fn count_published_by_category_ids(&self, category_ids: &[i64]) -> Result<i64>;
+
+    /// List published articles with a tag.
+    async fn list_published_by_tag(
+        &self,
+        tag_id: i64,
+        offset: i64,
+        limit: i64,
+        sort_by: ArticleSortBy,
+    ) -> Result<Vec<Article>>;
+
+    /// Count published articles with a tag.
+    async fn count_published_by_tag(&self, tag_id: i64) -> Result<i64>;
+
     /// List articles by status with pagination
     async fn list_by_status(
         &self,
@@ -238,6 +262,48 @@ impl ArticleRepository for SqlxArticleRepository {
 
     async fn count_published(&self) -> Result<i64> {
         dispatch!(self, count_published)
+    }
+
+    async fn list_published_by_category_ids(
+        &self,
+        category_ids: &[i64],
+        offset: i64,
+        limit: i64,
+        sort_by: ArticleSortBy,
+    ) -> Result<Vec<Article>> {
+        dispatch!(
+            self,
+            list_published_articles_by_category_ids,
+            category_ids,
+            offset,
+            limit,
+            sort_by
+        )
+    }
+
+    async fn count_published_by_category_ids(&self, category_ids: &[i64]) -> Result<i64> {
+        dispatch!(self, count_published_by_category_ids, category_ids)
+    }
+
+    async fn list_published_by_tag(
+        &self,
+        tag_id: i64,
+        offset: i64,
+        limit: i64,
+        sort_by: ArticleSortBy,
+    ) -> Result<Vec<Article>> {
+        dispatch!(
+            self,
+            list_published_articles_by_tag,
+            tag_id,
+            offset,
+            limit,
+            sort_by
+        )
+    }
+
+    async fn count_published_by_tag(&self, tag_id: i64) -> Result<i64> {
+        dispatch!(self, count_published_by_tag, tag_id)
     }
 
     async fn list_by_status(
@@ -443,12 +509,54 @@ impl_dual_fn! {
 }
 
 impl_dual_fn! {
+    pub(super) async fn count_published_by_category_ids(pool, category_ids: &[i64]) -> Result<i64> {
+        if category_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let placeholders = std::iter::repeat("?")
+            .take(category_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!(
+            "SELECT COUNT(*) as count FROM articles WHERE status = 'published' AND category_id IN ({})",
+            placeholders
+        );
+        let mut query = sqlx::query(&query);
+        for category_id in category_ids {
+            query = query.bind(category_id);
+        }
+
+        let row = query
+            .fetch_one(pool)
+            .await
+            .context("Failed to count published articles by category")?;
+        Ok(row.get("count"))
+    }
+}
+
+impl_dual_fn! {
     pub(super) async fn count_by_tag(pool, tag_id: i64) -> Result<i64> {
         let row = sqlx::query("SELECT COUNT(*) as count FROM article_tags WHERE tag_id = ?")
             .bind(tag_id)
             .fetch_one(pool)
             .await
             .context("Failed to count articles by tag")?;
+        Ok(row.get("count"))
+    }
+}
+
+impl_dual_fn! {
+    pub(super) async fn count_published_by_tag(pool, tag_id: i64) -> Result<i64> {
+        let row = sqlx::query(
+            "SELECT COUNT(*) as count \
+             FROM article_tags at INNER JOIN articles a ON a.id = at.article_id \
+             WHERE at.tag_id = ? AND a.status = 'published'",
+        )
+        .bind(tag_id)
+        .fetch_one(pool)
+        .await
+        .context("Failed to count published articles by tag")?;
         Ok(row.get("count"))
     }
 }

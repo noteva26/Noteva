@@ -59,6 +59,16 @@ const BUILTIN_I18N: Record<string, string> = {
   tags: "nav.tags",
 };
 
+function isSafeExternalHref(value: string): boolean {
+  const href = value.trim().toLowerCase();
+  return (
+    href.startsWith("http://") ||
+    href.startsWith("https://") ||
+    href.startsWith("mailto:") ||
+    href.startsWith("tel:")
+  );
+}
+
 function getInitialSiteInfo(): HeaderSiteInfo {
   const config = getInjectedSiteConfig();
   return {
@@ -204,7 +214,7 @@ export function SiteHeader() {
       case "page":
         return `/${targetUrl.replace(/^\/+/, "")}`;
       case "external":
-        return targetUrl;
+        return isSafeExternalHref(targetUrl) ? targetUrl : null;
       default:
         return targetUrl || "/";
     }

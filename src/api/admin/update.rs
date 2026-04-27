@@ -8,6 +8,8 @@ use sha2::Digest;
 
 /// App version constant - update when releasing
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MAX_UPDATE_ARCHIVE_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_UPDATE_BINARY_BYTES: usize = 100 * 1024 * 1024;
 
 /// Response for update check
 #[derive(Debug, Serialize)]
@@ -46,6 +48,8 @@ struct GitHubRelease {
 struct GitHubAsset {
     name: String,
     browser_download_url: String,
+    #[serde(default)]
+    size: Option<u64>,
 }
 
 /// Request for performing update
@@ -363,15 +367,41 @@ pub async fn perform_update(
         asset.browser_download_url
     );
 
+    if asset
+        .size
+        .is_some_and(|size| size > MAX_UPDATE_ARCHIVE_BYTES)
+    {
+        return Err(ApiError::validation_error(format!(
+            "Update package too large. Maximum size: {} MB",
+            MAX_UPDATE_ARCHIVE_BYTES / 1024 / 1024
+        )));
+    }
+
     // Download the archive
-    let archive_bytes = client
+    let response = client
         .get(&asset.browser_download_url)
         .send()
         .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to download: {}", e)))?
+        .map_err(|e| ApiError::internal_error(format!("Failed to download: {}", e)))?;
+    if response
+        .content_length()
+        .is_some_and(|len| len > MAX_UPDATE_ARCHIVE_BYTES)
+    {
+        return Err(ApiError::validation_error(format!(
+            "Update package too large. Maximum size: {} MB",
+            MAX_UPDATE_ARCHIVE_BYTES / 1024 / 1024
+        )));
+    }
+    let archive_bytes = response
         .bytes()
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to read download: {}", e)))?;
+    if archive_bytes.len() as u64 > MAX_UPDATE_ARCHIVE_BYTES {
+        return Err(ApiError::validation_error(format!(
+            "Update package too large. Maximum size: {} MB",
+            MAX_UPDATE_ARCHIVE_BYTES / 1024 / 1024
+        )));
+    }
 
     tracing::info!(
         "Downloaded {} bytes, verifying checksum...",
@@ -380,7 +410,7 @@ pub async fn perform_update(
 
     // SHA256 verification: try to download the .sha256 checksum file
     let checksum_url = format!("{}.sha256", asset.browser_download_url);
-    let checksum_ok = match client.get(&checksum_url).send().await {
+    match client.get(&checksum_url).send().await {
         Ok(resp) if resp.status().is_success() => {
             match resp.text().await {
                 Ok(checksum_text) => {
@@ -391,6 +421,11 @@ pub async fn perform_update(
                         .next()
                         .unwrap_or("")
                         .to_lowercase();
+                    if expected_hash.len() != 64
+                        || !expected_hash.chars().all(|ch| ch.is_ascii_hexdigit())
+                    {
+                        return Err(ApiError::validation_error("Invalid SHA256 checksum file"));
+                    }
 
                     // Compute SHA256 of downloaded archive
                     let mut hasher = sha2::Sha256::new();
@@ -399,7 +434,6 @@ pub async fn perform_update(
 
                     if expected_hash == actual_hash {
                         tracing::info!("SHA256 checksum verified: {}", actual_hash);
-                        true
                     } else {
                         return Err(ApiError::internal_error(format!(
                             "SHA256 mismatch! Expected: {}, Got: {}. Download may be corrupted.",
@@ -408,26 +442,29 @@ pub async fn perform_update(
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Could not read checksum file: {}", e);
-                    false
+                    return Err(ApiError::internal_error(format!(
+                        "Could not read checksum file: {}",
+                        e
+                    )));
                 }
             }
         }
         _ => {
-            tracing::warn!(
-                "No .sha256 checksum file available for this release, skipping verification"
-            );
-            false
+            return Err(ApiError::validation_error(
+                "Missing SHA256 checksum file for update asset",
+            ));
         }
-    };
-
-    if !checksum_ok {
-        tracing::warn!("Proceeding without checksum verification");
     }
 
     // Extract binary from archive
     let binary_data =
         extract_binary(&archive_bytes, asset_name).map_err(|e| ApiError::internal_error(e))?;
+    if binary_data.len() > MAX_UPDATE_BINARY_BYTES {
+        return Err(ApiError::validation_error(format!(
+            "Update binary too large. Maximum size: {} MB",
+            MAX_UPDATE_BINARY_BYTES / 1024 / 1024
+        )));
+    }
 
     // Get current executable path
     let self_path = std::env::current_exe()

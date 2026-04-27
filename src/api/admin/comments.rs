@@ -51,14 +51,16 @@ pub async fn list_comments(
     Query(query): Query<CommentsQuery>,
 ) -> Result<Json<AdminCommentsResponse>, ApiError> {
     let status_filter = query.status.as_deref().filter(|s| !s.is_empty());
+    let page = query.page.max(1);
+    let per_page = query.per_page.clamp(1, 100);
 
     let (comments, total) = state
         .comment_service
-        .list_all(status_filter, query.page, query.per_page)
+        .list_all(status_filter, page, per_page)
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
-    let total_pages = (total as f64 / query.per_page as f64).ceil() as i64;
+    let total_pages = (total as f64 / per_page as f64).ceil() as i64;
 
     let comments: Vec<AdminCommentResponse> = comments
         .into_iter()
@@ -77,8 +79,8 @@ pub async fn list_comments(
     Ok(Json(AdminCommentsResponse {
         comments,
         total,
-        page: query.page,
-        per_page: query.per_page,
+        page,
+        per_page,
         total_pages,
     }))
 }
@@ -89,13 +91,16 @@ pub async fn list_pending_comments(
     _user: AuthenticatedUser,
     Query(query): Query<CommentsQuery>,
 ) -> Result<Json<AdminCommentsResponse>, ApiError> {
+    let page = query.page.max(1);
+    let per_page = query.per_page.clamp(1, 100);
+
     let (comments, total) = state
         .comment_service
-        .list_pending(query.page, query.per_page)
+        .list_pending(page, per_page)
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
-    let total_pages = (total as f64 / query.per_page as f64).ceil() as i64;
+    let total_pages = (total as f64 / per_page as f64).ceil() as i64;
 
     let comments: Vec<AdminCommentResponse> = comments
         .into_iter()
@@ -114,8 +119,8 @@ pub async fn list_pending_comments(
     Ok(Json(AdminCommentsResponse {
         comments,
         total,
-        page: query.page,
-        per_page: query.per_page,
+        page,
+        per_page,
         total_pages,
     }))
 }

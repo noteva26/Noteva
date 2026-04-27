@@ -16,13 +16,15 @@ use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
 use crate::services::user::{LoginInput, RegisterInput, UserServiceError};
 use axum::{
-    extract::State,
+    extract::{ConnectInfo, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 
 /// Request body for user registration
 #[derive(Debug, Deserialize)]
@@ -122,6 +124,7 @@ pub struct HasAdminResponse {
 /// - 4.2: User registration
 async fn register(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(body): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -155,7 +158,7 @@ async fn register(
 
     // Create session for the new user
     let login_input = LoginInput::new(&user.username, &password);
-    let ip_addr = extract_ip_address(&headers);
+    let ip_addr = Some(addr.ip().to_string());
     let ua = headers
         .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
@@ -219,11 +222,12 @@ async fn register(
 /// Satisfies requirement 4.3: User login
 async fn login(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(body): Json<LoginRequest>,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Response, ApiError> {
     // Extract IP address and User-Agent
-    let ip_address = extract_ip_address(&headers);
+    let ip_address = Some(addr.ip().to_string());
     let user_agent = headers
         .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
@@ -274,9 +278,9 @@ async fn login(
 
     let input = LoginInput::new(body.username_or_email.clone(), body.password);
 
-    let session = state
+    let user = state
         .user_service
-        .login(input, ip_address.clone(), user_agent.clone())
+        .authenticate_login(&input, ip_address.clone())
         .await
         .map_err(|e| {
             // Record failed attempt
@@ -285,11 +289,11 @@ async fn login(
             let ua = user_agent.clone();
             let pool = state.pool.clone();
             let limiter = state.rate_limiter.clone();
-            
+
             // Determine error type before moving
             let is_banned = matches!(&e, UserServiceError::AuthenticationError(msg) if msg.contains("banned") || msg.contains("封禁"));
             let is_auth_error = matches!(&e, UserServiceError::AuthenticationError(_));
-            
+
             tokio::spawn(async move {
                 limiter.record_failed_attempt(&username).await;
                 let reason = if is_banned {
@@ -301,7 +305,7 @@ async fn login(
                 };
                 log_login_attempt(&pool, &username, ip.as_deref(), ua.as_deref(), false, Some(reason)).await;
             });
-            
+
             match e {
                 UserServiceError::AuthenticationError(msg) => {
                     // Check if it's a banned user error
@@ -315,15 +319,24 @@ async fn login(
             }
         })?;
 
-    let user = state
-        .user_service
-        .validate_session(&session.id)
-        .await
-        .map_err(|e| ApiError::internal_error(e.to_string()))?
-        .ok_or_else(|| ApiError::internal_error("Session validation failed"))?;
-
     // Check if 2FA is enabled — return challenge instead of full login
     if user.totp_enabled {
+        let challenge_token = crate::api::middleware::generate_csrf_token();
+        {
+            let mut challenges = state.two_factor_challenges.write().await;
+            let now = Instant::now();
+            challenges.retain(|_, challenge| challenge.expires_at > now);
+            challenges.insert(
+                challenge_token.clone(),
+                crate::api::middleware::TwoFactorLoginChallenge {
+                    user_id: user.id,
+                    expires_at: now + Duration::from_secs(5 * 60),
+                    ip_address: ip_address.clone(),
+                    user_agent: user_agent.clone(),
+                },
+            );
+        }
+
         // Clear failed attempts (password was correct)
         state
             .rate_limiter
@@ -341,10 +354,10 @@ async fn login(
 
         // Don't set cookies yet — user must complete 2FA first
         return Ok((
-            HeaderMap::new(),
-            Json(AuthResponse {
-                user: user.into(),
-                token: session.id,
+            StatusCode::ACCEPTED,
+            Json(crate::api::two_factor::TwoFactorChallengeResponse {
+                requires_2fa: true,
+                challenge_token,
             }),
         )
             .into_response());
@@ -377,6 +390,12 @@ async fn login(
 
     // Generate CSRF token
     let csrf_token = crate::api::middleware::generate_csrf_token();
+
+    let session = state
+        .user_service
+        .create_login_session(&user, ip_address, user_agent)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     // Set session cookie (httpOnly for security)
     let session_cookie = format!(
@@ -560,33 +579,6 @@ async fn change_password(
 // ============================================================================
 // Helper Functions for Security
 // ============================================================================
-
-/// Extract IP address from request headers
-/// Checks X-Forwarded-For, X-Real-IP, and falls back to connection info
-///
-/// **Security note**: X-Forwarded-For can be spoofed by clients when not
-/// behind a trusted reverse proxy. Only rely on this for rate limiting,
-/// not for security-critical access control.
-fn extract_ip_address(headers: &HeaderMap) -> Option<String> {
-    // Check X-Forwarded-For header (proxy/load balancer)
-    if let Some(forwarded) = headers.get("x-forwarded-for") {
-        if let Ok(forwarded_str) = forwarded.to_str() {
-            // Take the first IP in the list
-            if let Some(ip) = forwarded_str.split(',').next() {
-                return Some(ip.trim().to_string());
-            }
-        }
-    }
-
-    // Check X-Real-IP header
-    if let Some(real_ip) = headers.get("x-real-ip") {
-        if let Ok(ip_str) = real_ip.to_str() {
-            return Some(ip_str.to_string());
-        }
-    }
-
-    None
-}
 
 /// Log login attempt to database for security auditing
 async fn log_login_attempt(

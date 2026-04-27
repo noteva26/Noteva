@@ -76,8 +76,8 @@ export default function HomePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") || "";
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const normalizedSearchQuery = useMemo(
-    () => deferredSearchQuery.trim().toLowerCase(),
+  const queryKeyword = useMemo(
+    () => deferredSearchQuery.trim(),
     [deferredSearchQuery]
   );
   const currentPage = getPageParam(searchParams.get("page"));
@@ -167,11 +167,12 @@ export default function HomePage() {
       const result = await noteva.articles.list({
         page: currentPage,
         pageSize: PAGE_SIZE,
+        keyword: queryKeyword || undefined,
       });
 
       if (mountedRef.current) {
         setArticles(result.articles || []);
-        setTotalPages(Math.max(1, Math.ceil((result.total || 0) / PAGE_SIZE)));
+        setTotalPages(result.totalPages || Math.max(1, Math.ceil((result.total || 0) / PAGE_SIZE)));
       }
     } catch {
       if (mountedRef.current) {
@@ -183,7 +184,7 @@ export default function HomePage() {
         setLoading(false);
       }
     }
-  }, [currentPage]);
+  }, [currentPage, queryKeyword]);
 
   useEffect(() => {
     if (mountedRef.current) {
@@ -217,24 +218,6 @@ export default function HomePage() {
     const id = browser.setTimeout(preloadPostPage, 1200);
     return () => browser.clearTimeout(id);
   }, []);
-
-  const filteredArticles = useMemo(() => {
-    if (!normalizedSearchQuery) return articles;
-
-    return articles.filter((article) => {
-      const title = article.title.toLowerCase();
-      const content = article.content.toLowerCase();
-      const category = article.category?.name.toLowerCase() || "";
-      const tags = article.tags || [];
-
-      return (
-        title.includes(normalizedSearchQuery) ||
-        content.includes(normalizedSearchQuery) ||
-        category.includes(normalizedSearchQuery) ||
-        tags.some((tag) => tag.name.toLowerCase().includes(normalizedSearchQuery))
-      );
-    });
-  }, [articles, normalizedSearchQuery]);
 
   const goToPage = useCallback(
     (page: number) => {
@@ -307,7 +290,7 @@ export default function HomePage() {
                   </CardContent>
                 </Card>
               ))
-            ) : filteredArticles.length === 0 ? (
+            ) : articles.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -325,7 +308,7 @@ export default function HomePage() {
                 </Card>
               </motion.div>
             ) : (
-              filteredArticles.map((article, index) => (
+              articles.map((article, index) => (
                 <motion.div
                   key={article.id}
                   initial={{ opacity: 0, y: 18 }}
@@ -350,7 +333,7 @@ export default function HomePage() {
             )}
           </div>
 
-          {!pageIsLoading && !searchQuery && totalPages > 1 ? (
+          {!pageIsLoading && totalPages > 1 ? (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

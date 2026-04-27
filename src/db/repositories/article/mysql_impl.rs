@@ -268,6 +268,65 @@ pub(super) async fn list_published_articles_mysql(
     rows.iter().map(row_to_article_mysql).collect()
 }
 
+pub(super) async fn list_published_articles_by_category_ids_mysql(
+    pool: &MySqlPool,
+    category_ids: &[i64],
+    offset: i64,
+    limit: i64,
+    sort_by: ArticleSortBy,
+) -> Result<Vec<Article>> {
+    if category_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders = std::iter::repeat("?")
+        .take(category_ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let query = format!(
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at \
+         FROM articles WHERE status = 'published' AND category_id IN ({}) ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?",
+        placeholders,
+        sort_by.order_by_sql()
+    );
+    let mut query = sqlx::query(&query);
+    for category_id in category_ids {
+        query = query.bind(category_id);
+    }
+    let rows = query
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .context("Failed to list published articles by category")?;
+
+    rows.iter().map(row_to_article_mysql).collect()
+}
+
+pub(super) async fn list_published_articles_by_tag_mysql(
+    pool: &MySqlPool,
+    tag_id: i64,
+    offset: i64,
+    limit: i64,
+    sort_by: ArticleSortBy,
+) -> Result<Vec<Article>> {
+    let query = format!(
+        "SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order, a.scheduled_at \
+         FROM articles a INNER JOIN article_tags at ON a.id = at.article_id \
+         WHERE at.tag_id = ? AND a.status = 'published' ORDER BY a.is_pinned DESC, a.pin_order ASC, {} LIMIT ? OFFSET ?",
+        sort_by.order_by_sql()
+    );
+    let rows = sqlx::query(&query)
+        .bind(tag_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .context("Failed to list published articles by tag")?;
+
+    rows.iter().map(row_to_article_mysql).collect()
+}
+
 pub(super) async fn list_articles_by_status_mysql(
     pool: &MySqlPool,
     status: ArticleStatus,

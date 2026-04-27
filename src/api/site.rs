@@ -3,14 +3,10 @@
 //! Provides public access to site settings (no authentication required).
 //! Used by frontend to display site name, logo, etc.
 
-use axum::{
-    extract::State,
-    routing::{get, post},
-    Json, Router,
-};
+use axum::{extract::State, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 
-use crate::api::middleware::AppState;
+use crate::api::middleware::{AppState, AuthenticatedUser};
 
 /// Response for public site info
 #[derive(Debug, Serialize)]
@@ -53,10 +49,10 @@ pub struct RenderResponse {
 
 /// Build the public site router
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/info", get(get_site_info))
-        .route("/render", post(render_content))
+    Router::new().route("/info", get(get_site_info))
 }
+
+pub use render_content as render_content_handler;
 
 /// GET /api/v1/site/info - Get public site information
 ///
@@ -168,8 +164,9 @@ async fn get_site_info(State(state): State<AppState>) -> Json<SiteInfoResponse> 
 /// POST /api/v1/site/render - Render markdown content with shortcode processing
 ///
 /// Used by admin preview to show how content will look with shortcodes processed.
-async fn render_content(
+pub async fn render_content(
     State(state): State<AppState>,
+    _user: AuthenticatedUser,
     Json(req): Json<RenderRequest>,
 ) -> Json<RenderResponse> {
     // Use article service to render with shortcode processing

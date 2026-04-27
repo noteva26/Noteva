@@ -106,7 +106,8 @@ function extractImages(content: string): string[] {
 export default function EditArticlePage() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const articleId = parseInt(id || "0");
+  const articleId = Number.parseInt(id || "", 10);
+  const hasValidArticleId = Number.isFinite(articleId) && articleId > 0;
   const { t } = useTranslation();
   const editorRef = useRef<MarkdownEditorRef>(null);
 
@@ -147,7 +148,7 @@ export default function EditArticlePage() {
   }, [hasUnsavedChanges]);
 
   useEffect(() => {
-    if (!autoSaveEnabled || !hasUnsavedChanges || !articleId || form.status === "published") return;
+    if (!autoSaveEnabled || !hasUnsavedChanges || !hasValidArticleId || form.status === "published") return;
 
     const timer = window.setTimeout(async () => {
       const editorContent = editorRef.current?.getValue() ?? form.content;
@@ -171,10 +172,15 @@ export default function EditArticlePage() {
     }, 30000);
 
     return () => window.clearTimeout(timer);
-  }, [hasUnsavedChanges, autoSaveEnabled, articleId, form, selectedTags, t]);
+  }, [hasUnsavedChanges, autoSaveEnabled, hasValidArticleId, articleId, form, selectedTags, t]);
 
   useEffect(() => {
-    if (!articleId) return;
+    if (!hasValidArticleId) {
+      setLoading(false);
+      toast.error(t("error.loadFailed"));
+      navigate("/manage/articles");
+      return;
+    }
     let active = true;
 
     const fetchData = async () => {
@@ -219,7 +225,7 @@ export default function EditArticlePage() {
     return () => {
       active = false;
     };
-  }, [articleId, navigate, t]);
+  }, [hasValidArticleId, articleId, navigate, t]);
 
   const [saveState, saveArticle, isSaving] = useActionState<SaveState, ArticleSubmitStatus>(
     async (_prevState, status) => {

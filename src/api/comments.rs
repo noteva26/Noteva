@@ -1,11 +1,12 @@
 //! Comment API endpoints
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, StatusCode},
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 
 use crate::api::middleware::{ApiError, AppState};
 use crate::models::{CommentWithMeta, CreateCommentInput, LikeTargetType};
@@ -74,10 +75,12 @@ pub struct RecentCommentsQuery {
 /// Get comments for an article
 pub async fn get_comments(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Path(article_id): Path<i64>,
 ) -> Result<Json<CommentsResponse>, ApiError> {
-    let fingerprint = extract_fingerprint(&headers);
+    let client_ip = addr.ip().to_string();
+    let fingerprint = extract_fingerprint(&client_ip, &headers);
 
     let comments = state
         .comment_service
@@ -124,6 +127,7 @@ pub async fn get_recent_comments(
 /// Create a comment
 pub async fn create_comment(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(req): Json<CreateCommentRequest>,
 ) -> Result<(StatusCode, Json<CommentResponse>), ApiError> {
@@ -158,7 +162,7 @@ pub async fn create_comment(
         return Err(ApiError::validation_error("Content is required"));
     }
 
-    let ip = extract_ip(&headers);
+    let ip = Some(addr.ip().to_string());
     let ua = headers
         .get("user-agent")
         .and_then(|v| v.to_str().ok())
@@ -184,6 +188,7 @@ pub async fn create_comment(
 /// Check if user has liked an article or comment
 pub async fn check_like(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Query(query): Query<CheckLikeQuery>,
 ) -> Result<Json<LikeStatusResponse>, ApiError> {
@@ -191,7 +196,8 @@ pub async fn check_like(
 
     let user_id = get_user_id_from_headers(&state, &headers).await;
     let fingerprint = if user_id.is_none() {
-        extract_fingerprint(&headers)
+        let client_ip = addr.ip().to_string();
+        extract_fingerprint(&client_ip, &headers)
     } else {
         None
     };
@@ -213,6 +219,7 @@ pub async fn check_like(
 /// Like an article or comment
 pub async fn like(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(req): Json<LikeRequest>,
 ) -> Result<Json<LikeResponse>, ApiError> {
@@ -220,7 +227,8 @@ pub async fn like(
 
     let user_id = get_user_id_from_headers(&state, &headers).await;
     let fingerprint = if user_id.is_none() {
-        extract_fingerprint(&headers)
+        let client_ip = addr.ip().to_string();
+        extract_fingerprint(&client_ip, &headers)
     } else {
         None
     };
@@ -335,28 +343,13 @@ fn parse_target_type(s: &str) -> Result<LikeTargetType, ApiError> {
     }
 }
 
-/// Extract IP from headers
-fn extract_ip(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
-        .or_else(|| {
-            headers
-                .get("x-real-ip")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string())
-        })
-}
-
 /// Extract fingerprint from headers
-fn extract_fingerprint(headers: &HeaderMap) -> Option<String> {
-    let ip = extract_ip(headers)?;
+fn extract_fingerprint(ip: &str, headers: &HeaderMap) -> Option<String> {
     let ua = headers
         .get("user-agent")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    Some(generate_fingerprint(&ip, ua))
+    Some(generate_fingerprint(ip, ua))
 }
 
 /// Get user ID from session cookie

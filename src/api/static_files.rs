@@ -3,11 +3,11 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{header, StatusCode, Uri},
+    http::{header, HeaderName, HeaderValue, StatusCode, Uri},
     response::Response,
 };
 use rust_embed::RustEmbed;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 use urlencoding;
 
@@ -82,11 +82,11 @@ pub async fn serve_static(State(state): State<AppState>, uri: Uri) -> Response {
         };
 
         if current_theme != "default" {
-            let theme_file = PathBuf::from("themes")
-                .join(&current_theme)
-                .join("dist")
-                .join(asset_path);
-            if let Ok(contents) = fs::read(&theme_file).await {
+            let Some(rel_path) = safe_relative_path(asset_path) else {
+                return not_found();
+            };
+            let theme_dir = PathBuf::from("themes").join(&current_theme).join("dist");
+            if let Some(contents) = read_file_under(&theme_dir, &rel_path).await {
                 return build_response(asset_path, &contents);
             }
         }
@@ -110,11 +110,15 @@ async fn serve_theme_static(path: &str, state: &AppState) -> Response {
 
     let theme_name = parts[1]; // e.g. "pixel" or "default"
     let file_name = parts[2..].join("/");
+    let Some(safe_file_name) = safe_relative_path(&file_name) else {
+        return not_found();
+    };
+    let embedded_file_name = safe_file_name.to_string_lossy().replace('\\', "/");
 
     // For default theme, try embedded assets first
     if theme_name == "default" {
-        if let Some(content) = DefaultThemeAssets::get(&file_name) {
-            let content_type = get_content_type(&file_name);
+        if let Some(content) = DefaultThemeAssets::get(&embedded_file_name) {
+            let content_type = get_content_type(&embedded_file_name);
             return Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, content_type)
@@ -122,6 +126,10 @@ async fn serve_theme_static(path: &str, state: &AppState) -> Response {
                 .body(Body::from(content.data.to_vec()))
                 .unwrap();
         }
+    }
+
+    if !crate::theme::validation::is_valid_theme_slug(theme_name) {
+        return not_found();
     }
 
     // Resolve actual directory name via ThemeEngine (handles short name -> dir name mapping)
@@ -133,9 +141,8 @@ async fn serve_theme_static(path: &str, state: &AppState) -> Response {
     };
 
     // Try serving from theme root directory (e.g. themes/Pixel Art/preview.png)
-    let file_path = actual_dir.join(&file_name);
-    if let Ok(contents) = fs::read(&file_path).await {
-        let content_type = get_content_type(&file_name);
+    if let Some(contents) = read_file_under(&actual_dir, &safe_file_name).await {
+        let content_type = get_content_type(&embedded_file_name);
         return Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, content_type)
@@ -145,9 +152,9 @@ async fn serve_theme_static(path: &str, state: &AppState) -> Response {
     }
 
     // Also try from dist/ subdirectory
-    let dist_file_path = actual_dir.join("dist").join(&file_name);
-    if let Ok(contents) = fs::read(&dist_file_path).await {
-        let content_type = get_content_type(&file_name);
+    let dist_dir = actual_dir.join("dist");
+    if let Some(contents) = read_file_under(&dist_dir, &safe_file_name).await {
+        let content_type = get_content_type(&embedded_file_name);
         return Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, content_type)
@@ -178,13 +185,30 @@ async fn serve_uploads(path: &str) -> Response {
 
     match fs::read(&canonical).await {
         Ok(contents) => {
-            let content_type = get_content_type(path);
-            Response::builder()
+            let mut response = Response::builder()
                 .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, content_type)
+                .header(
+                    header::CONTENT_TYPE,
+                    if is_active_upload(path) {
+                        "application/octet-stream"
+                    } else {
+                        get_content_type(path)
+                    },
+                )
+                .header(
+                    HeaderName::from_static("x-content-type-options"),
+                    HeaderValue::from_static("nosniff"),
+                )
                 .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
                 .body(Body::from(contents))
-                .unwrap()
+                .unwrap();
+            if is_active_upload(path) {
+                response.headers_mut().insert(
+                    header::CONTENT_DISPOSITION,
+                    HeaderValue::from_static("attachment"),
+                );
+            }
+            response
         }
         Err(_) => not_found(),
     }
@@ -305,10 +329,10 @@ async fn try_user_theme(theme: &str, asset_path: &str, state: &AppState) -> Opti
         PathBuf::from("themes").join(theme)
     };
     let theme_dir = theme_base.join("dist");
+    let rel_path = safe_relative_path(asset_path)?;
 
     // Try exact file match (static assets like JS, CSS, images)
-    let file_path = theme_dir.join(asset_path);
-    if let Ok(contents) = fs::read(&file_path).await {
+    if let Some(contents) = read_file_under(&theme_dir, &rel_path).await {
         if asset_path.ends_with(".html") {
             if let Some(injected) = inject_seo_into_html(&contents, state, asset_path).await {
                 return Some(build_response(asset_path, &injected));
@@ -333,6 +357,54 @@ async fn try_user_theme(theme: &str, asset_path: &str, state: &AppState) -> Opti
     }
 
     None
+}
+
+fn safe_relative_path(input: &str) -> Option<PathBuf> {
+    if input.is_empty() || input.contains('\\') {
+        return None;
+    }
+
+    let mut clean = PathBuf::new();
+    for component in Path::new(input).components() {
+        match component {
+            Component::Normal(part) => {
+                let text = part.to_string_lossy();
+                if text.is_empty() || text.contains(':') {
+                    return None;
+                }
+                clean.push(part);
+            }
+            Component::CurDir => {}
+            _ => return None,
+        }
+    }
+
+    if clean.as_os_str().is_empty() {
+        None
+    } else {
+        Some(clean)
+    }
+}
+
+async fn read_file_under(root: &Path, relative_path: &Path) -> Option<Vec<u8>> {
+    let root = root.canonicalize().ok()?;
+    let file_path = root.join(relative_path);
+    let canonical = file_path.canonicalize().ok()?;
+    if !canonical.starts_with(&root) || !canonical.is_file() {
+        return None;
+    }
+    fs::read(canonical).await.ok()
+}
+
+fn is_active_upload(path: &str) -> bool {
+    matches!(
+        path.rsplit('.')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .as_str(),
+        "html" | "htm" | "js" | "mjs" | "svg" | "xml"
+    )
 }
 
 /// Serve from embedded default theme

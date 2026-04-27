@@ -3,6 +3,7 @@
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 
+use crate::api::github_update::{fetch_latest_version, is_newer_version, PackageKind};
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 
 /// Request for theme switching
@@ -106,25 +107,6 @@ struct StoreApiListResponse {
     total: i64,
     page: i64,
     per_page: i64,
-}
-
-/// Store check-updates types
-#[derive(Debug, Serialize)]
-struct StoreInstalledItem {
-    slug: String,
-    version: String,
-}
-
-#[derive(Debug, Serialize)]
-struct StoreCheckUpdatesRequest {
-    items: Vec<StoreInstalledItem>,
-}
-
-#[derive(Debug, Deserialize)]
-struct StoreUpdateInfo {
-    slug: String,
-    current_version: String,
-    latest_version: String,
 }
 
 /// GET /api/v1/admin/themes - List available themes
@@ -331,7 +313,7 @@ pub async fn get_theme_store(
     let store_url = state
         .store_url
         .as_deref()
-        .unwrap_or("https://store.noteva.com");
+        .unwrap_or("https://store.noteva.org");
 
     let client = reqwest::Client::builder()
         .user_agent("Noteva")
@@ -394,19 +376,13 @@ pub async fn get_theme_store(
     Ok(Json(ThemeStoreResponse { themes }))
 }
 
-/// GET /api/v1/admin/themes/updates - Check for theme updates via Store API
+/// GET /api/v1/admin/themes/updates - Check for theme updates from each theme repository
 #[axum::debug_handler]
 pub async fn check_theme_updates(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
 ) -> Result<Json<ThemeUpdatesResponse>, ApiError> {
-    let store_url = match state.store_url.as_deref() {
-        Some(url) => url.to_string(),
-        None => "https://store.noteva.com".to_string(),
-    };
-
-    // Get installed themes
-    let installed: Vec<StoreInstalledItem> = {
+    let installed: Vec<(String, String, String)> = {
         let theme_engine = state
             .theme_engine
             .read()
@@ -414,10 +390,8 @@ pub async fn check_theme_updates(
         theme_engine
             .list_themes()
             .iter()
-            .map(|t| StoreInstalledItem {
-                slug: t.name.clone(),
-                version: t.version.clone(),
-            })
+            .filter(|t| t.name != "default")
+            .map(|t| (t.name.clone(), t.version.clone(), t.repository.clone()))
             .collect()
     };
 
@@ -432,32 +406,32 @@ pub async fn check_theme_updates(
         .build()
         .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
 
-    let url = format!("{}/api/v1/store/check-updates", store_url);
-    let response = client
-        .post(&url)
-        .json(&StoreCheckUpdatesRequest { items: installed })
-        .send()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to check updates: {}", e)))?;
+    let mut updates = Vec::new();
+    for (name, current_version, repository) in installed {
+        if repository.trim().is_empty() {
+            continue;
+        }
 
-    if !response.status().is_success() {
-        return Ok(Json(ThemeUpdatesResponse { updates: vec![] }));
+        match fetch_latest_version(&client, &repository, PackageKind::Theme).await {
+            Ok(Some(latest_version)) if is_newer_version(&current_version, &latest_version) => {
+                updates.push(ThemeUpdateInfo {
+                    name,
+                    current_version,
+                    latest_version,
+                    has_update: true,
+                });
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::debug!(
+                    theme = %name,
+                    repository = %repository,
+                    error = %e,
+                    "Failed to check theme update from GitHub"
+                );
+            }
+        }
     }
-
-    let store_updates: Vec<StoreUpdateInfo> = response
-        .json()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to parse updates: {}", e)))?;
-
-    let updates = store_updates
-        .into_iter()
-        .map(|u| ThemeUpdateInfo {
-            name: u.slug,
-            current_version: u.current_version,
-            latest_version: u.latest_version,
-            has_update: true,
-        })
-        .collect();
 
     Ok(Json(ThemeUpdatesResponse { updates }))
 }

@@ -17,6 +17,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::api::github_update::{fetch_latest_version, is_newer_version, PackageKind};
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
 use crate::plugin::loader::{check_version_requirement, NOTEVA_VERSION};
 
@@ -202,34 +203,37 @@ fn filter_secret_settings(plugin: &crate::plugin::Plugin) -> HashMap<String, ser
     // Get settings schema
     let schema = match plugin.get_settings_schema() {
         Some(s) => s,
-        None => return plugin.settings.clone(), // No schema, return all settings
+        None => return HashMap::new(),
     };
 
-    // Extract secret field IDs from schema
-    let mut secret_fields = std::collections::HashSet::new();
+    // Only expose fields declared in the schema and not marked as secret.
+    let mut public_fields = std::collections::HashSet::new();
 
     if let Some(sections) = schema.get("sections").and_then(|v| v.as_array()) {
         for section in sections {
             if let Some(fields) = section.get("fields").and_then(|v| v.as_array()) {
                 for field in fields {
-                    // Check if field is marked as secret
-                    if let Some(true) = field.get("secret").and_then(|v| v.as_bool()) {
-                        if let Some(id) = field.get("id").and_then(|v| v.as_str()) {
-                            secret_fields.insert(id.to_string());
+                    if let Some(id) = field.get("id").and_then(|v| v.as_str()) {
+                        if field
+                            .get("secret")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
+                        {
+                            continue;
                         }
+                        public_fields.insert(id.to_string());
                     }
                 }
             }
         }
     }
 
-    // Filter out secret fields
-    let mut filtered = plugin.settings.clone();
-    for secret_field in secret_fields {
-        filtered.remove(&secret_field);
-    }
-
-    filtered
+    plugin
+        .settings
+        .iter()
+        .filter(|(key, _)| public_fields.contains(*key))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
 }
 
 /// GET /api/v1/plugins/:id - Get plugin details
@@ -686,6 +690,7 @@ pub async fn get_enabled_plugins_public(
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StorePluginInfo {
     pub slug: String,
+    pub plugin_id: String,
     pub name: String,
     pub version: String,
     pub description: String,
@@ -799,9 +804,10 @@ async fn get_plugin_store(
                 item.plugin_id.clone()
             };
             StorePluginInfo {
-                installed: installed_ids.contains(&item.plugin_id)
+                installed: installed_ids.contains(&effective_id)
                     || installed_ids.contains(&item.slug),
-                slug: effective_id,
+                slug: item.slug,
+                plugin_id: effective_id,
                 name: item.name,
                 version: item.version,
                 description: item.description,
@@ -823,45 +829,25 @@ async fn get_plugin_store(
     Ok(Json(PluginStoreResponse { plugins }))
 }
 
-/// Store check-updates request/response
-#[derive(Debug, Serialize)]
-struct StoreInstalledItem {
-    id: String,
-    version: String,
-}
-
-#[derive(Debug, Serialize)]
-struct StoreCheckUpdatesRequest {
-    items: Vec<StoreInstalledItem>,
-}
-
-#[derive(Debug, Deserialize)]
-struct StoreUpdateInfo {
-    slug: String,
-    current_version: String,
-    latest_version: String,
-}
-
-/// GET /api/v1/plugins/updates - Check for plugin updates via Store API
+/// GET /api/v1/plugins/updates - Check for plugin updates from each plugin repository
 async fn check_plugin_updates(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
 ) -> Result<Json<PluginUpdatesResponse>, ApiError> {
-    let store_url = match state.store_url.as_deref() {
-        Some(url) => url.to_string(),
-        None => "https://store.noteva.org".to_string(),
+    let installed: Vec<(String, String, String)> = {
+        let manager = state.plugin_manager.read().await;
+        manager
+            .get_all()
+            .iter()
+            .map(|p| {
+                (
+                    p.metadata.id.clone(),
+                    p.metadata.version.clone(),
+                    p.metadata.repository.clone(),
+                )
+            })
+            .collect()
     };
-
-    // Get installed plugins
-    let manager = state.plugin_manager.read().await;
-    let installed: Vec<StoreInstalledItem> = manager
-        .get_all()
-        .iter()
-        .map(|p| StoreInstalledItem {
-            id: p.metadata.id.clone(),
-            version: p.metadata.version.clone(),
-        })
-        .collect();
 
     if installed.is_empty() {
         return Ok(Json(PluginUpdatesResponse { updates: vec![] }));
@@ -874,32 +860,32 @@ async fn check_plugin_updates(
         .build()
         .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
 
-    let url = format!("{}/api/v1/store/check-updates", store_url);
-    let response = client
-        .post(&url)
-        .json(&StoreCheckUpdatesRequest { items: installed })
-        .send()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to check updates: {}", e)))?;
+    let mut updates = Vec::new();
+    for (id, current_version, repository) in installed {
+        if repository.trim().is_empty() {
+            continue;
+        }
 
-    if !response.status().is_success() {
-        return Ok(Json(PluginUpdatesResponse { updates: vec![] }));
+        match fetch_latest_version(&client, &repository, PackageKind::Plugin).await {
+            Ok(Some(latest_version)) if is_newer_version(&current_version, &latest_version) => {
+                updates.push(PluginUpdateInfo {
+                    id,
+                    current_version,
+                    latest_version,
+                    has_update: true,
+                });
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::debug!(
+                    plugin_id = %id,
+                    repository = %repository,
+                    error = %e,
+                    "Failed to check plugin update from GitHub"
+                );
+            }
+        }
     }
-
-    let store_updates: Vec<StoreUpdateInfo> = response
-        .json()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to parse updates: {}", e)))?;
-
-    let updates = store_updates
-        .into_iter()
-        .map(|u| PluginUpdateInfo {
-            id: u.slug,
-            current_version: u.current_version,
-            latest_version: u.latest_version,
-            has_update: true,
-        })
-        .collect();
 
     Ok(Json(PluginUpdatesResponse { updates }))
 }

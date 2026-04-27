@@ -3,7 +3,7 @@
 //! Stores locale packs as JSON files in `data/locales/{code}.json`.
 //! Each file has the structure: { "name": "...", "translations": { ... } }
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -39,8 +39,19 @@ async fn ensure_dir() -> Result<()> {
 }
 
 /// Get the file path for a locale code
-fn locale_path(code: &str) -> PathBuf {
-    Path::new(LOCALES_DIR).join(format!("{}.json", code))
+pub fn is_valid_locale_code(code: &str) -> bool {
+    !code.is_empty()
+        && code.len() <= 20
+        && code
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+fn locale_path(code: &str) -> Result<PathBuf> {
+    if !is_valid_locale_code(code) {
+        bail!("invalid locale code");
+    }
+    Ok(Path::new(LOCALES_DIR).join(format!("{}.json", code)))
 }
 
 /// List all custom locales (code + name only)
@@ -71,7 +82,7 @@ pub async fn list_locales() -> Result<Vec<LocaleListItem>> {
 
 /// Get a locale by code (full content)
 pub async fn get_locale(code: &str) -> Result<Option<CustomLocale>> {
-    let path = locale_path(code);
+    let path = locale_path(code)?;
     if !path.exists() {
         return Ok(None);
     }
@@ -97,13 +108,13 @@ pub async fn upsert_locale(code: &str, name: &str, json_content: &str) -> Result
     };
     let content = serde_json::to_string_pretty(&file)?;
 
-    fs::write(locale_path(code), content).await?;
+    fs::write(locale_path(code)?, content).await?;
     Ok(())
 }
 
 /// Delete a locale by code
 pub async fn delete_locale(code: &str) -> Result<bool> {
-    let path = locale_path(code);
+    let path = locale_path(code)?;
     if path.exists() {
         fs::remove_file(&path).await?;
         Ok(true)

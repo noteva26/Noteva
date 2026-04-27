@@ -495,7 +495,7 @@ function TwoFactorCard() {
   );
 }
 export default function SettingsPage() {
-  const { user } = useAuthStore();
+  const { user, setUser } = useAuthStore();
   const { updateSettings } = useSiteStore();
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
@@ -700,10 +700,11 @@ export default function SettingsPage() {
   const handleSaveProfile = () => {
     startSavingProfileTransition(async () => {
       try {
-        await authApi.updateProfile({
+        const { data } = await authApi.updateProfile({
           display_name: profileForm.displayName || null,
           avatar: profileForm.avatar || null,
         });
+        setUser(data);
         toast.success(t("settings.saveSuccess"));
       } catch {
         toast.error(t("settings.saveFailed"));

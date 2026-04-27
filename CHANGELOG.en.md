@@ -4,6 +4,62 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.2.9] - 2026-04-27
+
+### Plugin and Theme Store
+- **Store responsibility narrowed to listings** - Plugin and theme store data now focuses on basic listing metadata such as names, descriptions, and repository URLs, while install and update flows are handled by Noteva's own GitHub-based logic.
+- **Plugin/theme online install entry redesigned** - Admin "Upload Plugin" and "Upload Theme" flows were reshaped into "Install Plugin" and "Install Theme" dialogs that support both ZIP upload and GitHub repository input.
+- **Installed-item update checks improved** - Plugin and theme updates no longer depend on a store update endpoint; installed manifests provide repository information for GitHub version checks and show update actions when available.
+- **Chinese/Unicode plugin IDs supported** - Frontend URL handling and backend validation now preserve non-ASCII plugin IDs during install, update, and route-parameter based operations.
+
+### Admin Dashboard
+- **Category and tag management merged** - The sidebar now exposes one combined category/tag entry, with a new `/manage/taxonomy` page managing both categories and tags. Legacy `/manage/categories` and `/manage/tags` routes redirect to the new page.
+- **Tag management simplified** - Removed the duplicate admin tag-cloud view and kept the management-focused tag list with search, article counts, single delete, and batch delete.
+- **Plugin/theme refresh experience refined** - Plugin and theme pages keep existing content during refresh and remove the visually noisy full progress-bar flash.
+- **Online update status refresh fixed** - After an application update, stale version-check cache is cleared and a fresh check is forced, preventing the sidebar from showing the old version and another available update after reload.
+- **Install and update interactions tidied** - Plugin and theme install, update-check, and refresh actions now use more consistent button states and dialog flows.
+- **Article list search moved to backend search** - `/manage/articles` now passes search text as the backend `keyword` query instead of filtering only the current page. Search and filter changes reset the list to page one.
+- **Category hierarchy management completed** - Category create/edit dialogs now support selecting a parent category, show parent information in the list, and prevent selecting the current category or one of its descendants as parent.
+- **Invalid article edit ID handling fixed** - Visiting an invalid article edit URL no longer leaves the page in an infinite loading state; the admin UI now shows a load failure and returns to the article list.
+- **Plugin/theme store state refresh fixed** - Uploading, repository-installing, updating, or deleting plugins/themes now refreshes cached store data so installed state and update actions do not lag behind.
+- **Markdown editor media-library search stabilized** - Media-library search in the Markdown editor now uses debounce and request ordering so older responses cannot overwrite newer search results during fast typing.
+- **Profile save and file batch-delete feedback fixed** - Saving profile settings now updates the auth store immediately, and file batch delete now distinguishes full success, partial failure, and full failure with useful failure counts and names.
+
+### Default Theme
+- **Post category display adjusted** - Removed the category label above the post title in the default theme article page to reduce repeated title-area metadata.
+- **Home search moved to full backend search** - Default theme home search now uses the SDK `keyword` query against the article API and supports pagination for search results instead of filtering only the current page.
+- **Archive/category/tag article loading completed** - Archive, category detail, and tag detail pages now fetch all matching article pages instead of relying on a fixed `pageSize: 100` limit that could truncate larger sites.
+- **Category hierarchy display added** - The default theme category page now groups categories by parent/child relationships and exposes child-category links from parent category cards.
+- **Comment error messages and external nav links hardened** - Comment submission now surfaces detailed server errors, and external navigation links are validated before rendering so unsafe URLs are rejected.
+
+### Backend API Security & Stability
+- **Public static resource paths hardened** - Theme assets, user theme resources, uploads, backup restore paths, and custom locale files now use safer relative paths, directory-boundary checks, and locale-code whitelisting to reduce traversal risk.
+- **2FA login flow fixed** - Accounts with two-factor authentication now receive only a short-lived challenge after password verification; the real session and cookies are created only after the 2FA code succeeds.
+- **Public article APIs constrained to published content** - Public article list, search, category, and tag endpoints now consistently return only published articles. Admin article lists use protected admin endpoints to avoid draft/archive leakage.
+- **Public write endpoints tightened** - Public `/api/v1/cache/{key}` now keeps only read access, with writes/deletes moved behind authentication; Markdown render preview is also restricted to authenticated use.
+- **Upload and download content safety strengthened** - Active content uploads such as HTML, JS, SVG, and XML are rejected, and existing active uploads are forced to download with `nosniff` to reduce same-origin script execution risk.
+- **GitHub install and update flows hardened** - Plugin and theme GitHub installs are limited to GitHub archive/release sources, add download-size limits, and verify updated packages still match the target plugin ID or theme short name.
+- **Application update integrity checks strengthened** - Auto-update downloads now enforce package and binary size limits and require a valid `.sha256` checksum file instead of continuing without verification.
+- **Public settings redaction fixed** - Public plugin/theme settings now expose only fields declared in the settings schema and not marked secret. Missing schemas no longer leak all stored settings.
+- **Request origin detection tightened** - Login logs, comment fingerprints, and like fingerprints now use the real connection source IP instead of trusting spoofable `X-Forwarded-For` / `X-Real-IP` headers.
+- **Theme SDK mutation CSRF support added** - `noteva-sdk.js` now sends CSRF tokens for JSON requests, uploads, and plugin public API mutation requests, fixing logged-in theme writes being rejected by CSRF middleware.
+- **Markdown HTML output sanitized** - Markdown rendering now strips dangerous tags, event attributes, unsafe URLs, and high-risk style values across articles, pages, and admin preview output to reduce XSS risk.
+
+### Backend API Behavior Fixes
+- **Admin pagination parameters bounded** - Admin comments and login-log endpoints now bound `page` and `per_page`, preventing negative, zero, or oversized pagination values from causing abnormal queries.
+- **CORS and CSRF boundaries fixed** - CORS no longer falls back to `*` when credentials are enabled, and logout once again requires CSRF validation to reduce cross-site write risks.
+- **Category hierarchy semantics completed** - Category create/update supports `parent_id`, category errors map to more precise duplicate/not-found/validation responses, and category article queries include child categories.
+- **Article write validation fixed** - Invalid article statuses now return validation errors on create/update, and missing category IDs resolve through the default category instead of relying on a hard-coded ID.
+- **Reload and file-delete responses fixed** - Theme reload now returns `theme_count`, plugin reload returns `plugin_count`, and file deletion rejects path-like filenames instead of silently taking the basename.
+- **Version confirmation after online update improved** - After an online update, the admin UI waits for the new process to report the target version before refreshing, avoiding stale old-process version display and repeated update prompts.
+- **Admin article create route added** - New article creation now uses `/api/v1/admin/articles`, and the backend exposes the matching admin POST route instead of relying on the legacy protected `/articles` write endpoint.
+- **Navigation target validation added** - Navigation targets are validated by type on the server; external links are limited to `http://`, `https://`, `mailto:`, and `tel:`.
+
+### Build & Version
+- **Version unified to 0.2.9** - Updated the Rust crate, frontend packages, default theme, SDK built-in version, and development metadata.
+
+---
+
 ## [v0.2.8] - 2026-04-27
 
 ### Plugin System

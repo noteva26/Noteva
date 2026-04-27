@@ -86,7 +86,7 @@ pub async fn upload_theme(
         ));
     };
 
-    install_theme_from_dir(temp_dir.path(), &theme_name, &state).await
+    install_theme_from_dir(temp_dir.path(), &theme_name, &state, None).await
 }
 
 /// GET /api/v1/admin/themes/github/releases - Get releases from any GitHub repo
@@ -164,7 +164,12 @@ pub async fn install_github_theme(
         .build()
         .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
 
-    let data = download_bytes(&client, &body.download_url).await?;
+    let data = download_bytes(
+        &client,
+        &body.download_url,
+        state.upload_config.max_plugin_file_size,
+    )
+    .await?;
     let temp_dir =
         TempDir::new().map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
 
@@ -175,7 +180,7 @@ pub async fn install_github_theme(
             extract_zip(&data, temp_dir.path())?
         };
 
-    install_theme_from_dir(temp_dir.path(), &theme_name, &state).await
+    install_theme_from_dir(temp_dir.path(), &theme_name, &state, None).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -184,6 +189,8 @@ pub struct ThemeInstallFromRepoRequest {
     /// Store slug for download count tracking (optional)
     #[serde(default)]
     pub slug: Option<String>,
+    #[serde(default)]
+    expected_short: Option<String>,
 }
 
 /// POST /api/v1/admin/themes/install-from-repo - Install theme from GitHub repo
@@ -207,7 +214,12 @@ pub async fn install_from_repo(
 
     // 1) Try GitHub Releases
     if let Some(asset_url) = fetch_latest_release_asset(&client, &repo).await {
-        let data = download_bytes(&client, &asset_url).await?;
+        let data = download_bytes(
+            &client,
+            &asset_url,
+            state.upload_config.max_plugin_file_size,
+        )
+        .await?;
         let temp_dir = TempDir::new()
             .map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
 
@@ -217,7 +229,13 @@ pub async fn install_from_repo(
             extract_zip(&data, temp_dir.path())?
         };
 
-        let result = install_theme_from_dir(temp_dir.path(), &extracted_name, &state).await?;
+        let result = install_theme_from_dir(
+            temp_dir.path(),
+            &extracted_name,
+            &state,
+            body.expected_short.as_deref(),
+        )
+        .await?;
         if let Some(slug) = &body.slug {
             notify_store_download(&state, slug);
         }
@@ -232,12 +250,18 @@ pub async fn install_from_repo(
     }
 
     let zip_url = format!("https://github.com/{}/archive/refs/heads/main.zip", repo);
-    let data = download_bytes(&client, &zip_url).await?;
+    let data = download_bytes(&client, &zip_url, state.upload_config.max_plugin_file_size).await?;
     let temp_dir =
         TempDir::new().map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
     let extracted_name = extract_zip(&data, temp_dir.path())?;
 
-    let result = install_theme_from_dir(temp_dir.path(), &extracted_name, &state).await?;
+    let result = install_theme_from_dir(
+        temp_dir.path(),
+        &extracted_name,
+        &state,
+        body.expected_short.as_deref(),
+    )
+    .await?;
     if let Some(slug) = &body.slug {
         notify_store_download(&state, slug);
     }
@@ -381,6 +405,7 @@ pub async fn update_theme(
     let body = ThemeInstallFromRepoRequest {
         repo: repository,
         slug: None,
+        expected_short: Some(name.clone()),
     };
     let _result = install_from_repo(State(state.clone()), _user, Json(body)).await?;
 
@@ -434,8 +459,45 @@ fn extract_repo(input: &str) -> Option<String> {
     }
 }
 
-/// Download bytes from a URL
-async fn download_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, ApiError> {
+fn is_allowed_github_archive_url(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    if parsed.scheme() != "https" {
+        return false;
+    }
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+    if !matches!(
+        host,
+        "github.com" | "api.github.com" | "codeload.github.com"
+    ) {
+        return false;
+    }
+
+    let path = parsed.path().to_ascii_lowercase();
+    path.ends_with(".zip")
+        || path.ends_with(".tar.gz")
+        || path.ends_with(".tgz")
+        || path.contains("/zipball")
+        || path.contains("/tarball")
+        || path.contains("/archive/")
+        || path.contains("/releases/download/")
+}
+
+/// Download bytes from a GitHub archive URL with a hard size limit.
+async fn download_bytes(
+    client: &reqwest::Client,
+    url: &str,
+    max_bytes: u64,
+) -> Result<Vec<u8>, ApiError> {
+    if !is_allowed_github_archive_url(url) {
+        return Err(ApiError::validation_error(
+            "Download URL must be a GitHub archive or release asset",
+        ));
+    }
+
     let response = client
         .get(url)
         .send()
@@ -447,10 +509,22 @@ async fn download_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, 
             response.status()
         )));
     }
+    if response.content_length().is_some_and(|len| len > max_bytes) {
+        return Err(ApiError::validation_error(format!(
+            "Package too large. Maximum size: {} MB",
+            max_bytes / 1024 / 1024
+        )));
+    }
     let bytes = response
         .bytes()
         .await
         .map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(ApiError::validation_error(format!(
+            "Package too large. Maximum size: {} MB",
+            max_bytes / 1024 / 1024
+        )));
+    }
     Ok(bytes.to_vec())
 }
 
@@ -558,6 +632,7 @@ async fn install_theme_from_dir(
     temp_dir: &Path,
     extracted_name: &str,
     state: &AppState,
+    expected_short: Option<&str>,
 ) -> Result<Json<ThemeInstallResponse>, ApiError> {
     let src_path = temp_dir.join(extracted_name);
 
@@ -587,6 +662,14 @@ async fn install_theme_from_dir(
         .map_err(|e| ApiError::validation_error(e.to_string()))?;
 
     let theme_id = manifest.short.clone();
+    if let Some(expected_short) = expected_short.filter(|value| !value.trim().is_empty()) {
+        if theme_id != expected_short {
+            return Err(ApiError::validation_error(format!(
+                "Theme package short '{}' does not match expected '{}'",
+                theme_id, expected_short
+            )));
+        }
+    }
     archive::validate_package_dir_name("theme", &theme_id)?;
 
     let themes_path = {
@@ -643,7 +726,11 @@ fn notify_store_download(state: &AppState, slug: &str) {
             Ok(c) => c,
             Err(_) => return,
         };
-        let url = format!("{}/api/v1/store/download/{}", store_url, slug);
+        let url = format!(
+            "{}/api/v1/store/download/{}",
+            store_url,
+            urlencoding::encode(&slug)
+        );
         let _ = client.post(&url).send().await;
     });
 }

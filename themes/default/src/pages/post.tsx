@@ -237,14 +237,6 @@ export default function PostPage() {
             data-article-id={article.id}
           >
             <header className="mb-6">
-              {article.category ? (
-                <Link
-                  to={getCategoryUrl(article.category)}
-                  className="mb-3 inline-flex text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                >
-                  {article.category.name}
-                </Link>
-              ) : null}
               <h1 className="mb-4 text-4xl font-semibold leading-tight md:text-[2.75rem]">
                 {article.title}
               </h1>

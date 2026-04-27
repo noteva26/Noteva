@@ -14,6 +14,7 @@ import {
   type NotevaArticle,
   type NotevaTag,
 } from "@/hooks/useNoteva";
+import { fetchAllArticles } from "@/lib/articles";
 import { useI18nStore, useTranslation } from "@/lib/i18n";
 
 const TAG_SKELETON_KEYS = [
@@ -82,11 +83,8 @@ export default function TagsPage() {
         setSelectedTag(tag);
 
         if (tag) {
-          const result = await noteva.articles.list({
-            pageSize: 100,
-            tag: selectedSlug,
-          });
-          if (active) setArticles(result.articles || []);
+          const articles = await fetchAllArticles(noteva, { tag: selectedSlug });
+          if (active) setArticles(articles);
         }
       } catch {
         if (active) {

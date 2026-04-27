@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion } from "motion/react";
 import { ArrowLeft, FolderTree } from "lucide-react";
@@ -14,6 +14,7 @@ import {
   type NotevaArticle,
   type NotevaCategory,
 } from "@/hooks/useNoteva";
+import { fetchAllArticles } from "@/lib/articles";
 import { useI18nStore, useTranslation } from "@/lib/i18n";
 
 const CATEGORY_SKELETON_KEYS = [
@@ -36,6 +37,41 @@ function getDateLocale(locale: string) {
   }
 }
 
+interface CategoryTreeNode {
+  category: NotevaCategory;
+  children: CategoryTreeNode[];
+}
+
+function buildCategoryTree(categories: NotevaCategory[]): CategoryTreeNode[] {
+  const nodes = new Map<number, CategoryTreeNode>();
+  categories.forEach((category) => {
+    nodes.set(category.id, { category, children: [] });
+  });
+
+  const roots: CategoryTreeNode[] = [];
+  nodes.forEach((node) => {
+    const parentId = node.category.parentId;
+    const parent = parentId ? nodes.get(parentId) : null;
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  });
+
+  const sortNodes = (items: CategoryTreeNode[]) => {
+    items.sort((a, b) => a.category.name.localeCompare(b.category.name));
+    items.forEach((item) => sortNodes(item.children));
+  };
+  sortNodes(roots);
+
+  return roots;
+}
+
+function flattenCategoryNodes(nodes: CategoryTreeNode[]): CategoryTreeNode[] {
+  return nodes.flatMap((node) => [node, ...flattenCategoryNodes(node.children)]);
+}
+
 export default function CategoriesPage() {
   const { t } = useTranslation();
   const locale = useI18nStore((state) => state.locale);
@@ -49,6 +85,7 @@ export default function CategoriesPage() {
   );
   const [loading, setLoading] = useState(true);
   const dateLocale = getDateLocale(locale);
+  const categoryTree = useMemo(() => buildCategoryTree(categories), [categories]);
 
   useEffect(() => {
     let active = true;
@@ -82,11 +119,8 @@ export default function CategoriesPage() {
         setSelectedCategory(category);
 
         if (category) {
-          const result = await noteva.articles.list({
-            pageSize: 100,
-            category: selectedSlug,
-          });
-          if (active) setArticles(result.articles || []);
+          const articles = await fetchAllArticles(noteva, { category: selectedSlug });
+          if (active) setArticles(articles);
         }
       } catch {
         if (active) {
@@ -208,17 +242,20 @@ export default function CategoriesPage() {
             </Card>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {categories.map((category, index) => (
-                <motion.div
-                  key={category.id}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.03 }}
-                >
-                  <Link to={getCategoryUrl(category)} className="group block h-full">
-                    <Card className="h-full transition-colors hover:border-primary/60 hover:bg-muted/30">
+              {categoryTree.map((node, index) => {
+                const category = node.category;
+                const childNodes = flattenCategoryNodes(node.children);
+
+                return (
+                  <motion.div
+                    key={category.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.03 }}
+                  >
+                    <Card className="group h-full transition-colors hover:border-primary/60 hover:bg-muted/30">
                       <CardContent className="p-5">
-                        <div className="flex items-start gap-4">
+                        <Link to={getCategoryUrl(category)} className="flex items-start gap-4">
                           <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
                             <FolderTree className="h-5 w-5" />
                           </span>
@@ -237,12 +274,25 @@ export default function CategoriesPage() {
                               </p>
                             ) : null}
                           </div>
-                        </div>
+                        </Link>
+                        {childNodes.length > 0 ? (
+                          <div className="mt-4 flex flex-wrap gap-2 pl-14">
+                            {childNodes.map((childNode) => (
+                              <Link
+                                key={childNode.category.id}
+                                to={getCategoryUrl(childNode.category)}
+                                className="rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/60 hover:text-primary"
+                              >
+                                {childNode.category.name}
+                              </Link>
+                            ))}
+                          </div>
+                        ) : null}
                       </CardContent>
                     </Card>
-                  </Link>
-                </motion.div>
-              ))}
+                  </motion.div>
+                );
+              })}
             </div>
           )}
         </div>

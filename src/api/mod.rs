@@ -23,6 +23,7 @@ pub mod cache;
 pub mod categories;
 pub mod comments;
 pub mod common;
+mod github_update;
 pub mod locales;
 pub mod middleware;
 pub mod nav;
@@ -126,6 +127,11 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         )
         // Admin article operations by ID
         .route(
+            "/admin/articles",
+            axum::routing::get(articles::list_articles_admin_handler)
+                .post(articles::create_article_handler),
+        )
+        .route(
             "/admin/articles/{id}",
             axum::routing::get(articles::get_article_by_id_handler),
         )
@@ -170,6 +176,16 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
             "/articles",
             axum::routing::post(articles::create_article_handler),
         )
+        .nest(
+            "/cache",
+            Router::new()
+                .route("/{key}", axum::routing::put(cache::set_cache))
+                .route("/{key}", axum::routing::delete(cache::delete_cache)),
+        )
+        .route(
+            "/site/render",
+            axum::routing::post(site::render_content_handler),
+        )
         .route_layer(axum_middleware::from_fn_with_state(
             state.clone(),
             middleware::require_auth,
@@ -206,10 +222,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         )
         .nest(
             "/cache",
-            Router::new()
-                .route("/{key}", axum::routing::get(cache::get_cache))
-                .route("/{key}", axum::routing::put(cache::set_cache))
-                .route("/{key}", axum::routing::delete(cache::delete_cache)),
+            Router::new().route("/{key}", axum::routing::get(cache::get_cache)),
         )
         .nest("/pages", pages::public_router())
         .nest("/page", pages::slug_router())
@@ -264,14 +277,21 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
 /// Build the complete router with middleware
 pub fn build_router(state: AppState, cors_origin: &str) -> Router {
     // CORS configuration - 支持 cookie 认证
-    let cors = CorsLayer::new()
-        .allow_origin(cors_origin.parse::<HeaderValue>().unwrap_or_else(|_| {
+    let cors_origin_header = if cors_origin.trim() == "*" {
+        tracing::warn!("cors_origin='*' is invalid with credentials; using http://localhost:3000");
+        HeaderValue::from_static("http://localhost:3000")
+    } else {
+        cors_origin.parse::<HeaderValue>().unwrap_or_else(|_| {
             tracing::warn!(
                 cors_origin,
-                "invalid cors_origin in config, falling back to '*'"
+                "invalid cors_origin in config; using http://localhost:3000"
             );
-            HeaderValue::from_static("*")
-        }))
+            HeaderValue::from_static("http://localhost:3000")
+        })
+    };
+
+    let cors = CorsLayer::new()
+        .allow_origin(cors_origin_header)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
         .allow_headers([
             header::CONTENT_TYPE,

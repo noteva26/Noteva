@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from "react";
-import { adminApi, ThemeResponse, GitHubReleaseInfo, GitHubAssetInfo, StoreThemeInfo, PluginSettingsSchema } from "@/lib/api";
+import { adminApi, ThemeResponse, StoreThemeInfo, PluginSettingsSchema } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -7,15 +7,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SettingsRenderer, parseSettingsValues } from "@/components/settings-renderer";
-import { Palette, Check, RefreshCw, ExternalLink, User, Tag, Upload, Download, Trash2, Github, Loader2, Search, Package, AlertTriangle, Store, Settings, Save, CheckCircle2 } from "lucide-react";
+import { Palette, Check, RefreshCw, ExternalLink, User, Tag, Upload, Download, Trash2, Github, Loader2, AlertTriangle, Store, Settings, Save, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
-import { DataSyncBadge, DataSyncBar } from "@/components/admin/data-sync-bar";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
 import { getApiErrorMessage } from "@/lib/api-error";
-import { formatFileSize } from "@/lib/format";
 import { parseGitHubRepo } from "@/lib/github";
 
 const STORE_CACHE_TTL = 5 * 60 * 1000;
@@ -30,7 +29,7 @@ function reduceOptimisticThemes(themes: ThemeResponse[], action: ThemeOptimistic
 }
 
 export default function ThemesPage() {
-  const { t, locale } = useTranslation();
+  const { t } = useTranslation();
   const [themes, setThemes] = useState<ThemeResponse[]>([]);
   const [optimisticThemes, applyOptimisticTheme] = useOptimistic<ThemeResponse[], ThemeOptimisticAction>(
     themes,
@@ -55,11 +54,9 @@ export default function ThemesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refreshDoneTimerRef = useRef<number | null>(null);
 
+  const [installOpen, setInstallOpen] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
-  const [releases, setReleases] = useState<GitHubReleaseInfo[]>([]);
-  const [isLoadingReleases, startLoadReleasesTransition] = useTransition();
-  const [pendingAssetUrl, setPendingAssetUrl] = useState<string | null>(null);
-  const [isInstallingAsset, startInstallAssetTransition] = useTransition();
+  const [isInstallingRepo, startInstallRepoTransition] = useTransition();
 
   const [storeThemes, setStoreThemes] = useState<StoreThemeInfo[]>([]);
   const [isLoadingStore, startLoadStoreTransition] = useTransition();
@@ -166,27 +163,6 @@ export default function ThemesPage() {
     });
   };
 
-  const fetchReleases = () => {
-    const repo = parseGitHubRepo(repoUrl);
-    if (!repo) {
-      toast.error(t("theme.enterRepo") || "Please enter a GitHub repo");
-      return;
-    }
-
-    startLoadReleasesTransition(async () => {
-      try {
-        const { data } = await adminApi.listGitHubReleases(repo);
-        setReleases(data || []);
-        if (!data?.length) {
-          toast.info(t("theme.noReleases") || "No releases found");
-        }
-      } catch (error) {
-        toast.error(getApiErrorMessage(error, t("error.loadFailed")));
-        setReleases([]);
-      }
-    });
-  };
-
   const fetchStore = (force = false) => {
     startLoadStoreTransition(async () => {
       await loadStore(force);
@@ -228,6 +204,8 @@ export default function ThemesPage() {
           return next;
         });
         await loadThemes({ isRefresh: true });
+        storeCacheRef.current = null;
+        if (storeThemes.length > 0) await loadStore(true);
         if (themeName === currentTheme) {
           toast.info(t("theme.updateRefreshHint"));
         }
@@ -301,7 +279,10 @@ export default function ThemesPage() {
       try {
         const { data } = await adminApi.uploadTheme(file);
         toast.success(data.message);
+        setInstallOpen(false);
         await loadThemes({ isRefresh: true });
+        storeCacheRef.current = null;
+        if (storeThemes.length > 0) await loadStore(true);
       } catch (error) {
         toast.error(getApiErrorMessage(error, t("error.loadFailed")));
       } finally {
@@ -312,17 +293,24 @@ export default function ThemesPage() {
     });
   };
 
-  const handleInstallAsset = (asset: GitHubAssetInfo) => {
-    setPendingAssetUrl(asset.download_url);
-    startInstallAssetTransition(async () => {
+  const handleInstallFromRepo = () => {
+    const repo = parseGitHubRepo(repoUrl);
+    if (!repo) {
+      toast.error(t("theme.enterRepo"));
+      return;
+    }
+
+    startInstallRepoTransition(async () => {
       try {
-        const { data } = await adminApi.installGitHubTheme(asset.download_url);
+        const { data } = await adminApi.installThemeFromRepo(repo);
         toast.success(data.message);
+        setInstallOpen(false);
+        setRepoUrl("");
         await loadThemes({ isRefresh: true });
+        storeCacheRef.current = null;
+        if (storeThemes.length > 0) await loadStore(true);
       } catch (error) {
         toast.error(getApiErrorMessage(error, t("error.loadFailed")));
-      } finally {
-        setPendingAssetUrl(null);
       }
     });
   };
@@ -369,6 +357,8 @@ export default function ThemesPage() {
           delete next[themeName];
           return next;
         });
+        storeCacheRef.current = null;
+        if (storeThemes.length > 0) await loadStore(true);
         toast.success(t("theme.deleteSuccess") || "Theme deleted");
       } catch (error) {
         toast.error(getApiErrorMessage(error, t("error.loadFailed")));
@@ -423,7 +413,7 @@ export default function ThemesPage() {
   };
 
   const showInitialLoading = loading && !hasLoaded;
-  const isSyncing = (loading && hasLoaded) || isRefreshing;
+  const showStoreLoading = isLoadingStore && storeThemes.length === 0;
 
   return (
     <div className="space-y-6">
@@ -442,15 +432,15 @@ export default function ThemesPage() {
           />
           <Button
             variant="outline"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
+            onClick={() => setInstallOpen(true)}
+            disabled={isUploading || isInstallingRepo}
           >
             {isUploading ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : (
-              <Upload className="h-4 w-4 mr-2" />
+              <Download className="h-4 w-4 mr-2" />
             )}
-            {t("theme.upload") || "Upload"}
+            {t("theme.installTheme")}
           </Button>
           <Button variant="outline" onClick={checkUpdates} disabled={isCheckingUpdates}>
             {isCheckingUpdates ? (
@@ -470,10 +460,8 @@ export default function ThemesPage() {
           </Button>
         </div>
       </div>
-      <DataSyncBadge active={isSyncing} label={t("common.loading")} />
-      <DataSyncBar active={isSyncing} label={t("common.loading")} />
-
-      <Tabs defaultValue="installed" className="space-y-4">
+      <div>
+        <Tabs defaultValue="installed" className="space-y-4">
         <TabsList>
           <TabsTrigger value="installed" className="gap-2">
             <Palette className="h-4 w-4" />
@@ -482,10 +470,6 @@ export default function ThemesPage() {
           <TabsTrigger value="store" className="gap-2" onClick={() => fetchStore()}>
             <Store className="h-4 w-4" />
             {t("theme.store") || "Store"}
-          </TabsTrigger>
-          <TabsTrigger value="github" className="gap-2">
-            <Github className="h-4 w-4" />
-            {t("theme.online") || "Online"}
           </TabsTrigger>
         </TabsList>
 
@@ -513,7 +497,7 @@ export default function ThemesPage() {
                   <p>{t("common.noData")}</p>
                 </div>
               ) : (
-                <div className={cn("grid gap-4 md:grid-cols-2 lg:grid-cols-3 transition-opacity", isSyncing && "opacity-70")}>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 transition-opacity duration-200 ease-out">
                   {optimisticThemes.map((theme) => {
                     const isActive = optimisticCurrentTheme === theme.name;
                     const isSwitchingThisTheme = isSwitchingTheme && pendingSwitchTheme === theme.name;
@@ -556,7 +540,7 @@ export default function ThemesPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {isLoadingStore ? (
+              {showStoreLoading ? (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {Array.from({ length: 3 }).map((_, i) => (
                     <Skeleton key={i} className="h-64" />
@@ -650,104 +634,65 @@ export default function ThemesPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        </Tabs>
+      </div>
 
-        <TabsContent value="github">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Github className="h-5 w-5" />
-                {t("theme.onlineThemes") || "Install from GitHub"}
-              </CardTitle>
-              <CardDescription>
-                {t("theme.onlineDesc") || "Enter a GitHub repository URL to browse releases"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+      <Dialog open={installOpen} onOpenChange={setInstallOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Palette className="h-5 w-5" />
+              {t("theme.installTheme")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("theme.upload")} / {t("theme.onlineThemes")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                <Upload className="h-4 w-4" />
+                {t("theme.upload")}
+              </div>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+              >
+                {isUploading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4 mr-2" />
+                )}
+                {t("theme.upload")}
+              </Button>
+            </div>
+
+            <div className="rounded-lg border p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                <Github className="h-4 w-4" />
+                {t("theme.onlineThemes")}
+              </div>
               <div className="flex gap-2">
                 <Input
                   placeholder="owner/repo or https://github.com/owner/repo"
                   value={repoUrl}
                   onChange={(event) => setRepoUrl(event.target.value)}
-                  onKeyDown={(event) => event.key === "Enter" && fetchReleases()}
+                  onKeyDown={(event) => event.key === "Enter" && handleInstallFromRepo()}
                 />
-                <Button onClick={fetchReleases} disabled={isLoadingReleases}>
-                  {isLoadingReleases ? (
+                <Button onClick={handleInstallFromRepo} disabled={isInstallingRepo}>
+                  {isInstallingRepo ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    <Search className="h-4 w-4" />
+                    <Download className="h-4 w-4" />
                   )}
                 </Button>
               </div>
-
-              {releases.length > 0 && (
-                <div className="space-y-4">
-                  {releases.map((release) => (
-                    <div key={release.tag_name} className="border rounded-lg p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="font-semibold flex items-center gap-2">
-                            <Tag className="h-4 w-4" />
-                            {release.name || release.tag_name}
-                          </h3>
-                          <p className="text-xs text-muted-foreground">
-                            {release.tag_name}
-                            {release.published_at && ` - ${new Date(release.published_at).toLocaleDateString(locale)}`}
-                          </p>
-                        </div>
-                      </div>
-
-                      {release.assets.length > 0 ? (
-                        <div className="grid gap-2">
-                          {release.assets.map((asset) => {
-                            const isInstallingThisAsset = isInstallingAsset && pendingAssetUrl === asset.download_url;
-
-                            return (
-                              <div
-                                key={asset.download_url}
-                                className="flex items-center justify-between p-2 bg-muted/50 rounded"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <Package className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm">{asset.name}</span>
-                                  <span className="text-xs text-muted-foreground">
-                                    ({formatFileSize(asset.size)})
-                                  </span>
-                                </div>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleInstallAsset(asset)}
-                                  disabled={isInstallingThisAsset}
-                                >
-                                  {isInstallingThisAsset ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Download className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          {t("theme.noAssets") || "No downloadable assets"}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {!isLoadingReleases && releases.length === 0 && repoUrl && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Github className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>{t("theme.searchHint") || "Enter a repo and click search"}</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Sheet open={settingsOpen} onOpenChange={handleSettingsOpenChange}>
         <SheetContent className="overflow-y-auto">

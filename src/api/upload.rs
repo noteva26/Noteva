@@ -95,6 +95,7 @@ async fn upload_image(
                 content_type, config.allowed_types
             )));
         }
+        validate_safe_upload_name(&filename, &content_type)?;
 
         // Read file data
         let data = field
@@ -206,6 +207,10 @@ async fn upload_images(
             failed.push(format!("{}: invalid type {}", filename, content_type));
             continue;
         }
+        if let Err(e) = validate_safe_upload_name(&filename, &content_type) {
+            failed.push(format!("{}: {}", filename, e.error.message));
+            continue;
+        }
 
         // Read file data
         let data = match field.bytes().await {
@@ -304,6 +309,7 @@ async fn upload_file(
             .content_type()
             .map(|s| s.to_string())
             .unwrap_or_else(|| "application/octet-stream".to_string());
+        validate_safe_upload_name(&filename, &content_type)?;
 
         let data = field
             .bytes()
@@ -516,6 +522,37 @@ fn get_extension(filename: &str, content_type: &str) -> String {
     }
 }
 
+fn validate_safe_upload_name(filename: &str, content_type: &str) -> Result<(), ApiError> {
+    let ext = filename
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let content_type = content_type.to_ascii_lowercase();
+    let active_ext = matches!(
+        ext.as_str(),
+        "html" | "htm" | "xhtml" | "js" | "mjs" | "svg" | "xml"
+    );
+    let active_type = matches!(
+        content_type.as_str(),
+        "text/html"
+            | "application/xhtml+xml"
+            | "application/javascript"
+            | "text/javascript"
+            | "image/svg+xml"
+            | "application/xml"
+            | "text/xml"
+    );
+
+    if active_ext || active_type {
+        return Err(ApiError::validation_error(
+            "Active content uploads are not allowed",
+        ));
+    }
+
+    Ok(())
+}
+
 /// POST /api/v1/upload/plugin/:plugin_id/file - Upload file for plugin
 ///
 /// Uploads a file to the plugin's dedicated directory.
@@ -561,6 +598,7 @@ async fn upload_plugin_file(
             .content_type()
             .map(|s| s.to_string())
             .unwrap_or_else(|| "application/octet-stream".to_string());
+        validate_safe_upload_name(&filename, &content_type)?;
 
         // Read file data
         let data = field

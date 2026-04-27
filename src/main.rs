@@ -188,6 +188,8 @@ async fn main() -> Result<()> {
     let request_stats = Arc::new(RequestStats::new());
 
     let rate_limiter = Arc::new(noteva::services::LoginRateLimiter::new());
+    let two_factor_challenges =
+        Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
 
     let state = AppState {
         pool: pool.clone(),
@@ -209,6 +211,7 @@ async fn main() -> Result<()> {
         rate_limiter: rate_limiter.clone(),
         wasm_runtime: wasm_runtime.clone(),
         wasm_registry: wasm_registry.clone(),
+        two_factor_challenges,
         store_url: config.store_url.clone(),
     };
 
@@ -403,9 +406,12 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(addr = %addr, "server listening");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     tracing::info!("server shut down gracefully");
     Ok(())

@@ -83,7 +83,14 @@ pub async fn upload_plugin(
         ));
     };
 
-    install_plugin_from_dir(temp_dir.path(), &plugin_name, &plugin_name, &state, None).await
+    install_plugin_from_dir(
+        temp_dir.path(),
+        &plugin_name,
+        Some(&plugin_name),
+        &state,
+        None,
+    )
+    .await
 }
 
 /// GET /api/v1/admin/plugins/github/releases - Get releases from any GitHub repo
@@ -150,7 +157,10 @@ pub struct GitHubInstallRequest {
 #[derive(Debug, Deserialize)]
 pub struct InstallFromRepoRequest {
     pub repo: String,
-    pub plugin_id: String,
+    #[serde(default)]
+    pub plugin_id: Option<String>,
+    #[serde(default)]
+    pub store_slug: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,7 +198,12 @@ pub async fn install_from_repo(
 
     // 1) Try GitHub Releases — download latest release asset
     if let Some(asset_url) = fetch_latest_release_asset(&client, &repo).await {
-        let data = download_bytes(&client, &asset_url).await?;
+        let data = download_bytes(
+            &client,
+            &asset_url,
+            state.upload_config.max_plugin_file_size,
+        )
+        .await?;
         let temp_dir = TempDir::new()
             .map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
 
@@ -201,12 +216,14 @@ pub async fn install_from_repo(
         let result = install_plugin_from_dir(
             temp_dir.path(),
             &extracted_name,
-            &body.plugin_id,
+            body.plugin_id.as_deref(),
             &state,
             Some(&repo),
         )
         .await?;
-        notify_store_download(&state, &body.plugin_id);
+        if let Some(slug) = body.store_slug.as_deref().or(body.plugin_id.as_deref()) {
+            notify_store_download(&state, slug);
+        }
         return Ok(result);
     }
 
@@ -218,16 +235,28 @@ pub async fn install_from_repo(
     }
 
     let zip_url = format!("https://github.com/{}/archive/refs/heads/main.zip", repo);
-    let data = download_bytes(&client, &zip_url).await?;
+    let data = download_bytes(&client, &zip_url, state.upload_config.max_plugin_file_size).await?;
     let temp_dir =
         TempDir::new().map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
     extract_zip(&data, temp_dir.path())?;
 
-    let plugin_dir = find_plugin_dir(temp_dir.path(), &body.plugin_id)?;
+    let plugin_dir = find_plugin_dir(temp_dir.path(), body.plugin_id.as_deref())?;
 
-    let manifest = crate::plugin::validation::validate_plugin_package_dir(&plugin_dir)
+    let manifest = crate::plugin::validation::validate_plugin_package_contents(&plugin_dir)
         .map_err(|e| ApiError::validation_error(format!("Invalid plugin package: {}", e)))?;
     let actual_id = manifest.id;
+    if let Some(expected_id) = body
+        .plugin_id
+        .as_deref()
+        .filter(|hint| !hint.trim().is_empty())
+    {
+        if actual_id != expected_id {
+            return Err(ApiError::validation_error(format!(
+                "Plugin package ID '{}' does not match expected '{}'",
+                actual_id, expected_id
+            )));
+        }
+    }
     archive::validate_package_dir_name("plugin", &actual_id)?;
 
     let plugins_path = Path::new("plugins");
@@ -247,31 +276,53 @@ pub async fn install_from_repo(
         .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
 
     let result = reload_and_register_plugin(&actual_id, &state, Some(&repo)).await?;
-    notify_store_download(&state, &body.plugin_id);
+    if let Some(slug) = body.store_slug.as_deref().or(body.plugin_id.as_deref()) {
+        notify_store_download(&state, slug);
+    }
     Ok(result)
 }
 
-/// Find plugin directory containing plugin.json with matching ID or name
-fn find_plugin_dir(base_path: &Path, plugin_id: &str) -> Result<std::path::PathBuf, ApiError> {
-    // First pass: try exact id match
-    if let Some(found) = find_plugin_dir_inner(base_path, plugin_id, true)? {
-        return Ok(found);
+/// Find a plugin directory. If a hint is provided, match by id/name/directory name.
+/// Without a hint, a repository must contain exactly one plugin.json.
+fn find_plugin_dir(
+    base_path: &Path,
+    plugin_id_hint: Option<&str>,
+) -> Result<std::path::PathBuf, ApiError> {
+    let mut candidates = Vec::new();
+    collect_plugin_dirs(base_path, &mut candidates)?;
+
+    if candidates.is_empty() {
+        return Err(ApiError::not_found("No plugin.json found in archive"));
     }
-    // Second pass: try name match (store slug may be the Chinese name)
-    if let Some(found) = find_plugin_dir_inner(base_path, plugin_id, false)? {
-        return Ok(found);
+
+    if let Some(hint) = plugin_id_hint.filter(|hint| !hint.trim().is_empty()) {
+        for candidate in &candidates {
+            if plugin_dir_matches_hint(candidate, hint)? {
+                return Ok(candidate.clone());
+            }
+        }
+        if candidates.len() == 1 {
+            return Ok(candidates.remove(0));
+        }
+        return Err(ApiError::not_found(format!(
+            "Plugin '{}' not found in archive",
+            hint
+        )));
     }
-    Err(ApiError::not_found(format!(
-        "Plugin '{}' not found in archive",
-        plugin_id
-    )))
+
+    if candidates.len() == 1 {
+        return Ok(candidates.remove(0));
+    }
+
+    Err(ApiError::validation_error(
+        "Repository contains multiple plugins. Specify the plugin ID to install.",
+    ))
 }
 
-fn find_plugin_dir_inner(
+fn collect_plugin_dirs(
     base_path: &Path,
-    plugin_id: &str,
-    match_id: bool,
-) -> Result<Option<std::path::PathBuf>, ApiError> {
+    candidates: &mut Vec<std::path::PathBuf>,
+) -> Result<(), ApiError> {
     for entry in fs::read_dir(base_path)
         .map_err(|e| ApiError::internal_error(format!("Read dir error: {}", e)))?
     {
@@ -281,35 +332,40 @@ fn find_plugin_dir_inner(
         if path.is_dir() {
             let plugin_json_path = path.join("plugin.json");
             if plugin_json_path.exists() {
-                let content = fs::read_to_string(&plugin_json_path).map_err(|e| {
-                    ApiError::internal_error(format!("Read plugin.json error: {}", e))
-                })?;
-
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if match_id {
-                        if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
-                            if id == plugin_id {
-                                return Ok(Some(path));
-                            }
-                        }
-                    } else {
-                        // Match by name field (store slug may be the display name)
-                        if let Some(name) = json.get("name").and_then(|v| v.as_str()) {
-                            if name == plugin_id {
-                                return Ok(Some(path));
-                            }
-                        }
-                    }
-                }
+                candidates.push(path.clone());
             }
 
-            // Recursively search subdirectories
-            if let Some(found) = find_plugin_dir_inner(&path, plugin_id, match_id)? {
-                return Ok(Some(found));
-            }
+            collect_plugin_dirs(&path, candidates)?;
         }
     }
-    Ok(None)
+    Ok(())
+}
+
+fn plugin_dir_matches_hint(path: &Path, hint: &str) -> Result<bool, ApiError> {
+    let plugin_json_path = path.join("plugin.json");
+    let content = fs::read_to_string(&plugin_json_path)
+        .map_err(|e| ApiError::internal_error(format!("Read plugin.json error: {}", e)))?;
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| ApiError::validation_error(format!("Invalid plugin.json: {}", e)))?;
+
+    let dir_name_matches = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name == hint)
+        .unwrap_or(false);
+
+    let id_matches = json
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(|id| id == hint)
+        .unwrap_or(false);
+    let name_matches = json
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|name| name == hint)
+        .unwrap_or(false);
+
+    Ok(dir_name_matches || id_matches || name_matches)
 }
 
 /// POST /api/v1/admin/plugins/github/install - Install plugin from GitHub release asset
@@ -325,7 +381,12 @@ pub async fn install_github_plugin(
         .build()
         .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
 
-    let data = download_bytes(&client, &body.download_url).await?;
+    let data = download_bytes(
+        &client,
+        &body.download_url,
+        state.upload_config.max_plugin_file_size,
+    )
+    .await?;
     let temp_dir =
         TempDir::new().map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
 
@@ -336,7 +397,14 @@ pub async fn install_github_plugin(
             extract_zip(&data, temp_dir.path())?
         };
 
-    install_plugin_from_dir(temp_dir.path(), &plugin_name, &plugin_name, &state, None).await
+    install_plugin_from_dir(
+        temp_dir.path(),
+        &plugin_name,
+        Some(&plugin_name),
+        &state,
+        None,
+    )
+    .await
 }
 
 /// DELETE /api/v1/admin/plugins/:id/uninstall - Uninstall a plugin
@@ -460,7 +528,8 @@ pub async fn update_plugin(
     // Use install_from_repo logic (Release first, repo fallback)
     let install_request = InstallFromRepoRequest {
         repo: repository,
-        plugin_id: id.clone(),
+        plugin_id: Some(id.clone()),
+        store_slug: None,
     };
     let _result = install_from_repo(State(state.clone()), _user, Json(install_request)).await?;
 
@@ -521,8 +590,45 @@ fn extract_repo(input: &str) -> Option<String> {
     }
 }
 
-/// Download bytes from a URL
-async fn download_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, ApiError> {
+fn is_allowed_github_archive_url(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    if parsed.scheme() != "https" {
+        return false;
+    }
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+    if !matches!(
+        host,
+        "github.com" | "api.github.com" | "codeload.github.com"
+    ) {
+        return false;
+    }
+
+    let path = parsed.path().to_ascii_lowercase();
+    path.ends_with(".zip")
+        || path.ends_with(".tar.gz")
+        || path.ends_with(".tgz")
+        || path.contains("/zipball")
+        || path.contains("/tarball")
+        || path.contains("/archive/")
+        || path.contains("/releases/download/")
+}
+
+/// Download bytes from a GitHub archive URL with a hard size limit.
+async fn download_bytes(
+    client: &reqwest::Client,
+    url: &str,
+    max_bytes: u64,
+) -> Result<Vec<u8>, ApiError> {
+    if !is_allowed_github_archive_url(url) {
+        return Err(ApiError::validation_error(
+            "Download URL must be a GitHub archive or release asset",
+        ));
+    }
+
     let response = client
         .get(url)
         .send()
@@ -534,10 +640,22 @@ async fn download_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, 
             response.status()
         )));
     }
+    if response.content_length().is_some_and(|len| len > max_bytes) {
+        return Err(ApiError::validation_error(format!(
+            "Package too large. Maximum size: {} MB",
+            max_bytes / 1024 / 1024
+        )));
+    }
     let bytes = response
         .bytes()
         .await
         .map_err(|e| ApiError::internal_error(format!("Read error: {}", e)))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(ApiError::validation_error(format!(
+            "Package too large. Maximum size: {} MB",
+            max_bytes / 1024 / 1024
+        )));
+    }
     Ok(bytes.to_vec())
 }
 
@@ -640,7 +758,7 @@ async fn validate_repo_for_plugin(client: &reqwest::Client, repo: &str) -> bool 
 async fn install_plugin_from_dir(
     temp_dir: &Path,
     extracted_name: &str,
-    plugin_id: &str,
+    plugin_id_hint: Option<&str>,
     state: &AppState,
     repo: Option<&str>,
 ) -> Result<Json<PluginInstallResponse>, ApiError> {
@@ -662,10 +780,7 @@ async fn install_plugin_from_dir(
     } else if src_path.is_dir() && src_path.join("plugin.json").exists() {
         src_path
     } else if src_path.is_dir() {
-        match find_plugin_dir(&src_path, plugin_id) {
-            Ok(found) => found,
-            Err(_) => src_path,
-        }
+        find_plugin_dir(&src_path, plugin_id_hint)?
     } else {
         // extracted_name might be a file, not a dir (flat zip) — use temp_dir
         temp_dir.to_path_buf()
@@ -678,9 +793,17 @@ async fn install_plugin_from_dir(
     }
 
     // Validate the package before touching an existing plugin directory.
-    let manifest = crate::plugin::validation::validate_plugin_package_dir(&copy_src)
+    let manifest = crate::plugin::validation::validate_plugin_package_contents(&copy_src)
         .map_err(|e| ApiError::validation_error(format!("Invalid plugin package: {}", e)))?;
     let actual_id = manifest.id;
+    if let Some(expected_id) = plugin_id_hint.filter(|hint| !hint.trim().is_empty()) {
+        if actual_id != expected_id {
+            return Err(ApiError::validation_error(format!(
+                "Plugin package ID '{}' does not match expected '{}'",
+                actual_id, expected_id
+            )));
+        }
+    }
     archive::validate_package_dir_name("plugin", &actual_id)?;
     let dest_path = plugins_path.join(&actual_id);
 
@@ -760,7 +883,11 @@ fn notify_store_download(state: &AppState, slug: &str) {
             Ok(c) => c,
             Err(_) => return,
         };
-        let url = format!("{}/api/v1/store/download/{}", store_url, slug);
+        let url = format!(
+            "{}/api/v1/store/download/{}",
+            store_url,
+            urlencoding::encode(&slug)
+        );
         let _ = client.post(&url).send().await;
     });
 }

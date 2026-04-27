@@ -185,9 +185,13 @@ export default function ArticlesPage() {
   const [isRefreshing, startRefreshTransition] = useTransition();
   const [isFetchingArticles, setIsFetchingArticles] = useState(false);
   const deferredSearch = useDeferredValue(search);
-  const normalizedSearch = useMemo(
-    () => deferredSearch.trim().toLowerCase(),
+  const queryKeyword = useMemo(
+    () => deferredSearch.trim(),
     [deferredSearch]
+  );
+  const normalizedSearch = useMemo(
+    () => queryKeyword.toLowerCase(),
+    [queryKeyword]
   );
   const dateLocale = getDateLocale(locale);
   const dateFormatter = useMemo(
@@ -231,6 +235,9 @@ export default function ArticlesPage() {
         if (status !== "all") {
           params.status = status;
         }
+        if (queryKeyword) {
+          params.keyword = queryKeyword;
+        }
 
         const { data } = await articlesApi.list(params);
 
@@ -254,7 +261,7 @@ export default function ArticlesPage() {
         }
       }
     },
-    [page, status, t]
+    [page, queryKeyword, status, t]
   );
 
   useEffect(() => {
@@ -302,16 +309,12 @@ export default function ArticlesPage() {
     [status]
   );
 
-  const filteredArticles = useMemo(() => {
-    if (!normalizedSearch) return optimisticArticles;
-
-    return optimisticArticles.filter((article) => {
-      const title = article.title.toLowerCase();
-      const category = article.category?.name.toLowerCase() || "";
-      const tags = article.tags?.map((tag) => tag.name.toLowerCase()).join(" ") || "";
-      return title.includes(normalizedSearch) || category.includes(normalizedSearch) || tags.includes(normalizedSearch);
+  const handleSearchChange = useCallback((value: string) => {
+    startFilterTransition(() => {
+      setSearch(value);
+      setPage(1);
     });
-  }, [normalizedSearch, optimisticArticles]);
+  }, []);
 
   const openNewArticle = useCallback(() => {
     navigate(NEW_ARTICLE_PATH);
@@ -633,7 +636,7 @@ export default function ArticlesPage() {
   );
 
   const table = useReactTable({
-    data: filteredArticles,
+    data: optimisticArticles,
     columns,
     state: {
       sorting,
@@ -822,7 +825,7 @@ export default function ArticlesPage() {
               <Input
                 placeholder={t("article.searchArticles")}
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => handleSearchChange(event.target.value)}
                 className="h-9 bg-background pl-9"
               />
             </div>

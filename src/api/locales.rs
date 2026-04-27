@@ -58,6 +58,10 @@ pub async fn list_locales() -> Result<Json<LocaleListResponse>, super::ApiError>
 pub async fn get_locale(
     Path(code): Path<String>,
 ) -> Result<Json<LocaleDetailResponse>, super::ApiError> {
+    if !locale::is_valid_locale_code(&code) {
+        return Err(super::ApiError::validation_error("Invalid locale code"));
+    }
+
     let loc = locale::get_locale(&code)
         .await
         .map_err(|e| super::ApiError::internal_error(format!("Failed to get locale: {e}")))?;
@@ -89,7 +93,7 @@ pub struct UpsertLocaleInput {
 pub async fn upsert_locale(
     Json(input): Json<UpsertLocaleInput>,
 ) -> Result<Json<LocaleItem>, super::ApiError> {
-    if input.code.is_empty() || input.code.len() > 20 {
+    if !locale::is_valid_locale_code(&input.code) {
         return Err(super::ApiError::validation_error("Invalid locale code"));
     }
     if input.name.is_empty() || input.name.len() > 100 {
@@ -118,6 +122,10 @@ pub async fn upsert_locale(
 pub async fn delete_locale(
     Path(code): Path<String>,
 ) -> Result<Json<LocaleDeleteResponse>, super::ApiError> {
+    if !locale::is_valid_locale_code(&code) {
+        return Err(super::ApiError::validation_error("Invalid locale code"));
+    }
+
     let deleted = locale::delete_locale(&code)
         .await
         .map_err(|e| super::ApiError::internal_error(format!("Failed to delete locale: {e}")))?;

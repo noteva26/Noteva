@@ -240,22 +240,13 @@ export default function DashboardPage() {
               <span>{t("article.newArticle")}</span>
             </Link>
             <Link
-              to="/manage/categories"
-              onMouseEnter={() => preloadManageRoute("/manage/categories")}
-              onFocus={() => preloadManageRoute("/manage/categories")}
+              to="/manage/taxonomy"
+              onMouseEnter={() => preloadManageRoute("/manage/taxonomy")}
+              onFocus={() => preloadManageRoute("/manage/taxonomy")}
               className="flex items-center gap-2 p-3 rounded-lg hover:bg-muted transition-colors"
             >
               <FolderTree className="h-4 w-4" />
-              <span>{t("manage.categories")}</span>
-            </Link>
-            <Link
-              to="/manage/tags"
-              onMouseEnter={() => preloadManageRoute("/manage/tags")}
-              onFocus={() => preloadManageRoute("/manage/tags")}
-              className="flex items-center gap-2 p-3 rounded-lg hover:bg-muted transition-colors"
-            >
-              <Tags className="h-4 w-4" />
-              <span>{t("manage.tags")}</span>
+              <span>{t("manage.categories")} / {t("manage.tags")}</span>
             </Link>
           </CardContent>
         </Card>

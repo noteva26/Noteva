@@ -127,13 +127,27 @@ export default function FilesPage() {
             setSelectedFiles(new Set());
 
             let success = 0;
+            const failed: string[] = [];
             for (const name of names) {
                 try {
                     await filesApi.delete(name);
                     success++;
-                } catch { /* continue */ }
+                } catch {
+                    failed.push(name);
+                }
             }
-            toast.success(t("fileManage.batchDeleteSuccess", { count: success.toString() }));
+            if (failed.length === 0) {
+                toast.success(t("fileManage.batchDeleteSuccess", { count: success.toString() }));
+            } else {
+                const failedNames = failed.slice(0, 3).join(", ");
+                toast.error(
+                    t(success > 0 ? "fileManage.batchDeletePartial" : "fileManage.batchDeleteFailed", {
+                        success: success.toString(),
+                        failed: failed.length.toString(),
+                        names: failedNames,
+                    })
+                );
+            }
             setRefreshKey((key) => key + 1);
         });
     };

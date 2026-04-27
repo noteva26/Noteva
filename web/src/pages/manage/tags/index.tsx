@@ -24,14 +24,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Search, Trash2, Tags } from "lucide-react";
+import { Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataSyncBadge, DataSyncBar } from "@/components/admin/data-sync-bar";
 
-export default function TagsPage() {
+interface TagsPageProps {
+  embedded?: boolean;
+}
+
+export default function TagsPage({ embedded = false }: TagsPageProps) {
   const { t } = useTranslation();
   const [tags, setTags] = useState<TagWithCount[]>([]);
   const [optimisticTags, removeOptimisticTags] = useOptimistic(
@@ -173,19 +177,8 @@ export default function TagsPage() {
     tag.name.toLowerCase().includes(deferredSearch.toLowerCase())
   );
 
-  const maxCount = Math.max(...optimisticTags.map((t) => t.count), 1);
   const showInitialLoading = loading && !hasLoaded;
   const isSyncing = (loading && hasLoaded) || isRefreshing;
-
-  const getTagSize = (count: number) => {
-    const ratio = count / maxCount;
-    if (ratio > 0.8) return "text-2xl";
-    if (ratio > 0.6) return "text-xl";
-    if (ratio > 0.4) return "text-lg";
-    if (ratio > 0.2) return "text-base";
-    return "text-sm";
-  };
-
 
   return (
     <div className="space-y-6">
@@ -196,8 +189,14 @@ export default function TagsPage() {
         className="flex items-center justify-between"
       >
         <div>
-          <h1 className="text-3xl font-bold">{t("manage.tags")}</h1>
-          <p className="text-muted-foreground">{t("tag.totalTags")}</p>
+          {embedded ? (
+            <h2 className="text-xl font-semibold">{t("manage.tags")}</h2>
+          ) : (
+            <h1 className="text-3xl font-bold">{t("manage.tags")}</h1>
+          )}
+          <p className={embedded ? "text-sm text-muted-foreground" : "text-muted-foreground"}>
+            {t("tag.totalTags")}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {selectedTags.size > 0 && (
@@ -240,53 +239,7 @@ export default function TagsPage() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.4, delay: 0.1 }}
-        className="grid gap-6 md:grid-cols-2"
       >
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t("tag.tagCloud")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DataSyncBar active={isSyncing} label={t("common.loading")} className="mb-3" />
-            {showInitialLoading ? (
-              <div className="flex flex-wrap gap-2">
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <div key={i} className="h-8 w-20 skeleton-shimmer rounded" />
-                ))}
-              </div>
-            ) : filteredTags.length === 0 ? (
-              <EmptyState
-                size="sm"
-                icon={Tags}
-                description={t("tag.noTags")}
-              />
-            ) : (
-              <div className={`flex flex-wrap gap-3 items-center transition-opacity ${isSyncing ? "opacity-70" : ""}`}>
-                {filteredTags.map((tag, index) => (
-                  <motion.span
-                    key={tag.id}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: index * 0.02 }}
-                    whileHover={{ scale: 1.1 }}
-                    className={cn(
-                      "cursor-pointer hover:text-primary transition-colors",
-                      getTagSize(tag.count),
-                      selectedTags.has(tag.id) && "text-primary"
-                    )}
-                    onClick={() => toggleSelect(tag.id)}
-                  >
-                    {tag.name}
-                    <span className="text-xs text-muted-foreground ml-1">
-                      ({tag.count})
-                    </span>
-                  </motion.span>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t("tag.tagList")}</CardTitle>

@@ -17,6 +17,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use totp_rs::{Algorithm, Secret, TOTP};
 
 /// Build the 2FA router (all routes require auth)
@@ -257,11 +258,17 @@ async fn verify_2fa(
     headers: HeaderMap,
     Json(body): Json<Verify2FARequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // The challenge_token is a temporary session ID
-    // Validate it to get the user
+    let challenge = {
+        let mut challenges = state.two_factor_challenges.write().await;
+        let now = Instant::now();
+        challenges.retain(|_, challenge| challenge.expires_at > now);
+        challenges.get(&body.challenge_token).cloned()
+    }
+    .ok_or_else(|| ApiError::unauthorized("Invalid or expired challenge token"))?;
+
     let user = state
         .user_service
-        .validate_session(&body.challenge_token)
+        .get_by_id(challenge.user_id)
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?
         .ok_or_else(|| ApiError::unauthorized("Invalid or expired challenge token"))?;
@@ -287,8 +294,22 @@ async fn verify_2fa(
         return Err(ApiError::unauthorized("Invalid verification code"));
     }
 
-    // 2FA verified! The challenge_token IS the real session, so we just
-    // return it as-is along with the user info.
+    {
+        let mut challenges = state.two_factor_challenges.write().await;
+        match challenges.get(&body.challenge_token) {
+            Some(current) if current.user_id == user.id && current.expires_at > Instant::now() => {
+                challenges.remove(&body.challenge_token);
+            }
+            _ => return Err(ApiError::unauthorized("Invalid or expired challenge token")),
+        }
+    }
+
+    let session = state
+        .user_service
+        .create_login_session(&user, challenge.ip_address, challenge.user_agent)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
     // Detect HTTPS
     let is_secure = headers
         .get("x-forwarded-proto")
@@ -303,7 +324,7 @@ async fn verify_2fa(
     // Set session cookie
     let session_cookie = format!(
         "session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
-        body.challenge_token,
+        session.id,
         7 * 24 * 60 * 60,
         secure_flag,
     );
@@ -330,7 +351,7 @@ async fn verify_2fa(
         response_headers,
         Json(crate::api::auth::AuthResponse {
             user: user_response,
-            token: body.challenge_token,
+            token: session.id,
         }),
     ))
 }

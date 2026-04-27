@@ -3,11 +3,11 @@
   "name": "Noteva Default Theme",
   "short": "default",
   "description": "The default theme for Noteva blog system",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "author": "Noteva Team",
   "repository": "https://github.com/noteva26/noteva-themes",
   "preview": "preview.png",
   "requires": {
-    "noteva": ">=0.2.8"
+    "noteva": ">=0.2.9"
   }
 }

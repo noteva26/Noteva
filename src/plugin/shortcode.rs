@@ -372,7 +372,7 @@ pub mod builtins {
                 .map_or("", |s| s.as_str());
             let width = shortcode.attrs.get("width").map_or("100%", |s| s.as_str());
             let poster = shortcode.attrs.get("poster");
-            
+
             // Detect video type
             if url.contains("youtube.com") || url.contains("youtu.be") {
                 let video_id = extract_youtube_id(url);
@@ -405,7 +405,7 @@ pub mod builtins {
             let title = shortcode.attrs.get("title");
             let is_hls = url.ends_with(".m3u8");
             let data_hls = if is_hls { r#" data-hls="true""# } else { "" };
-            
+
             if let Some(t) = title {
                 format!(
                     r#"<div class="shortcode-audio"><p class="shortcode-audio-title">{}</p><audio src="{}" controls preload="metadata"{}></audio></div>"#,

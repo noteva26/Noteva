@@ -16,7 +16,6 @@ import {
   LayoutDashboard,
   FileText,
   FolderTree,
-  Tags,
   Settings,
   LogOut,
   Menu,
@@ -43,8 +42,7 @@ export default function ManageLayout() {
   const navItems = useMemo(() => [
     { href: "/manage", label: t("manage.dashboard"), icon: LayoutDashboard },
     { href: "/manage/articles", label: t("manage.articles"), icon: FileText },
-    { href: "/manage/categories", label: t("manage.categories"), icon: FolderTree },
-    { href: "/manage/tags", label: t("manage.tags"), icon: Tags },
+    { href: "/manage/taxonomy", label: `${t("manage.categories")} / ${t("manage.tags")}`, icon: FolderTree },
     { href: "/manage/pages", label: t("manage.pages"), icon: FileCode },
     { href: "/manage/nav", label: t("manage.nav"), icon: Navigation },
     { href: "/manage/comments", label: t("manage.comments"), icon: MessageSquare },
