@@ -21,6 +21,12 @@ import {
   type NotevaArticle,
 } from "@/hooks/useNoteva";
 import { useI18nStore, useTranslation } from "@/lib/i18n";
+import {
+  getThemeListItemMotion,
+  themeHoverLift,
+  themePageHeaderMotion,
+  themeSpring,
+} from "@/lib/motion";
 
 const PAGE_SIZE = 10;
 const ARTICLE_SKELETON_KEYS = ["article-a", "article-b", "article-c"];
@@ -43,13 +49,12 @@ function getInitialSiteInfo(): SiteInfo | null {
 }
 
 function getDateLocale(locale: string) {
-  switch (locale) {
-    case "zh-TW":
-      return "zh-TW";
-    case "en":
-      return "en-US";
-    default:
-      return "zh-CN";
+  const candidate = locale === "en" ? "en-US" : locale;
+  try {
+    new Intl.DateTimeFormat(candidate);
+    return candidate;
+  } catch {
+    return "zh-CN";
   }
 }
 
@@ -64,6 +69,7 @@ function preloadPostPage() {
 
 export default function HomePage() {
   const mountedRef = useRef(false);
+  const articlesRequestIdRef = useRef(0);
   const [articles, setArticles] = useState<NotevaArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [siteInfo, setSiteInfo] = useState<SiteInfo | null>(() =>
@@ -153,9 +159,11 @@ export default function HomePage() {
   }, [siteInfo]);
 
   const loadArticles = useCallback(async () => {
+    const requestId = ++articlesRequestIdRef.current;
+
     const noteva = await waitForNoteva();
     if (!noteva) {
-      if (mountedRef.current) {
+      if (mountedRef.current && requestId === articlesRequestIdRef.current) {
         setArticles([]);
         setTotalPages(1);
         setLoading(false);
@@ -170,17 +178,17 @@ export default function HomePage() {
         keyword: queryKeyword || undefined,
       });
 
-      if (mountedRef.current) {
+      if (mountedRef.current && requestId === articlesRequestIdRef.current) {
         setArticles(result.articles || []);
         setTotalPages(result.totalPages || Math.max(1, Math.ceil((result.total || 0) / PAGE_SIZE)));
       }
     } catch {
-      if (mountedRef.current) {
+      if (mountedRef.current && requestId === articlesRequestIdRef.current) {
         setArticles([]);
         setTotalPages(1);
       }
     } finally {
-      if (mountedRef.current) {
+      if (mountedRef.current && requestId === articlesRequestIdRef.current) {
         setLoading(false);
       }
     }
@@ -244,9 +252,7 @@ export default function HomePage() {
       <main className="flex-1">
         <div className="container mx-auto max-w-4xl py-8 md:py-10">
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, ease: "easeOut" }}
+            {...themePageHeaderMotion}
             className="mb-8 text-center"
           >
             {siteInfo ? (
@@ -294,7 +300,7 @@ export default function HomePage() {
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                transition={themeSpring}
               >
                 <Card className="border-dashed">
                   <CardContent className="flex flex-col items-center justify-center py-14 text-center">
@@ -311,15 +317,8 @@ export default function HomePage() {
               articles.map((article, index) => (
                 <motion.div
                   key={article.id}
-                  initial={{ opacity: 0, y: 18 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{
-                    type: "spring",
-                    stiffness: 400,
-                    damping: 30,
-                    delay: index * 0.04,
-                  }}
-                  whileHover={{ y: -2 }}
+                  {...getThemeListItemMotion(index)}
+                  whileHover={themeHoverLift}
                 >
                   <ArticleSummaryCard
                     article={article}

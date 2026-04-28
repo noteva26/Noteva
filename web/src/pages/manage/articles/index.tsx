@@ -3,7 +3,6 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
-  useOptimistic,
   useRef,
   useState,
   useTransition,
@@ -24,7 +23,7 @@ import { AdminPageHeader } from "@/components/admin/page-header";
 import { DataTableColumnHeader } from "@/components/admin/data-table/data-table-column-header";
 import { DataTablePagination } from "@/components/admin/data-table/data-table-pagination";
 import { DataTableViewOptions } from "@/components/admin/data-table/data-table-view-options";
-import { articlesApi, Article } from "@/lib/api";
+import { adminApi, articlesApi, Article } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -80,6 +79,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
@@ -89,6 +89,9 @@ import { cn } from "@/lib/utils";
 
 const PER_PAGE = 10;
 const NEW_ARTICLE_PATH = "/manage/articles/new";
+const DEFAULT_PERMALINK_STRUCTURE = "/posts/{slug}";
+
+type ArticleBulkStatus = Article["status"];
 
 function getDateLocale(locale: string) {
   switch (locale) {
@@ -105,10 +108,6 @@ function getEditPath(articleId: number) {
   return `/manage/articles/${articleId}`;
 }
 
-function removeOptimisticArticle(articles: Article[], id: number) {
-  return articles.filter((article) => article.id !== id);
-}
-
 function isChineseLocale(locale: string) {
   return locale.startsWith("zh");
 }
@@ -117,8 +116,51 @@ function localText(locale: string, zh: string, en: string) {
   return isChineseLocale(locale) ? zh : en;
 }
 
-function getArticleHref(article: Article) {
-  return article.slug ? `/posts/${article.slug}` : `/manage/articles/${article.id}`;
+function padDatePart(value: number) {
+  return value.toString().padStart(2, "0");
+}
+
+function replaceToken(value: string, token: string, replacement: string) {
+  return value.split(token).join(replacement);
+}
+
+function getArticleHref(article: Article, permalinkStructure: string) {
+  const structure = permalinkStructure.trim() || DEFAULT_PERMALINK_STRUCTURE;
+  const publishedAt = article.published_at ? new Date(article.published_at) : new Date();
+  const date = Number.isNaN(publishedAt.getTime()) ? new Date() : publishedAt;
+
+  let path = structure;
+  path = replaceToken(path, "{id}", encodeURIComponent(article.id.toString()));
+  path = replaceToken(path, "{slug}", encodeURIComponent(article.slug || article.id.toString()));
+  path = replaceToken(path, "{year}", date.getUTCFullYear().toString());
+  path = replaceToken(path, "{month}", padDatePart(date.getUTCMonth() + 1));
+  path = replaceToken(path, "{day}", padDatePart(date.getUTCDate()));
+
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+function getArticleFullUrl(article: Article, siteUrl: string, permalinkStructure: string) {
+  const href = getArticleHref(article, permalinkStructure);
+  const baseUrl = siteUrl.trim().replace(/\/+$/, "") || window.location.origin;
+
+  return `${baseUrl}${href}`;
+}
+
+function canUsePublicArticleLink(article: Article) {
+  return article.status === "published";
+}
+
+function getBulkStatusLabel(locale: string, status: ArticleBulkStatus) {
+  switch (status) {
+    case "published":
+      return localText(locale, "发布", "Publish");
+    case "draft":
+      return localText(locale, "转为草稿", "Move to draft");
+    case "archived":
+      return localText(locale, "归档", "Archive");
+    default:
+      return status;
+  }
 }
 
 function getStatusBadge(
@@ -160,11 +202,13 @@ export default function ArticlesPage() {
   const mountedRef = useRef(false);
   const requestIdRef = useRef(0);
   const hasLoadedArticlesRef = useRef(false);
+  const deleteDialogTimerRef = useRef<number | null>(null);
+  const deleteConfirmTimerRef = useRef<number | null>(null);
+  const bulkConfirmTimerRef = useRef<number | null>(null);
   const [articles, setArticles] = useState<Article[]>([]);
-  const [optimisticArticles, deleteOptimisticArticle] = useOptimistic(
-    articles,
-    removeOptimisticArticle
-  );
+  const [siteUrl, setSiteUrl] = useState("");
+  const [permalinkStructure, setPermalinkStructure] = useState(DEFAULT_PERMALINK_STRUCTURE);
+  const [linkSettingsReady, setLinkSettingsReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -173,6 +217,8 @@ export default function ArticlesPage() {
   const [search, setSearch] = useState("");
   const [articleToDelete, setArticleToDelete] = useState<Article | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [isBulkActionPending, setIsBulkActionPending] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     tags: false,
@@ -180,7 +226,6 @@ export default function ArticlesPage() {
     comments: false,
   });
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-  const [, startDeleteTransition] = useTransition();
   const [isFilterTransitionPending, startFilterTransition] = useTransition();
   const [isRefreshing, startRefreshTransition] = useTransition();
   const [isFetchingArticles, setIsFetchingArticles] = useState(false);
@@ -212,7 +257,46 @@ export default function ArticlesPage() {
     mountedRef.current = true;
 
     return () => {
+      if (deleteDialogTimerRef.current !== null) {
+        window.clearTimeout(deleteDialogTimerRef.current);
+      }
+      if (deleteConfirmTimerRef.current !== null) {
+        window.clearTimeout(deleteConfirmTimerRef.current);
+      }
+      if (bulkConfirmTimerRef.current !== null) {
+        window.clearTimeout(bulkConfirmTimerRef.current);
+      }
       mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadSiteSettings = async () => {
+      try {
+        const { data } = await adminApi.getSettings();
+        if (!active) return;
+
+        setSiteUrl(typeof data.site_url === "string" ? data.site_url : "");
+        setPermalinkStructure(
+          typeof data.permalink_structure === "string" && data.permalink_structure.trim()
+            ? data.permalink_structure
+            : DEFAULT_PERMALINK_STRUCTURE
+        );
+        setLinkSettingsReady(true);
+      } catch {
+        if (!active) return;
+        setSiteUrl("");
+        setPermalinkStructure(DEFAULT_PERMALINK_STRUCTURE);
+        setLinkSettingsReady(true);
+      }
+    };
+
+    void loadSiteSettings();
+
+    return () => {
+      active = false;
     };
   }, []);
 
@@ -273,29 +357,44 @@ export default function ArticlesPage() {
   }, [normalizedSearch, page, status]);
 
   const handleDelete = useCallback(
-    (article: Article) => {
-      setDeletingId(article.id);
+    async (article: Article) => {
+      const articleId = article.id;
 
-      startDeleteTransition(async () => {
-        deleteOptimisticArticle(article.id);
+      setArticleToDelete(null);
+      setDeletingId(articleId);
 
-        try {
-          await articlesApi.delete(article.id);
-          toast.success(t("article.deleteSuccess"));
-          setArticleToDelete(null);
-          await fetchArticles(false);
-        } catch {
-          setArticles((current) => [...current]);
-          toast.error(t("article.deleteFailed"));
-        } finally {
-          if (mountedRef.current) {
-            setDeletingId(null);
-          }
+      try {
+        await articlesApi.delete(articleId);
+        setArticles((current) =>
+          current.filter((currentArticle) => currentArticle.id !== articleId)
+        );
+        setTotalArticles((current) => Math.max(0, current - 1));
+        setRowSelection({});
+        toast.success(t("article.deleteSuccess"));
+        await fetchArticles(false);
+      } catch {
+        toast.error(t("article.deleteFailed"));
+      } finally {
+        if (mountedRef.current) {
+          setDeletingId(null);
         }
-      });
+      }
     },
-    [deleteOptimisticArticle, fetchArticles, t]
+    [fetchArticles, t]
   );
+
+  const openDeleteDialog = useCallback((article: Article) => {
+    if (deleteDialogTimerRef.current !== null) {
+      window.clearTimeout(deleteDialogTimerRef.current);
+    }
+
+    deleteDialogTimerRef.current = window.setTimeout(() => {
+      if (mountedRef.current) {
+        setArticleToDelete(article);
+      }
+      deleteDialogTimerRef.current = null;
+    }, 0);
+  }, []);
 
   const handleStatusChange = useCallback(
     (nextStatus: string) => {
@@ -340,7 +439,17 @@ export default function ArticlesPage() {
 
   const copyArticleLink = useCallback(
     async (article: Article) => {
-      const url = `${window.location.origin}${getArticleHref(article)}`;
+      if (!linkSettingsReady) {
+        toast.error(localText(locale, "链接设置仍在加载", "Link settings are still loading"));
+        return;
+      }
+
+      if (!canUsePublicArticleLink(article)) {
+        toast.error(localText(locale, "文章未发布，暂无公开链接", "Only published articles have public links"));
+        return;
+      }
+
+      const url = getArticleFullUrl(article, siteUrl, permalinkStructure);
       try {
         await navigator.clipboard.writeText(url);
         toast.success(localText(locale, "链接已复制", "Link copied"));
@@ -348,7 +457,7 @@ export default function ArticlesPage() {
         toast.error(localText(locale, "复制失败", "Copy failed"));
       }
     },
-    [locale]
+    [linkSettingsReady, locale, permalinkStructure, siteUrl]
   );
 
   const columnHeaderLabels = useMemo(
@@ -383,6 +492,7 @@ export default function ArticlesPage() {
               table.getIsAllPageRowsSelected() ||
               (table.getIsSomePageRowsSelected() && "indeterminate")
             }
+            disabled={isBulkActionPending}
             onCheckedChange={(value) => table.toggleAllPageRowsSelected(Boolean(value))}
             aria-label={localText(locale, "选择全部", "Select all")}
           />
@@ -390,6 +500,7 @@ export default function ArticlesPage() {
         cell: ({ row }) => (
           <Checkbox
             checked={row.getIsSelected()}
+            disabled={isBulkActionPending}
             onCheckedChange={(value) => row.toggleSelected(Boolean(value))}
             aria-label={localText(locale, "选择行", "Select row")}
           />
@@ -566,7 +677,10 @@ export default function ArticlesPage() {
         cell: ({ row }) => {
           const article = row.original;
           const editPath = getEditPath(article.id);
-          const publicHref = getArticleHref(article);
+          const canOpenPublicLink = linkSettingsReady && canUsePublicArticleLink(article);
+          const publicHref = canOpenPublicLink
+            ? getArticleHref(article, permalinkStructure)
+            : "";
           const isDeleting = deletingId === article.id;
 
           return (
@@ -584,7 +698,12 @@ export default function ArticlesPage() {
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" disabled={isDeleting}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={isDeleting || isBulkActionPending}
+                  >
                     {isDeleting ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
@@ -598,20 +717,32 @@ export default function ArticlesPage() {
                     <Edit className="mr-2 h-4 w-4" />
                     {t("common.edit")}
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <a href={publicHref} target="_blank" rel="noopener noreferrer">
+                  {canOpenPublicLink ? (
+                    <DropdownMenuItem asChild>
+                      <a href={publicHref} target="_blank" rel="noopener noreferrer">
+                        <Eye className="mr-2 h-4 w-4" />
+                        {t("article.preview")}
+                      </a>
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem disabled>
                       <Eye className="mr-2 h-4 w-4" />
                       {t("article.preview")}
-                    </a>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => copyArticleLink(article)}>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    disabled={!canOpenPublicLink}
+                    onSelect={() => {
+                      void copyArticleLink(article);
+                    }}
+                  >
                     <Copy className="mr-2 h-4 w-4" />
                     {localText(locale, "复制链接", "Copy link")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
-                    onClick={() => setArticleToDelete(article)}
+                    onSelect={() => openDeleteDialog(article)}
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
                     {t("common.delete")}
@@ -628,15 +759,18 @@ export default function ArticlesPage() {
       copyArticleLink,
       dateFormatter,
       deletingId,
+      isBulkActionPending,
+      linkSettingsReady,
       locale,
       navigate,
       numberFormatter,
+      permalinkStructure,
       t,
     ]
   );
 
   const table = useReactTable({
-    data: optimisticArticles,
+    data: articles,
     columns,
     state: {
       sorting,
@@ -651,28 +785,162 @@ export default function ArticlesPage() {
     getSortedRowModel: getSortedRowModel(),
   });
 
-  const selectedCount = table.getSelectedRowModel().rows.length;
+  const selectedArticles = table.getSelectedRowModel().rows.map((row) => row.original);
+  const selectedCount = selectedArticles.length;
   const rowCount = table.getRowModel().rows.length;
   const tableSyncing = (isFetchingArticles && !loading) || isFilterTransitionPending;
+
+  const handleBulkStatusChange = useCallback(
+    async (nextStatus: ArticleBulkStatus) => {
+      if (isBulkActionPending || selectedArticles.length === 0) return;
+
+      const targetArticles = selectedArticles.filter(
+        (article) => article.status !== nextStatus
+      );
+
+      if (targetArticles.length === 0) {
+        toast.info(localText(locale, "选中文章已是目标状态", "Selected articles already use that status"));
+        return;
+      }
+
+      setIsBulkActionPending(true);
+
+      try {
+        const results = await Promise.allSettled(
+          targetArticles.map((article) =>
+            articlesApi.update(article.id, { status: nextStatus })
+          )
+        );
+        const succeededIds = new Set<number>();
+
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            succeededIds.add(targetArticles[index].id);
+          }
+        });
+
+        if (succeededIds.size > 0) {
+          setArticles((current) =>
+            current.map((article) =>
+              succeededIds.has(article.id)
+                ? {
+                    ...article,
+                    status: nextStatus,
+                    scheduled_at: nextStatus === "published" ? null : article.scheduled_at,
+                  }
+                : article
+            )
+          );
+        }
+
+        const failedCount = targetArticles.length - succeededIds.size;
+        if (failedCount > 0) {
+          toast.error(
+            localText(
+              locale,
+              `已更新 ${succeededIds.size} 篇，${failedCount} 篇失败`,
+              `${succeededIds.size} updated, ${failedCount} failed`
+            )
+          );
+        } else {
+          toast.success(
+            localText(
+              locale,
+              `已更新 ${succeededIds.size} 篇文章`,
+              `${succeededIds.size} article(s) updated`
+            )
+          );
+        }
+
+        setRowSelection({});
+        await fetchArticles(false);
+      } catch {
+        toast.error(localText(locale, "批量操作失败", "Batch action failed"));
+      } finally {
+        if (mountedRef.current) {
+          setIsBulkActionPending(false);
+        }
+      }
+    },
+    [fetchArticles, isBulkActionPending, locale, selectedArticles]
+  );
+
+  const handleBulkDelete = useCallback(
+    async (targetArticles: Article[]) => {
+      if (isBulkActionPending || targetArticles.length === 0) return;
+
+      setIsBulkActionPending(true);
+
+      try {
+        const results = await Promise.allSettled(
+          targetArticles.map((article) => articlesApi.delete(article.id))
+        );
+        const deletedIds = new Set<number>();
+
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            deletedIds.add(targetArticles[index].id);
+          }
+        });
+
+        if (deletedIds.size > 0) {
+          setArticles((current) =>
+            current.filter((article) => !deletedIds.has(article.id))
+          );
+          setTotalArticles((current) => Math.max(0, current - deletedIds.size));
+        }
+
+        const failedCount = targetArticles.length - deletedIds.size;
+        if (failedCount > 0) {
+          toast.error(
+            localText(
+              locale,
+              `已删除 ${deletedIds.size} 篇，${failedCount} 篇失败`,
+              `${deletedIds.size} deleted, ${failedCount} failed`
+            )
+          );
+        } else {
+          toast.success(
+            localText(
+              locale,
+              `已删除 ${deletedIds.size} 篇文章`,
+              `${deletedIds.size} article(s) deleted`
+            )
+          );
+        }
+
+        setRowSelection({});
+        await fetchArticles(false);
+      } catch {
+        toast.error(t("article.deleteFailed"));
+      } finally {
+        if (mountedRef.current) {
+          setIsBulkActionPending(false);
+        }
+      }
+    },
+    [fetchArticles, isBulkActionPending, locale, t]
+  );
+
   const currentPageStats = useMemo(() => {
-    const published = optimisticArticles.filter(
+    const published = articles.filter(
       (article) => article.status === "published"
     ).length;
-    const drafts = optimisticArticles.filter((article) => article.status === "draft").length;
-    const scheduled = optimisticArticles.filter(
+    const drafts = articles.filter((article) => article.status === "draft").length;
+    const scheduled = articles.filter(
       (article) => article.status === "draft" && article.scheduled_at
     ).length;
-    const views = optimisticArticles.reduce(
+    const views = articles.reduce(
       (sum, article) => sum + (article.view_count || 0),
       0
     );
-    const comments = optimisticArticles.reduce(
+    const comments = articles.reduce(
       (sum, article) => sum + (article.comment_count || 0),
       0
     );
 
     return { published, drafts, scheduled, views, comments };
-  }, [optimisticArticles]);
+  }, [articles]);
   const statusOptions = useMemo(
     () => [
       { value: "all", label: t("common.all"), icon: ListFilter },
@@ -880,6 +1148,81 @@ export default function ArticlesPage() {
             />
           </div>
 
+          {selectedCount > 0 ? (
+            <div className="mt-4 flex flex-col gap-3 rounded-md border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                {isBulkActionPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 text-primary" />
+                )}
+                <span className="font-medium">
+                  {localText(
+                    locale,
+                    `已选 ${numberFormatter.format(selectedCount)} 篇`,
+                    `${numberFormatter.format(selectedCount)} selected`
+                  )}
+                </span>
+                <span className="text-muted-foreground">
+                  {localText(locale, "批量操作仅作用于当前页", "Batch actions apply to the current page")}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isBulkActionPending}
+                  onClick={() => void handleBulkStatusChange("published")}
+                >
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  {getBulkStatusLabel(locale, "published")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isBulkActionPending}
+                  onClick={() => void handleBulkStatusChange("draft")}
+                >
+                  <FileClock className="mr-2 h-4 w-4" />
+                  {getBulkStatusLabel(locale, "draft")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isBulkActionPending}
+                  onClick={() => void handleBulkStatusChange("archived")}
+                >
+                  <Archive className="mr-2 h-4 w-4" />
+                  {getBulkStatusLabel(locale, "archived")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isBulkActionPending}
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setBulkDeleteDialogOpen(true)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  {t("common.delete")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={isBulkActionPending}
+                  onClick={() => setRowSelection({})}
+                >
+                  <X className="mr-2 h-4 w-4" />
+                  {localText(locale, "取消选择", "Clear")}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
           <div
             className={cn(
               "mt-3 h-0.5 overflow-hidden rounded-full transition-colors duration-200",
@@ -987,19 +1330,76 @@ export default function ArticlesPage() {
             total: Math.max(1, totalPages).toString(),
           })}
           selectedLabel={(selected, rows) =>
-            localText(
-              locale,
-              `已选择 ${numberFormatter.format(selected)} / ${numberFormatter.format(rows)} 行`,
-              `${numberFormatter.format(selected)} of ${numberFormatter.format(rows)} row(s) selected`
-            )
+            selected > 0
+              ? localText(
+                  locale,
+                  `已选择 ${numberFormatter.format(selected)} / ${numberFormatter.format(rows)} 行`,
+                  `${numberFormatter.format(selected)} of ${numberFormatter.format(rows)} row(s) selected`
+                )
+              : localText(
+                  locale,
+                  `当前页 ${numberFormatter.format(rows)} 行`,
+                  `${numberFormatter.format(rows)} visible`
+                )
           }
         />
       </div>
 
       <AlertDialog
+        open={bulkDeleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!isBulkActionPending) {
+            setBulkDeleteDialogOpen(open);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("common.confirm")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {localText(
+                locale,
+                `确定要删除选中的 ${numberFormatter.format(selectedCount)} 篇文章吗？此操作无法撤销。`,
+                `Delete ${numberFormatter.format(selectedCount)} selected article(s)? This cannot be undone.`
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkActionPending}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isBulkActionPending || selectedCount === 0}
+              onClick={() => {
+                const targetArticles = selectedArticles;
+
+                setBulkDeleteDialogOpen(false);
+
+                if (bulkConfirmTimerRef.current !== null) {
+                  window.clearTimeout(bulkConfirmTimerRef.current);
+                }
+
+                bulkConfirmTimerRef.current = window.setTimeout(() => {
+                  bulkConfirmTimerRef.current = null;
+                  if (mountedRef.current) {
+                    void handleBulkDelete(targetArticles);
+                  }
+                }, 0);
+              }}
+            >
+              {isBulkActionPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
         open={!!articleToDelete}
         onOpenChange={(open) => {
-          if (!open) {
+          if (!open && deletingId === null && !isBulkActionPending) {
             setArticleToDelete(null);
           }
         }}
@@ -1014,11 +1414,27 @@ export default function ArticlesPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel disabled={deletingId !== null || isBulkActionPending}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
+              disabled={deletingId !== null || isBulkActionPending}
               onClick={() => {
-                if (articleToDelete) {
-                  handleDelete(articleToDelete);
+                const article = articleToDelete;
+
+                setArticleToDelete(null);
+
+                if (deleteConfirmTimerRef.current !== null) {
+                  window.clearTimeout(deleteConfirmTimerRef.current);
+                }
+
+                if (article) {
+                  deleteConfirmTimerRef.current = window.setTimeout(() => {
+                    deleteConfirmTimerRef.current = null;
+                    if (mountedRef.current) {
+                      void handleDelete(article);
+                    }
+                  }, 0);
                 }
               }}
             >

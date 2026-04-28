@@ -60,6 +60,7 @@ package-lock.json
 *.md
 !README.md
 !README.en.md
+!README.zh-CN.md
 !CHANGELOG.md
 !CHANGELOG.en.md
 !LICENSE

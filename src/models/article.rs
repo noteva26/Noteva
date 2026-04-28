@@ -266,8 +266,12 @@ pub struct UpdateArticleInput {
     pub category_id: Option<i64>,
     /// New status (optional)
     pub status: Option<ArticleStatus>,
-    /// New thumbnail URL (optional)
-    pub thumbnail: Option<String>,
+    /// Thumbnail patch.
+    ///
+    /// - None: keep the existing value
+    /// - Some(Some(url)): set a thumbnail URL
+    /// - Some(None): clear the thumbnail
+    pub thumbnail: Option<Option<String>>,
     /// Whether the article is pinned (optional)
     pub is_pinned: Option<bool>,
     /// Pin order (optional)

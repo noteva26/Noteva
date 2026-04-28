@@ -14,7 +14,8 @@
     "back": "Back",
     "show": "Show",
     "hide": "Hide",
-    "backToHome": "Back to Home"
+    "backToHome": "Back to Home",
+    "switchLanguage": "Switch Language"
   },
   "nav": {
     "home": "Home",
@@ -87,7 +88,8 @@
     "minRead": " min read",
     "prev": "Previous",
     "next": "Next",
-    "related": "Related Articles"
+    "related": "Related Articles",
+    "toc": "Contents"
   },
   "category": {
     "totalCategories": "Categories",

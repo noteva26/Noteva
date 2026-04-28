@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Link, Outlet } from "react-router-dom";
 import { motion } from "motion/react";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
-import { useTranslation, loadCustomLocales } from "@/lib/i18n";
+import { useTranslation } from "@/lib/i18n";
 import { preloadManageRoute } from "@/lib/manage-routes";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -55,7 +55,6 @@ export default function ManageLayout() {
 
   useEffect(() => {
     fetchSettings();
-    loadCustomLocales();
   }, [fetchSettings]);
 
   useEffect(() => {

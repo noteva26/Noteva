@@ -77,6 +77,9 @@ impl PageService {
             .as_str()
             .map(String::from)
             .unwrap_or(title);
+        let slug = normalize_page_slug(slug)?;
+        let title = normalize_page_title(title)?;
+        let status = parse_page_status(status)?;
 
         // Check slug uniqueness
         if self.repo.exists_by_slug(&slug).await? {
@@ -85,8 +88,8 @@ impl PageService {
 
         let content_html = self.markdown.render(&content);
         let mut page = Page::new(slug, title, content, content_html);
-        if let Some(s) = status {
-            page.status = s.parse().unwrap_or(PageStatus::Draft);
+        if let Some(status) = status {
+            page.status = status;
         }
 
         let created = self
@@ -211,6 +214,7 @@ impl PageService {
         let old_slug = page.slug.clone();
 
         if let Some(new_slug) = slug {
+            let new_slug = normalize_page_slug(new_slug)?;
             if new_slug != page.slug && self.repo.exists_by_slug(&new_slug).await? {
                 anyhow::bail!("Page with slug '{}' already exists", new_slug);
             }
@@ -218,7 +222,7 @@ impl PageService {
         }
 
         if let Some(new_title) = title {
-            page.title = new_title;
+            page.title = normalize_page_title(new_title)?;
         }
 
         if let Some(new_content) = content {
@@ -227,7 +231,8 @@ impl PageService {
         }
 
         if let Some(new_status) = status {
-            page.status = new_status.parse().unwrap_or(PageStatus::Draft);
+            page.status = parse_page_status(Some(new_status))?
+                .ok_or_else(|| anyhow::anyhow!("Page status is required"))?;
         }
 
         let updated = self.repo.update(&page).await?;
@@ -305,11 +310,15 @@ impl PageService {
     pub async fn ensure_pages(&self, pages: &[(String, String)], source: &str) -> Result<usize> {
         let mut created = 0usize;
         for (slug, title) in pages {
-            if self.repo.exists_by_slug(slug).await? {
+            let slug = normalize_page_slug(slug.clone())
+                .with_context(|| format!("Invalid declared page slug '{}'", slug))?;
+            let title = normalize_page_title(title.clone())
+                .with_context(|| format!("Invalid declared page title for '{}'", slug))?;
+            if self.repo.exists_by_slug(&slug).await? {
                 tracing::debug!("Page '{}' already exists, skipping auto-creation", slug);
                 continue;
             }
-            let page = Page::new_auto(slug.clone(), title.clone(), source.to_string());
+            let page = Page::new_auto(slug.clone(), title, source.to_string());
             self.repo
                 .create(&page)
                 .await
@@ -322,4 +331,49 @@ impl PageService {
         }
         Ok(created)
     }
+}
+
+fn normalize_page_slug(slug: String) -> Result<String> {
+    let slug = slug.trim().trim_matches('/').to_string();
+    validate_page_slug(&slug)?;
+    Ok(slug)
+}
+
+fn normalize_page_title(title: String) -> Result<String> {
+    let title = title.trim().to_string();
+    if title.is_empty() {
+        anyhow::bail!("Page title cannot be empty");
+    }
+    Ok(title)
+}
+
+fn parse_page_status(status: Option<String>) -> Result<Option<PageStatus>> {
+    status
+        .map(|status| {
+            let status = status.trim();
+            if status.is_empty() {
+                anyhow::bail!("Page status cannot be empty");
+            }
+            status.parse::<PageStatus>()
+        })
+        .transpose()
+}
+
+fn validate_page_slug(slug: &str) -> Result<()> {
+    if slug.is_empty() {
+        anyhow::bail!("Page slug cannot be empty");
+    }
+    if slug == "." || slug == ".." || slug.contains("..") {
+        anyhow::bail!("Page slug cannot contain path traversal");
+    }
+    if slug.chars().any(|ch| {
+        ch.is_control()
+            || matches!(
+                ch,
+                '/' | '\\' | '?' | '#' | '%' | ':' | '*' | '"' | '<' | '>' | '|'
+            )
+    }) {
+        anyhow::bail!("Page slug contains invalid characters");
+    }
+    Ok(())
 }

@@ -88,14 +88,7 @@ impl CommentService {
         ip: Option<String>,
         user_agent: Option<String>,
     ) -> Result<crate::models::Comment> {
-        // Validate comment length
-        if input.content.len() > MAX_COMMENT_LENGTH {
-            anyhow::bail!(
-                "Comment too long ({} chars). Maximum is {} characters.",
-                input.content.len(),
-                MAX_COMMENT_LENGTH
-            );
-        }
+        validate_comment_content(&input.content)?;
 
         // Trigger comment_before_create hook
         let hook_data = self.trigger_hook(
@@ -135,6 +128,7 @@ impl CommentService {
         if let Some(filtered) = filter_data.get("content").and_then(|v| v.as_str()) {
             input.content = filtered.to_string();
         }
+        validate_comment_content(&input.content)?;
 
         // Check if filter wants to override status (e.g. mark as pending for moderation)
         let filter_status = filter_data
@@ -236,7 +230,10 @@ impl CommentService {
         fingerprint: Option<&str>,
     ) -> Result<Vec<CommentWithMeta>> {
         // Try cache first
-        let cache_key = format!("{}{}", CACHE_KEY_COMMENT_BY_ARTICLE, article_id);
+        let cache_key = match fingerprint {
+            Some(fp) => format!("{}{}:{}", CACHE_KEY_COMMENT_BY_ARTICLE, article_id, fp),
+            None => format!("{}{}", CACHE_KEY_COMMENT_BY_ARTICLE, article_id),
+        };
         if let Ok(Some(comments)) = self.cache.get::<Vec<CommentWithMeta>>(&cache_key).await {
             return Ok(comments);
         }
@@ -248,6 +245,11 @@ impl CommentService {
         let _ = self.cache.set(&cache_key, &comments, self.cache_ttl).await;
 
         Ok(comments)
+    }
+
+    /// Get a comment by ID.
+    pub async fn get_by_id(&self, id: i64) -> Result<Option<crate::models::Comment>> {
+        self.repo.get_by_id(id).await
     }
 
     /// Get pending comments for moderation
@@ -381,6 +383,20 @@ impl CommentService {
     pub async fn list_recent(&self, limit: i64) -> Result<Vec<CommentWithMeta>> {
         self.repo.list_recent(limit).await
     }
+}
+
+fn validate_comment_content(content: &str) -> Result<()> {
+    if content.trim().is_empty() {
+        anyhow::bail!("Content is required");
+    }
+    if content.len() > MAX_COMMENT_LENGTH {
+        anyhow::bail!(
+            "Comment too long ({} chars). Maximum is {} characters.",
+            content.len(),
+            MAX_COMMENT_LENGTH
+        );
+    }
+    Ok(())
 }
 
 /// Generate fingerprint from IP and User-Agent

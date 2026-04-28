@@ -1,6 +1,6 @@
 {
   "name": "noteva",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "private": true,
   "description": "A lightweight modern blog system",
   "scripts": {
@@ -10,6 +10,7 @@
     "build:frontend": "pnpm run build:web && pnpm run build:theme",
     "build:all": "pnpm run build:frontend && echo 'Frontend built. Run: cargo build --release'",
     "check:sdk": "node scripts/check-sdk-contract.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs",
     "dev:web": "cd web && pnpm run dev",
     "dev:theme": "cd themes/default && pnpm run dev"
   },
@@ -19,5 +20,5 @@
     "rust"
   ],
   "author": "Noteva Team",
-  "license": "MIT"
+  "license": "SEE LICENSE IN LICENSE"
 }

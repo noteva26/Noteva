@@ -6,8 +6,6 @@ import { useCallback } from "react";
 import zhCN from "./locales/zh-CN.json";
 import zhTW from "./locales/zh-TW.json";
 import en from "./locales/en.json";
-import ja from "./locales/ja.json";
-import { localesApi } from "../api";
 
 export type Locale = string;
 
@@ -15,7 +13,6 @@ export interface LocaleInfo {
   code: string;
   name: string;
   nativeName: string;
-  isCustom?: boolean;
 }
 
 // Built-in locales
@@ -24,6 +21,13 @@ export const builtinLocales: LocaleInfo[] = [
   { code: "zh-TW", name: "Traditional Chinese", nativeName: "繁體中文" },
   { code: "en", name: "English", nativeName: "English" },
   { code: "ja", name: "Japanese", nativeName: "日本語" },
+  { code: "ko", name: "Korean", nativeName: "한국어" },
+  { code: "fr", name: "French", nativeName: "Français" },
+  { code: "de", name: "German", nativeName: "Deutsch" },
+  { code: "es", name: "Spanish", nativeName: "Español" },
+  { code: "pt-BR", name: "Portuguese (Brazil)", nativeName: "Português (Brasil)" },
+  { code: "ru", name: "Russian", nativeName: "Русский" },
+  { code: "it", name: "Italian", nativeName: "Italiano" },
 ];
 
 // Built-in messages (compile-time)
@@ -31,18 +35,22 @@ const builtinMessages: Record<string, Record<string, unknown>> = {
   "zh-CN": zhCN,
   "zh-TW": zhTW,
   en: en,
-  ja: ja,
 };
 
-// Runtime-loaded custom locale messages
-const customMessages: Record<string, Record<string, unknown>> = {};
-
-// Custom locale list (populated at runtime)
-const customLocaleList: LocaleInfo[] = [];
+const builtinLocaleLoaders: Record<string, () => Promise<Record<string, unknown>>> = {
+  ja: () => import("./locales/ja.json").then((module) => module.default as Record<string, unknown>),
+  ko: () => import("./locales/ko.json").then((module) => module.default as Record<string, unknown>),
+  fr: () => import("./locales/fr.json").then((module) => module.default as Record<string, unknown>),
+  de: () => import("./locales/de.json").then((module) => module.default as Record<string, unknown>),
+  es: () => import("./locales/es.json").then((module) => module.default as Record<string, unknown>),
+  "pt-BR": () => import("./locales/pt-BR.json").then((module) => module.default as Record<string, unknown>),
+  ru: () => import("./locales/ru.json").then((module) => module.default as Record<string, unknown>),
+  it: () => import("./locales/it.json").then((module) => module.default as Record<string, unknown>),
+};
 
 // Combined getter for all available locales
 export function getLocales(): LocaleInfo[] {
-  return [...builtinLocales, ...customLocaleList];
+  return builtinLocales;
 }
 
 // Legacy export for backward compat
@@ -51,8 +59,27 @@ export const locales = builtinLocales;
 interface I18nState {
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  /** Incremented when custom locales are loaded to trigger re-renders */
+  /** Incremented when lazy locale chunks are loaded to trigger re-renders */
   _version: number;
+}
+
+function applyLocaleSideEffects(locale: Locale) {
+  if (typeof document !== "undefined") {
+    document.documentElement.lang = locale;
+  }
+}
+
+async function loadBuiltInLocale(locale: string) {
+  if (builtinMessages[locale]) return;
+  const loader = builtinLocaleLoaders[locale];
+  if (!loader) return;
+
+  try {
+    builtinMessages[locale] = await loader();
+    useI18nStore.setState((state) => ({ _version: state._version + 1 }));
+  } catch {
+    console.warn(`Failed to load locale: ${locale}`);
+  }
 }
 
 /**
@@ -68,7 +95,7 @@ function detectBrowserLocale(): Locale {
   for (const lang of langs) {
     // Exact match: zh-CN → zh-CN
     if (available.includes(lang)) return lang;
-    // Prefix match: zh → zh-CN, ja → ja
+    // Prefix match: zh → zh-CN
     const prefix = lang.split("-")[0];
     const match = available.find((a) => a === prefix || a.startsWith(prefix + "-"));
     if (match) return match;
@@ -81,7 +108,11 @@ export const useI18nStore = create<I18nState>()(
   persist(
     (set) => ({
       locale: detectBrowserLocale(),
-      setLocale: (locale) => set({ locale }),
+      setLocale: (locale) => {
+        applyLocaleSideEffects(locale);
+        set({ locale });
+        void loadBuiltInLocale(locale);
+      },
       _version: 0,
     }),
     {
@@ -90,11 +121,18 @@ export const useI18nStore = create<I18nState>()(
   )
 );
 
+if (typeof window !== "undefined") {
+  applyLocaleSideEffects(useI18nStore.getState().locale);
+  void loadBuiltInLocale(useI18nStore.getState().locale);
+  useI18nStore.subscribe((state) => {
+    applyLocaleSideEffects(state.locale);
+  });
+}
+
 // Get the messages map for the given locale, with fallback to en
 function getMessages(locale: string): Record<string, unknown> {
   return (
     builtinMessages[locale] ||
-    customMessages[locale] ||
     builtinMessages["en"] ||
     {}
   );
@@ -176,61 +214,4 @@ export function useTranslation() {
     locales: getLocales(),
     _version,
   };
-}
-
-// ── Dynamic custom locale loading ─────────────────────────────────────
-
-/**
- * Register a custom locale at runtime.
- * Called after fetching from the API.
- */
-export function registerCustomLocale(code: string, name: string, translations: Record<string, unknown>) {
-  customMessages[code] = translations;
-
-  // Add to custom locale list if not already present
-  if (!customLocaleList.find((l) => l.code === code)) {
-    customLocaleList.push({ code, name, nativeName: name, isCustom: true });
-  }
-
-  // Bump version to trigger re-renders in components that use useTranslation()
-  useI18nStore.setState((s) => ({ _version: s._version + 1 }));
-}
-
-/**
- * Remove a custom locale from runtime registry.
- */
-export function unregisterCustomLocale(code: string) {
-  delete customMessages[code];
-  const idx = customLocaleList.findIndex((l) => l.code === code);
-  if (idx !== -1) customLocaleList.splice(idx, 1);
-
-  // If user was using this locale, reset to default
-  if (useI18nStore.getState().locale === code) {
-    useI18nStore.getState().setLocale("zh-CN");
-  }
-
-  useI18nStore.setState((s) => ({ _version: s._version + 1 }));
-}
-
-/**
- * Load all custom locales from backend API.
- * Call this once during app initialization.
- */
-export async function loadCustomLocales() {
-  try {
-    const res = await localesApi.list();
-    const items = res.data.locales;
-
-    // Fetch full translations for each custom locale
-    for (const item of items) {
-      try {
-        const detail = await localesApi.get(item.code);
-        registerCustomLocale(item.code, item.name, detail.data.translations as Record<string, unknown>);
-      } catch {
-        console.warn(`Failed to load custom locale: ${item.code}`);
-      }
-    }
-  } catch {
-    // Silent fail - custom locales are optional
-  }
 }

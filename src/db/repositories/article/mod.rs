@@ -443,7 +443,7 @@ impl_row_mapper! {
             view_count: row.try_get("view_count").unwrap_or(0),
             like_count: row.try_get("like_count").unwrap_or(0),
             comment_count: row.try_get("comment_count").unwrap_or(0),
-            thumbnail: row.try_get("thumbnail").ok(),
+            thumbnail: row.try_get("thumbnail").ok().flatten(),
             is_pinned: row.try_get("is_pinned").unwrap_or(false),
             pin_order: row.try_get("pin_order").unwrap_or(0),
             meta: row.try_get::<String, _>("meta")
@@ -583,27 +583,6 @@ impl_dual_fn! {
             .context("Failed to check article slug existence")?;
         let count: i64 = row.get("count");
         Ok(count > 0)
-    }
-}
-
-impl_dual_fn! {
-    pub(super) async fn count_search(pool, keyword: &str, published_only: bool) -> Result<i64> {
-        let search_pattern = format!("%{}%", keyword);
-
-        let query = if published_only {
-            "SELECT COUNT(*) as count FROM articles WHERE status = 'published' AND (title LIKE ? OR content LIKE ?)"
-        } else {
-            "SELECT COUNT(*) as count FROM articles WHERE title LIKE ? OR content LIKE ?"
-        };
-
-        let row = sqlx::query(query)
-            .bind(&search_pattern)
-            .bind(&search_pattern)
-            .fetch_one(pool)
-            .await
-            .context("Failed to count search results")?;
-
-        Ok(row.get("count"))
     }
 }
 

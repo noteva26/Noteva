@@ -19,8 +19,9 @@ import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language"
 import { api, uploadApi, filesApi, type FileInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2 } from "lucide-react";
+import { LayoutGrid, Loader2 } from "lucide-react";
 import { useI18nStore, type Locale, t as i18nT } from "@/lib/i18n";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 import { toast } from "sonner";
 
 const EmojiPicker = lazy(() =>
@@ -57,6 +58,13 @@ interface MarkdownEditorProps {
     placeholder?: string;
     minHeight?: number;
 }
+
+type EmojiPickerPlacement =
+    | { mode: "popover"; top: number; left: number }
+    | { mode: "sheet" };
+
+const EMOJI_PICKER_WIDTH = 360;
+const EMOJI_PICKER_HEIGHT = 320;
 
 // ── Toolbar button definitions ──────────────────────────────
 // Inline SVG icons (16×16) for toolbar - keeps bundle small
@@ -153,7 +161,11 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         const [previewLoading, setPreviewLoading] = useState(false);
         const [isFullscreen, setIsFullscreen] = useState(false);
         const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-        const [emojiPickerPos, setEmojiPickerPos] = useState({ top: 0, left: 0 });
+        const [emojiPickerPlacement, setEmojiPickerPlacement] = useState<EmojiPickerPlacement>({
+            mode: "popover",
+            top: 0,
+            left: 0,
+        });
         const emojiButtonRef = useRef<HTMLButtonElement>(null);
         const [pluginMenuOpen, setPluginMenuOpen] = useState(false);
         const pluginMenuRef = useRef<HTMLDivElement>(null);
@@ -506,6 +518,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 inlineCode: () => v() && wrapSelection(v()!, "`", "`"),
                 link: () => v() && wrapSelection(v()!, "[", "](url)"),
                 table: () => v() && insertText(v()!, "\n| Header | Header |\n| ------ | ------ |\n| Cell   | Cell   |\n"),
+                imageGrid: () => v() && wrapSelection(v()!, "\n[grid]\n", "\n[/grid]\n"),
                 hr: () => v() && insertText(v()!, "\n---\n"),
                 upload: () => { },  // handled by panel toggle
                 undo: () => v() && undo(v()!),
@@ -519,13 +532,50 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
             setEmojiPickerOpen(false);
         }, []);
 
-        const handleEmojiButtonClick = useCallback(() => {
-            if (emojiButtonRef.current) {
-                const rect = emojiButtonRef.current.getBoundingClientRect();
-                setEmojiPickerPos({ top: rect.bottom + 4, left: Math.max(8, rect.left - 150) });
+        const updateEmojiPickerPlacement = useCallback(() => {
+            const button = emojiButtonRef.current;
+            if (!button) return;
+
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            if (viewportWidth < 640) {
+                setEmojiPickerPlacement({ mode: "sheet" });
+                return;
             }
-            setEmojiPickerOpen((prev) => !prev);
+
+            const rect = button.getBoundingClientRect();
+            const margin = 12;
+            const gap = 8;
+            const left = Math.min(
+                Math.max(rect.left + rect.width / 2 - EMOJI_PICKER_WIDTH / 2, margin),
+                viewportWidth - EMOJI_PICKER_WIDTH - margin
+            );
+            const belowTop = rect.bottom + gap;
+            const top =
+                belowTop + EMOJI_PICKER_HEIGHT <= viewportHeight - margin
+                    ? belowTop
+                    : Math.max(margin, rect.top - EMOJI_PICKER_HEIGHT - gap);
+
+            setEmojiPickerPlacement({ mode: "popover", top, left });
         }, []);
+
+        const handleEmojiButtonClick = useCallback(() => {
+            updateEmojiPickerPlacement();
+            setEmojiPickerOpen((prev) => !prev);
+        }, [updateEmojiPickerPlacement]);
+
+        useEffect(() => {
+            if (!emojiPickerOpen) return;
+
+            updateEmojiPickerPlacement();
+            const handleViewportChange = () => updateEmojiPickerPlacement();
+            window.addEventListener("resize", handleViewportChange);
+            window.addEventListener("scroll", handleViewportChange, true);
+            return () => {
+                window.removeEventListener("resize", handleViewportChange);
+                window.removeEventListener("scroll", handleViewportChange, true);
+            };
+        }, [emojiPickerOpen, updateEmojiPickerPlacement]);
 
         const togglePreview = useCallback(() => {
             setShowPreview((prev) => {
@@ -572,7 +622,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                     </div>
                 ) : previewHtml ? (
                     <div
-                        dangerouslySetInnerHTML={{ __html: previewHtml }}
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewHtml) }}
                     />
                 ) : (
                     <p className="text-muted-foreground">{i18nT("editor.previewEmpty")}</p>
@@ -622,6 +672,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                     <ToolbarBtn icon={icons.link} title={i18nT("editor.link")} onClick={tb.link} />
                     <ToolbarBtn icon={icons.table} title={i18nT("editor.table")} onClick={tb.table} />
                     <Sep />
+                    <ToolbarBtn icon={<LayoutGrid className="h-4 w-4" />} title={i18nT("editor.imageGrid")} onClick={tb.imageGrid} />
                     <div className="relative">
                         <Button
                             ref={uploadButtonRef}
@@ -770,12 +821,18 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                             </div>
                         )}
                     </div>
-                    <ToolbarBtn
-                        icon={icons.emoji}
+                    <Button
+                        ref={emojiButtonRef}
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={`h-8 w-8 ${emojiPickerOpen ? "bg-primary/10 text-primary" : ""}`}
                         title={i18nT("editor.emoji")}
+                        aria-label={i18nT("editor.emoji")}
                         onClick={handleEmojiButtonClick}
-                    />
-                    <button ref={emojiButtonRef} className="hidden" />
+                    >
+                        {icons.emoji}
+                    </Button>
                     {/* Plugin buttons dropdown */}
                     {pluginButtons.length > 0 && (
                         <>
@@ -860,19 +917,46 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 {/* Emoji picker portal */}
                 {emojiPickerOpen &&
                     createPortal(
-                        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 60 }} onClick={() => setEmojiPickerOpen(false)}>
+                        <div
+                            className="fixed inset-0 z-[60] sm:bg-transparent"
+                            onClick={() => setEmojiPickerOpen(false)}
+                        >
                             <div
-                                style={{ position: "fixed", top: emojiPickerPos.top, left: emojiPickerPos.left, zIndex: 61 }}
+                                className={
+                                    emojiPickerPlacement.mode === "sheet"
+                                        ? "fixed inset-x-0 bottom-0 z-[61] p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+                                        : "fixed z-[61]"
+                                }
+                                style={
+                                    emojiPickerPlacement.mode === "popover"
+                                        ? { top: emojiPickerPlacement.top, left: emojiPickerPlacement.left }
+                                        : undefined
+                                }
                                 onClick={(e) => e.stopPropagation()}
                             >
                                 <Suspense
                                     fallback={
-                                        <div className="flex h-[300px] w-[360px] items-center justify-center rounded-lg border bg-popover shadow-xl">
+                                        <div
+                                            className={
+                                                emojiPickerPlacement.mode === "sheet"
+                                                    ? "flex h-[min(72vh,440px)] w-full items-center justify-center rounded-lg border bg-popover shadow-2xl"
+                                                    : "flex h-[320px] w-[360px] items-center justify-center rounded-lg border bg-popover shadow-xl"
+                                            }
+                                        >
                                             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                                         </div>
                                     }
                                 >
-                                    <EmojiPicker onSelect={handleEmojiSelect} onClose={() => setEmojiPickerOpen(false)} />
+                                    <EmojiPicker
+                                        onSelect={handleEmojiSelect}
+                                        onClose={() => setEmojiPickerOpen(false)}
+                                        autoFocusSearch={emojiPickerPlacement.mode === "popover"}
+                                        className={
+                                            emojiPickerPlacement.mode === "sheet"
+                                                ? "h-[min(72vh,440px)] w-full rounded-lg shadow-2xl"
+                                                : undefined
+                                        }
+                                    />
                                 </Suspense>
                             </div>
                         </div>,

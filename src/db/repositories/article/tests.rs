@@ -274,6 +274,33 @@ async fn test_update_article() {
 }
 
 #[tokio::test]
+async fn test_update_article_can_clear_thumbnail() {
+    let (pool, repo) = setup_test_repo().await;
+    let sqlite_pool = pool.as_sqlite().unwrap();
+    let user_id = create_test_user(sqlite_pool).await;
+    let category_id = create_test_category(sqlite_pool, "test-cat").await;
+
+    let input = create_test_input("thumbnail-test", "Thumbnail Test", user_id, category_id);
+    let created = repo.create(&input).await.expect("Failed to create article");
+
+    let mut set_thumbnail = UpdateArticleInput::new();
+    set_thumbnail.thumbnail = Some(Some("/uploads/cover.png".to_string()));
+    let updated = repo
+        .update(created.id, &set_thumbnail)
+        .await
+        .expect("Failed to set thumbnail");
+    assert_eq!(updated.thumbnail.as_deref(), Some("/uploads/cover.png"));
+
+    let mut clear_thumbnail = UpdateArticleInput::new();
+    clear_thumbnail.thumbnail = Some(None);
+    let updated = repo
+        .update(created.id, &clear_thumbnail)
+        .await
+        .expect("Failed to clear thumbnail");
+    assert!(updated.thumbnail.is_none());
+}
+
+#[tokio::test]
 async fn test_update_article_status_to_published() {
     let (pool, repo) = setup_test_repo().await;
     let sqlite_pool = pool.as_sqlite().unwrap();

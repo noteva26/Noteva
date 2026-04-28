@@ -1,0 +1,148 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "キャンセル",
+    "delete": "削除",
+    "edit": "編集",
+    "create": "作成",
+    "search": "検索",
+    "loading": "読み込み中...",
+    "noData": "データがありません",
+    "confirm": "確認",
+    "success": "成功",
+    "error": "エラー",
+    "back": "戻る",
+    "show": "表示",
+    "hide": "非表示",
+    "backToHome": "ホームに戻る",
+    "switchLanguage": "言語を切り替え"
+  },
+  "nav": {
+    "home": "ホーム",
+    "archive": "アーカイブ",
+    "categories": "カテゴリー",
+    "tags": "タグ",
+    "about": "概要",
+    "login": "ログイン",
+    "register": "登録",
+    "logout": "ログアウト",
+    "manage": "管理画面",
+    "profile": "プロフィール"
+  },
+  "auth": {
+    "login": "ログイン",
+    "register": "登録",
+    "usernameOrEmail": "ユーザー名またはメール",
+    "username": "ユーザー名",
+    "email": "メール",
+    "password": "パスワード",
+    "confirmPassword": "パスワード確認",
+    "noAccount": "アカウントをお持ちでないですか？",
+    "hasAccount": "すでにアカウントをお持ちですか？",
+    "loginSuccess": "ログインしました",
+    "loginFailed": "ログインに失敗しました",
+    "registerSuccess": "登録しました",
+    "registerFailed": "登録に失敗しました",
+    "passwordMismatch": "入力したパスワードが一致しません",
+    "passwordTooShort": "パスワードは6文字以上にしてください",
+    "loginToAccount": "アカウントにログイン",
+    "createAccount": "新しいアカウントを作成",
+    "verificationCode": "認証コード",
+    "verificationCodeRequired": "認証コードを入力してください",
+    "sendCode": "コードを送信",
+    "codeSent": "認証コードを送信しました",
+    "sendCodeFailed": "認証コードの送信に失敗しました",
+    "enterValidEmail": "有効なメールアドレスを入力してください"
+  },
+  "profile": {
+    "title": "プロフィール",
+    "description": "個人情報とアカウント設定を管理します",
+    "info": "個人情報",
+    "changePassword": "パスワードを変更",
+    "displayName": "表示名",
+    "displayNamePlaceholder": "表示したい名前を入力",
+    "displayNameDesc": "この名前は投稿した記事やコメントに表示されます",
+    "avatar": "アバター",
+    "usernameCannotChange": "ユーザー名は変更できません",
+    "emailCannotChange": "メールは変更できません",
+    "currentPassword": "現在のパスワード",
+    "newPassword": "新しいパスワード",
+    "confirmNewPassword": "新しいパスワードを確認",
+    "updatePassword": "パスワードを更新",
+    "updateSuccess": "プロフィールを更新しました",
+    "updateFailed": "更新に失敗しました",
+    "passwordChanged": "パスワードを変更しました",
+    "passwordChangeFailed": "パスワードの変更に失敗しました"
+  },
+  "home": {
+    "welcome": "ようこそ",
+    "subtitle": "シンプルで上品なブログシステム",
+    "readMore": "続きを読む",
+    "noPostsYet": "まだ記事がありません"
+  },
+  "article": {
+    "totalArticles": "記事数",
+    "noArticles": "記事がありません",
+    "pinned": "固定",
+    "words": "文字",
+    "minRead": "分で読めます",
+    "prev": "前の記事",
+    "next": "次の記事",
+    "related": "関連記事",
+    "toc": "目次"
+  },
+  "category": {
+    "totalCategories": "カテゴリー数",
+    "noCategories": "カテゴリーがありません"
+  },
+  "tag": {
+    "totalTags": "タグ数",
+    "noTags": "タグがありません"
+  },
+  "comment": {
+    "title": "コメント",
+    "placeholder": "コメントを書く...",
+    "replyPlaceholder": "返信を書く...",
+    "nickname": "ニックネーム",
+    "email": "メール（アバター表示用）",
+    "emailOptional": "メール（任意、アバター表示用）",
+    "submit": "コメントを投稿",
+    "reply": "返信",
+    "noComments": "まだコメントがありません。最初のコメントを投稿しましょう",
+    "loginRequired": "コメントするにはログインしてください",
+    "contentRequired": "コメント内容を入力してください",
+    "nicknameRequired": "ニックネームを入力してください",
+    "submitSuccess": "コメントを投稿しました",
+    "submitFailed": "コメントの投稿に失敗しました",
+    "liked": "いいねしました",
+    "unliked": "いいねを取り消しました",
+    "likeFailed": "いいねに失敗しました",
+    "authorTag": "作者",
+    "postingAsAdmin": "{name} としてコメントを投稿"
+  },
+  "theme": {
+    "light": "ライト",
+    "dark": "ダーク",
+    "system": "システムに従う"
+  },
+  "error": {
+    "notFound": "ページが見つかりません",
+    "notFoundDesc": "お探しのページは存在しないか、削除されました。",
+    "backHome": "ホームに戻る"
+  },
+  "footer": {
+    "copyright": "© {year} {name}. All rights reserved.",
+    "allRightsReserved": "All rights reserved"
+  },
+  "settings": {
+    "appearance": "外観設定"
+  },
+  "pagination": {
+    "prev": "前へ",
+    "next": "次へ",
+    "page": "{current} / {total} ページ"
+  },
+  "user": {
+    "userBanned": "このアカウントは停止されているためログインできません"
+  }
+}

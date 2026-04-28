@@ -1,0 +1,148 @@
+{
+  "common": {
+    "save": "Сохранить",
+    "cancel": "Отмена",
+    "delete": "Удалить",
+    "edit": "Редактировать",
+    "create": "Создать",
+    "search": "Поиск",
+    "loading": "Загрузка...",
+    "noData": "Нет данных",
+    "confirm": "Подтвердить",
+    "success": "Готово",
+    "error": "Ошибка",
+    "back": "Назад",
+    "show": "Показать",
+    "hide": "Скрыть",
+    "backToHome": "На главную",
+    "switchLanguage": "Сменить язык"
+  },
+  "nav": {
+    "home": "Главная",
+    "archive": "Архив",
+    "categories": "Категории",
+    "tags": "Теги",
+    "about": "О сайте",
+    "login": "Войти",
+    "register": "Регистрация",
+    "logout": "Выйти",
+    "manage": "Панель управления",
+    "profile": "Профиль"
+  },
+  "auth": {
+    "login": "Войти",
+    "register": "Регистрация",
+    "usernameOrEmail": "Имя пользователя или e-mail",
+    "username": "Имя пользователя",
+    "email": "E-mail",
+    "password": "Пароль",
+    "confirmPassword": "Подтвердите пароль",
+    "noAccount": "Еще нет аккаунта?",
+    "hasAccount": "Уже есть аккаунт?",
+    "loginSuccess": "Вход выполнен",
+    "loginFailed": "Не удалось войти",
+    "registerSuccess": "Регистрация выполнена",
+    "registerFailed": "Не удалось зарегистрироваться",
+    "passwordMismatch": "Пароли не совпадают",
+    "passwordTooShort": "Пароль должен содержать не менее 6 символов",
+    "loginToAccount": "Войдите в свой аккаунт",
+    "createAccount": "Создать новый аккаунт",
+    "verificationCode": "Код подтверждения",
+    "verificationCodeRequired": "Введите код подтверждения",
+    "sendCode": "Отправить код",
+    "codeSent": "Код подтверждения отправлен",
+    "sendCodeFailed": "Не удалось отправить код",
+    "enterValidEmail": "Введите корректный адрес e-mail"
+  },
+  "profile": {
+    "title": "Профиль",
+    "description": "Управляйте личной информацией и настройками аккаунта",
+    "info": "Личная информация",
+    "changePassword": "Изменить пароль",
+    "displayName": "Отображаемое имя",
+    "displayNamePlaceholder": "Введите имя для отображения",
+    "displayNameDesc": "Это имя будет отображаться в ваших статьях и комментариях",
+    "avatar": "Аватар",
+    "usernameCannotChange": "Имя пользователя изменить нельзя",
+    "emailCannotChange": "E-mail изменить нельзя",
+    "currentPassword": "Текущий пароль",
+    "newPassword": "Новый пароль",
+    "confirmNewPassword": "Подтвердите новый пароль",
+    "updatePassword": "Обновить пароль",
+    "updateSuccess": "Профиль обновлен",
+    "updateFailed": "Не удалось обновить",
+    "passwordChanged": "Пароль изменен",
+    "passwordChangeFailed": "Не удалось изменить пароль"
+  },
+  "home": {
+    "welcome": "Добро пожаловать в",
+    "subtitle": "Простая и элегантная система для блога",
+    "readMore": "Читать далее",
+    "noPostsYet": "Пока нет статей"
+  },
+  "article": {
+    "totalArticles": "Всего статей",
+    "noArticles": "Нет статей",
+    "pinned": "Закреплено",
+    "words": " слов",
+    "minRead": " мин чтения",
+    "prev": "Предыдущая статья",
+    "next": "Следующая статья",
+    "related": "Похожие статьи",
+    "toc": "Содержание"
+  },
+  "category": {
+    "totalCategories": "Всего категорий",
+    "noCategories": "Нет категорий"
+  },
+  "tag": {
+    "totalTags": "Всего тегов",
+    "noTags": "Нет тегов"
+  },
+  "comment": {
+    "title": "Комментарии",
+    "placeholder": "Напишите комментарий...",
+    "replyPlaceholder": "Напишите ответ...",
+    "nickname": "Имя",
+    "email": "E-mail (для аватара)",
+    "emailOptional": "E-mail (необязательно, для аватара)",
+    "submit": "Отправить комментарий",
+    "reply": "Ответить",
+    "noComments": "Пока нет комментариев. Будьте первым!",
+    "loginRequired": "Войдите, чтобы оставить комментарий",
+    "contentRequired": "Введите текст комментария",
+    "nicknameRequired": "Введите имя",
+    "submitSuccess": "Комментарий отправлен",
+    "submitFailed": "Не удалось отправить комментарий",
+    "liked": "Понравилось",
+    "unliked": "Отметка снята",
+    "likeFailed": "Не удалось поставить отметку",
+    "authorTag": "Автор",
+    "postingAsAdmin": "Комментарий от имени {name}"
+  },
+  "theme": {
+    "light": "Светлая",
+    "dark": "Темная",
+    "system": "Системная"
+  },
+  "error": {
+    "notFound": "Страница не найдена",
+    "notFoundDesc": "Извините, страница не существует или была удалена.",
+    "backHome": "На главную"
+  },
+  "footer": {
+    "copyright": "© {year} {name}. Все права защищены.",
+    "allRightsReserved": "Все права защищены"
+  },
+  "settings": {
+    "appearance": "Оформление"
+  },
+  "pagination": {
+    "prev": "Назад",
+    "next": "Далее",
+    "page": "Страница {current} из {total}"
+  },
+  "user": {
+    "userBanned": "Этот аккаунт заблокирован и не может войти"
+  }
+}

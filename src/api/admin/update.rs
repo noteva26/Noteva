@@ -307,6 +307,46 @@ fn extract_binary(archive_bytes: &[u8], asset_name: &str) -> Result<Vec<u8>, Str
     }
 }
 
+#[cfg(windows)]
+fn write_windows_update_script(
+    self_path: &std::path::Path,
+) -> Result<std::path::PathBuf, ApiError> {
+    let old_path = self_path.with_extension("old.exe");
+    let tmp_path = self_path.with_extension("new.exe");
+    let script_path = self_path.with_extension("update.cmd");
+    let dir = self_path
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .to_string_lossy();
+    let exe = self_path.to_string_lossy();
+    let old = old_path.to_string_lossy();
+    let tmp = tmp_path.to_string_lossy();
+
+    let script = format!(
+        "@echo off\r\n\
+setlocal\r\n\
+timeout /t 3 /nobreak >nul\r\n\
+del /f /q \"{old}\" >nul 2>nul\r\n\
+for /L %%i in (1,1,20) do (\r\n\
+  move /y \"{exe}\" \"{old}\" >nul 2>nul && goto moved_old\r\n\
+  timeout /t 1 /nobreak >nul\r\n\
+)\r\n\
+exit /b 1\r\n\
+:moved_old\r\n\
+move /y \"{tmp}\" \"{exe}\" >nul 2>nul\r\n\
+if errorlevel 1 (\r\n\
+  move /y \"{old}\" \"{exe}\" >nul 2>nul\r\n\
+  exit /b 1\r\n\
+)\r\n\
+start \"\" /D \"{dir}\" \"{exe}\"\r\n\
+del /f /q \"%~f0\" >nul 2>nul\r\n"
+    );
+
+    std::fs::write(&script_path, script)
+        .map_err(|e| ApiError::internal_error(format!("Failed to write update helper: {}", e)))?;
+    Ok(script_path)
+}
+
 /// POST /api/v1/admin/update-perform - Download and apply update
 ///
 /// Downloads the new binary from GitHub, replaces the current one, then exits.
@@ -490,19 +530,14 @@ pub async fn perform_update(
 
     #[cfg(windows)]
     {
-        let old_path = self_path.with_extension("old.exe");
         let tmp_path = self_path.with_extension("new.exe");
 
         std::fs::write(&tmp_path, &binary_data)
             .map_err(|e| ApiError::internal_error(format!("Failed to write new binary: {}", e)))?;
-
-        // Windows: rename current -> .old, then new -> current
-        let _ = std::fs::remove_file(&old_path); // clean up previous .old if exists
-        std::fs::rename(&self_path, &old_path)
-            .map_err(|e| ApiError::internal_error(format!("Failed to rename old binary: {}", e)))?;
-        std::fs::rename(&tmp_path, &self_path)
-            .map_err(|e| ApiError::internal_error(format!("Failed to rename new binary: {}", e)))?;
     }
+
+    #[cfg(windows)]
+    let windows_update_script = write_windows_update_script(&self_path)?;
 
     tracing::info!(
         "Update to v{} complete, scheduling restart...",
@@ -510,6 +545,7 @@ pub async fn perform_update(
     );
 
     // Schedule self-restart: spawn a shell script that waits for us to exit, then starts new binary
+    #[cfg(unix)]
     let exe_path = self_path.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -535,19 +571,11 @@ pub async fn perform_update(
         #[cfg(windows)]
         {
             use std::process::Command;
-            let exe_str = exe_path.to_string_lossy().to_string();
-            let dir = exe_path
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .to_string_lossy()
-                .to_string();
             let script = format!(
-                "timeout /t 3 /nobreak >nul && cd /d \"{}\" && start \"\" \"{}\"",
-                dir, exe_str
+                "start \"\" /b \"{}\"",
+                windows_update_script.to_string_lossy()
             );
-            let _ = Command::new("cmd")
-                .args(["/C", &format!("start /b cmd /C \"{}\"", script)])
-                .spawn();
+            let _ = Command::new("cmd").args(["/C", &script]).spawn();
         }
 
         tracing::info!("Restart scheduled, exiting...");

@@ -4,6 +4,52 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.3.0] - 2026-04-28
+
+### Backend Quality Review
+- **Backend API follow-up fixes** - Tightened pagination, input validation, error responses, resource boundaries, and state refresh behavior across admin and public APIs to reduce post-refactor edge cases.
+- **Plugin, theme, and update flows refined** - Continued stabilizing GitHub install/update logic, store state, online-update confirmation, and local cache refresh so version and package status match the actual installed state more closely.
+- **Data access and runtime boundaries strengthened** - Improved boundary handling and failure feedback around articles, categories, tags, comments, files, settings, plugin data, and the WASM worker to reduce hidden failures and stale state.
+- **Login cookie and 2FA security boundaries hardened** - Registration, login, and 2FA verification now share the same HTTPS-site and trusted-proxy logic for `Secure` cookies instead of trusting spoofable forwarded protocol headers directly. 2FA challenges now limit failed verification attempts and prevent already-enabled accounts from overwriting their active secret.
+- **Article, filter, and comment validation tightened** - Article slugs are normalized and reject path-like dangerous values on create/update; missing category or tag slugs now return an empty paginated result instead of falling back to all articles; comment content is validated before and after plugin hooks to reject empty or oversized content.
+- **Plugin operation and ZIP import path safety completed** - Plugin uninstall and update paths now validate plugin directory names while preserving Chinese/Unicode ID compatibility. Backup restore and Markdown ZIP import now enforce entry-count, per-file, total-unpacked-size, symlink, and path-traversal limits.
+- **Windows online-update replacement fixed** - Windows updates no longer try to replace the running executable directly. The updater now writes a `.new.exe` and helper script, then swaps binaries and restarts after the old process exits, reducing failed updates and stale executable leftovers.
+
+### Admin Dashboard
+- **Management pages reviewed and fixed** - Addressed interaction details, loading states, batch-operation feedback, and error display issues found across articles, comments, files, navigation, settings, security logs, plugins, and themes.
+- **Article-list public links fixed** - Preview and copy-link actions on `/manage/articles` are now available only for published articles and generate real public URLs from `site_url` and `permalink_structure`, avoiding broken draft/archive links and incorrect URLs in ID permalink mode.
+- **Article-list batch actions completed** - Selecting articles now reveals a compact batch toolbar for publishing, moving to draft, archiving, deleting, and clearing selection. Batch delete includes confirmation and partial-failure feedback so multi-select has a concrete purpose.
+- **Category/tag combined layout aligned** - Unified information density, panel structure, list height, and action areas on `/manage/taxonomy` so the merged category and tag page feels visually balanced.
+- **Refresh button feedback unified** - Security logs and custom pages now match the plugin-page refresh pattern: the button icon spins while requesting and briefly switches to a green done state on success. Manual refresh no longer triggers top sync badges, progress bars, or table-opacity flashes.
+- **Comment-list refresh flicker reduced** - Manual refresh on the comments page now keeps the current list visible and updates data quietly instead of mounting sync bars, table opacity changes, and extra loading states during fast refreshes.
+- **Custom page management polished** - The custom pages list now uses the shared admin page header, card container, first-load state, follow-up sync state, and optimistic delete feedback for steadier create, edit, and delete flows.
+- **Security log filtering and refresh flow tidied** - Security log filters are applied explicitly, refresh requests reuse the current pagination and filter parameters, and login timestamps are formatted with the active admin locale.
+- **Article editor emoji picker improved** - Fixed emoji picker positioning caused by measuring a hidden element; desktop placement now anchors to the real button and clamps to the viewport, while mobile uses a bottom sheet and avoids forcing the keyboard open.
+- **Markdown editor stability polished** - Refined preview requests, media-library search, upload entry points, and edit/preview scrolling to reduce flicker and stale-response overwrites during fast input, switching, and uploads.
+- **Image-grid editor command added** - The Markdown editor toolbar now includes an image-grid command that wraps selected content in `[grid]...[/grid]` or inserts an empty grid block when nothing is selected, leaving multi-image layout as an explicit author choice.
+- **Article thumbnail clearing fixed** - Clicking the thumbnail `X` while editing an article now persists correctly. The update API distinguishes omitted thumbnail fields, `null` clearing, and string updates, so old thumbnails no longer reappear after refresh.
+
+### Default Theme
+- **Default theme experience reviewed and fixed** - Continued tightening state synchronization, SDK readiness, and edge-case rendering across home, archive, category, tag, post, comments, header, footer, and theme interactions.
+- **Default theme built-in locales expanded** - The default theme now includes Japanese, Korean, French, German, Spanish, Brazilian Portuguese, Russian, and Italian locale packs, with a unified locale list, browser-language matching, and `html lang` synchronization.
+- **Category, tag, and archive consistency refined** - Unified data loading, empty states, pagination, and card density for content index pages so larger sites behave more consistently.
+- **`[grid]` image-grid rendering supported** - Backend Markdown rendering now supports standalone `[grid]...[/grid]` image blocks, with responsive styling in the default theme and admin preview. Multiple images render as two columns on mobile, three on desktop, and four-image grids stay in a balanced 2x2 layout.
+
+### Frontend Quality Review
+- **Built-in locale coverage expanded** - The admin dashboard now includes Japanese, Korean, French, German, Spanish, Brazilian Portuguese, Russian, and Italian built-in locale packs, reducing the need for users to upload common custom locale packs manually.
+- **Locale detection and fallback unified** - The admin dashboard and default theme prefer the browser language, support exact and language-prefix matching, fall back to English when no match exists, persist the selected locale, and keep `html lang` in sync.
+- **Locale loading performance improved** - The admin dashboard keeps Chinese, Traditional Chinese, and English in the initial message bundle while lazy-loading the additional locale packs on demand to avoid inflating the first admin payload.
+- **Custom locale flow fixed** - The admin language switcher now reads runtime locales so custom locale packs appear after loading. The active locale is synced to `html lang`, and plugin/theme settings render localized schema labels from the current app locale.
+- **Article editor and list request stability improved** - New-article draft recovery now reaches the lazy Markdown editor reliably, initial data loading is guarded on unmount, and default-theme article lists use request ordering so older responses cannot overwrite newer search or pagination results.
+- **Upload and clipboard feedback fixed** - FormData requests now let the browser generate the multipart boundary instead of passing `Content-Type: undefined`, and file-link copying now reports real success or failure.
+- **Frontend HTML rendering fallback sanitized** - Articles, custom pages, footers, admin Markdown preview, and search highlights now pass through a lightweight frontend sanitizer that strips script-like tags, event attributes, and unsafe URLs as an extra defense layer.
+- **Frontend i18n polish completed** - Language switcher, table of contents, image upload, empty state, and loading text now use localized strings, reducing hardcoded UI copy across the admin dashboard and default theme.
+
+### Build & Version
+- **Version unified to 0.3.0** - Updated the Rust crate, Cargo.lock, frontend packages, default theme, SDK built-in version, and development metadata.
+
+---
+
 ## [v0.2.9] - 2026-04-27
 
 ### Plugin and Theme Store

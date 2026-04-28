@@ -30,6 +30,7 @@ import {
 } from "@/hooks/useNoteva";
 import { TocSidebar } from "@/components/toc-sidebar";
 import { cn } from "@/lib/utils";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 
 const Comments = lazy(() =>
   import("@/components/comments").then((module) => ({ default: module.Comments }))
@@ -174,7 +175,13 @@ export default function PostPage() {
   };
 
   const getDateLocale = () => {
-    switch (locale) { case "zh-TW": return "zh-TW"; case "en": return "en-US"; default: return "zh-CN"; }
+    const candidate = locale === "en" ? "en-US" : locale;
+    try {
+      new Intl.DateTimeFormat(candidate);
+      return candidate;
+    } catch {
+      return "zh-CN";
+    }
   };
 
   if (loading) {
@@ -214,7 +221,7 @@ export default function PostPage() {
     likes: likeCount,
     comments: article.commentCount || 0,
   };
-  const articleHtml = article.html || "";
+  const articleHtml = sanitizeHtml(article.html);
   const thumbnail = article.thumbnail;
   const publishedAt = article.publishedAt || "";
   const hasReadableToc =

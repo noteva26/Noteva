@@ -1,4 +1,4 @@
-import axios, { AxiosError, AxiosRequestConfig } from "axios";
+import axios, { AxiosError } from "axios";
 import { t } from "./i18n";
 
 /**
@@ -75,8 +75,24 @@ function getCookie(name: string): string | undefined {
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 
+function isFormDataPayload(data: unknown): data is FormData {
+  return typeof FormData !== "undefined" && data instanceof FormData;
+}
+
 // Request interceptor: attach CSRF token on mutation requests
 api.interceptors.request.use((config) => {
+  if (isFormDataPayload(config.data)) {
+    const headers = config.headers as Record<string, unknown> & {
+      delete?: (header: string) => boolean;
+    };
+    if (typeof headers.delete === "function") {
+      headers.delete("Content-Type");
+    } else {
+      delete headers["Content-Type"];
+      delete headers["content-type"];
+    }
+  }
+
   const method = (config.method || "get").toLowerCase();
   if (method !== "get" && method !== "head" && method !== "options") {
     const csrfToken = getCookie("csrf_token");
@@ -272,9 +288,7 @@ export const adminApi = {
   uploadTheme: (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    return api.post<ThemeInstallResponse>("/admin/themes/upload", formData, {
-      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
-    });
+    return api.post<ThemeInstallResponse>("/admin/themes/upload", formData);
   },
 
   listGitHubReleases: (repo: string) =>
@@ -330,9 +344,7 @@ export const adminApi = {
   restoreBackup: (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    return api.post("/admin/backup/restore", formData, {
-      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
-    });
+    return api.post("/admin/backup/restore", formData);
   },
   exportMarkdown: () =>
     api.get<Blob>("/admin/backup/export-markdown", { responseType: "blob" }),
@@ -364,9 +376,7 @@ export const pluginsApi = {
   uploadPlugin: (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    return api.post<PluginInstallResponse>("/admin/plugins/upload", formData, {
-      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
-    });
+    return api.post<PluginInstallResponse>("/admin/plugins/upload", formData);
   },
 
   listGitHubReleases: (repo: string) =>
@@ -403,25 +413,19 @@ export const uploadApi = {
     const formData = new FormData();
     formData.append("file", file);
     // Don't set Content-Type manually — let browser set it with correct boundary
-    return api.post<UploadResponse>("/upload/image", formData, {
-      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
-    });
+    return api.post<UploadResponse>("/upload/image", formData);
   },
 
   file: (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    return api.post<UploadResponse>("/upload/file", formData, {
-      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
-    });
+    return api.post<UploadResponse>("/upload/file", formData);
   },
 
   images: (files: File[]) => {
     const formData = new FormData();
     files.forEach((file) => formData.append("files", file));
-    return api.post<MultiUploadResponse>("/upload/images", formData, {
-      headers: { "Content-Type": undefined } as AxiosRequestConfig["headers"],
-    });
+    return api.post<MultiUploadResponse>("/upload/images", formData);
   },
 };
 
@@ -558,6 +562,10 @@ export interface ThemeResponse {
   requires_noteva: string;
   compatible: boolean;
   compatibility_message: string | null;
+  i18n?: {
+    locales: string[];
+    default: string;
+  } | null;
   has_settings: boolean;
 }
 
@@ -860,30 +868,4 @@ export const filesApi = {
 
   delete: (filename: string) =>
     api.delete(`/admin/files/${encodeURIComponent(filename)}`),
-};
-
-// Custom Locales API
-export interface CustomLocaleItem {
-  code: string;
-  name: string;
-}
-
-export interface CustomLocaleDetail {
-  code: string;
-  name: string;
-  translations: Record<string, unknown>;
-}
-
-export const localesApi = {
-  list: () =>
-    api.get<{ locales: CustomLocaleItem[] }>("/locales"),
-
-  get: (code: string) =>
-    api.get<CustomLocaleDetail>(`/locales/${code}`),
-
-  upsert: (code: string, name: string, json_content: Record<string, unknown>) =>
-    api.post<CustomLocaleItem>("/admin/locales", { code, name, json_content }),
-
-  delete: (code: string) =>
-    api.delete(`/admin/locales/${code}`),
 };

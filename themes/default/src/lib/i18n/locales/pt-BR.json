@@ -1,0 +1,148 @@
+{
+  "common": {
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "delete": "Excluir",
+    "edit": "Editar",
+    "create": "Criar",
+    "search": "Pesquisar",
+    "loading": "Carregando...",
+    "noData": "Sem dados",
+    "confirm": "Confirmar",
+    "success": "Sucesso",
+    "error": "Erro",
+    "back": "Voltar",
+    "show": "Mostrar",
+    "hide": "Ocultar",
+    "backToHome": "Voltar ao início",
+    "switchLanguage": "Trocar idioma"
+  },
+  "nav": {
+    "home": "Início",
+    "archive": "Arquivo",
+    "categories": "Categorias",
+    "tags": "Tags",
+    "about": "Sobre",
+    "login": "Entrar",
+    "register": "Cadastrar",
+    "logout": "Sair",
+    "manage": "Painel",
+    "profile": "Perfil"
+  },
+  "auth": {
+    "login": "Entrar",
+    "register": "Cadastrar",
+    "usernameOrEmail": "Usuário ou e-mail",
+    "username": "Usuário",
+    "email": "E-mail",
+    "password": "Senha",
+    "confirmPassword": "Confirmar senha",
+    "noAccount": "Ainda não tem uma conta?",
+    "hasAccount": "Já tem uma conta?",
+    "loginSuccess": "Login realizado",
+    "loginFailed": "Falha ao entrar",
+    "registerSuccess": "Cadastro realizado",
+    "registerFailed": "Falha ao cadastrar",
+    "passwordMismatch": "As senhas não coincidem",
+    "passwordTooShort": "A senha deve ter pelo menos 6 caracteres",
+    "loginToAccount": "Entre na sua conta",
+    "createAccount": "Criar uma nova conta",
+    "verificationCode": "Código de verificação",
+    "verificationCodeRequired": "Digite o código de verificação",
+    "sendCode": "Enviar código",
+    "codeSent": "Código de verificação enviado",
+    "sendCodeFailed": "Falha ao enviar o código",
+    "enterValidEmail": "Digite um endereço de e-mail válido"
+  },
+  "profile": {
+    "title": "Perfil",
+    "description": "Gerencie suas informações pessoais e configurações da conta",
+    "info": "Informações pessoais",
+    "changePassword": "Alterar senha",
+    "displayName": "Nome de exibição",
+    "displayNamePlaceholder": "Digite o nome que será exibido",
+    "displayNameDesc": "Este nome será exibido em seus artigos e comentários",
+    "avatar": "Avatar",
+    "usernameCannotChange": "O nome de usuário não pode ser alterado",
+    "emailCannotChange": "O e-mail não pode ser alterado",
+    "currentPassword": "Senha atual",
+    "newPassword": "Nova senha",
+    "confirmNewPassword": "Confirmar nova senha",
+    "updatePassword": "Atualizar senha",
+    "updateSuccess": "Perfil atualizado",
+    "updateFailed": "Falha ao atualizar",
+    "passwordChanged": "Senha alterada",
+    "passwordChangeFailed": "Falha ao alterar a senha"
+  },
+  "home": {
+    "welcome": "Bem-vindo ao",
+    "subtitle": "Um sistema de blog simples e elegante",
+    "readMore": "Ler mais",
+    "noPostsYet": "Ainda não há artigos"
+  },
+  "article": {
+    "totalArticles": "Total de artigos",
+    "noArticles": "Nenhum artigo",
+    "pinned": "Fixado",
+    "words": " palavras",
+    "minRead": " min de leitura",
+    "prev": "Artigo anterior",
+    "next": "Próximo artigo",
+    "related": "Artigos relacionados",
+    "toc": "Conteúdo"
+  },
+  "category": {
+    "totalCategories": "Total de categorias",
+    "noCategories": "Nenhuma categoria"
+  },
+  "tag": {
+    "totalTags": "Total de tags",
+    "noTags": "Nenhuma tag"
+  },
+  "comment": {
+    "title": "Comentários",
+    "placeholder": "Escreva seu comentário...",
+    "replyPlaceholder": "Escreva sua resposta...",
+    "nickname": "Apelido",
+    "email": "E-mail (para avatar)",
+    "emailOptional": "E-mail (opcional, para avatar)",
+    "submit": "Publicar comentário",
+    "reply": "Responder",
+    "noComments": "Ainda não há comentários. Seja o primeiro a comentar!",
+    "loginRequired": "Faça login para comentar",
+    "contentRequired": "Digite o conteúdo do comentário",
+    "nicknameRequired": "Digite um apelido",
+    "submitSuccess": "Comentário publicado",
+    "submitFailed": "Falha ao publicar comentário",
+    "liked": "Curtido",
+    "unliked": "Curtida removida",
+    "likeFailed": "Falha ao curtir",
+    "authorTag": "Autor",
+    "postingAsAdmin": "Comentando como {name}"
+  },
+  "theme": {
+    "light": "Claro",
+    "dark": "Escuro",
+    "system": "Sistema"
+  },
+  "error": {
+    "notFound": "Página não encontrada",
+    "notFoundDesc": "A página que você procura não existe ou foi removida.",
+    "backHome": "Voltar ao início"
+  },
+  "footer": {
+    "copyright": "© {year} {name}. Todos os direitos reservados.",
+    "allRightsReserved": "Todos os direitos reservados"
+  },
+  "settings": {
+    "appearance": "Aparência"
+  },
+  "pagination": {
+    "prev": "Anterior",
+    "next": "Próxima",
+    "page": "Página {current} de {total}"
+  },
+  "user": {
+    "userBanned": "Esta conta foi banida e não pode entrar"
+  }
+}

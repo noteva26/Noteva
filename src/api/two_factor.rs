@@ -7,7 +7,7 @@
 //! - POST /api/v1/auth/2fa/verify - Verify 2FA code during login
 //! - GET  /api/v1/auth/2fa/status - Check if 2FA is enabled
 
-use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
+use crate::api::middleware::{should_set_secure_cookie, ApiError, AppState, AuthenticatedUser};
 use crate::services::password::verify_password;
 use axum::{
     extract::State,
@@ -19,6 +19,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use totp_rs::{Algorithm, Secret, TOTP};
+
+const MAX_2FA_VERIFY_ATTEMPTS: u8 = 5;
 
 /// Build the 2FA router (all routes require auth)
 pub fn router() -> Router<AppState> {
@@ -105,6 +107,31 @@ fn create_totp(secret_base32: &str, account_name: &str) -> Result<TOTP, ApiError
     .map_err(|e| ApiError::internal_error(format!("Failed to create TOTP: {}", e)))
 }
 
+async fn record_failed_2fa_attempt(
+    state: &AppState,
+    challenge_token: &str,
+) -> Result<(), ApiError> {
+    let mut challenges = state.two_factor_challenges.write().await;
+    let now = Instant::now();
+    challenges.retain(|_, challenge| challenge.expires_at > now);
+
+    let Some(challenge) = challenges.get_mut(challenge_token) else {
+        return Err(ApiError::unauthorized("Invalid or expired challenge token"));
+    };
+
+    challenge.failed_attempts = challenge.failed_attempts.saturating_add(1);
+    if challenge.failed_attempts >= MAX_2FA_VERIFY_ATTEMPTS {
+        challenges.remove(challenge_token);
+        return Err(ApiError::with_details(
+            "RATE_LIMIT",
+            "Too many invalid verification attempts, please log in again",
+            serde_json::json!({ "retry_after": 60 }),
+        ));
+    }
+
+    Ok(())
+}
+
 // ============================================================================
 // Endpoints
 // ============================================================================
@@ -117,6 +144,12 @@ async fn setup_2fa(
     State(state): State<AppState>,
     user: AuthenticatedUser,
 ) -> Result<Json<Setup2FAResponse>, ApiError> {
+    if user.0.totp_enabled {
+        return Err(ApiError::validation_error(
+            "2FA is already enabled. Disable it before setting up a new authenticator.",
+        ));
+    }
+
     // Generate random secret
     let secret = Secret::generate_secret();
     let secret_base32 = secret.to_encoded().to_string();
@@ -291,6 +324,7 @@ async fn verify_2fa(
         .check_current(code)
         .map_err(|e| ApiError::internal_error(format!("TOTP check error: {}", e)))?
     {
+        record_failed_2fa_attempt(&state, &body.challenge_token).await?;
         return Err(ApiError::unauthorized("Invalid verification code"));
     }
 
@@ -310,12 +344,7 @@ async fn verify_2fa(
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
-    // Detect HTTPS
-    let is_secure = headers
-        .get("x-forwarded-proto")
-        .and_then(|h| h.to_str().ok())
-        .map(|p| p == "https")
-        .unwrap_or(false);
+    let is_secure = should_set_secure_cookie(&state, &headers, None).await;
     let secure_flag = if is_secure { "; Secure" } else { "" };
 
     // Generate CSRF token

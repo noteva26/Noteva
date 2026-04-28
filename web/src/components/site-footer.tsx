@@ -2,6 +2,7 @@
 
 import { useSiteStore } from "@/lib/store/site";
 import { useTranslation } from "@/lib/i18n";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 
 export function SiteFooter() {
   const { t } = useTranslation();
@@ -16,7 +17,7 @@ export function SiteFooter() {
         <p 
           className="text-center text-sm text-muted-foreground"
           dangerouslySetInnerHTML={{ 
-            __html: settings.site_footer || defaultFooter 
+            __html: sanitizeHtml(settings.site_footer || defaultFooter)
           }}
         />
       </div>

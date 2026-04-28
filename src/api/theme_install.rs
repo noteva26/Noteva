@@ -249,7 +249,7 @@ pub async fn install_from_repo(
         ));
     }
 
-    let zip_url = format!("https://github.com/{}/archive/refs/heads/main.zip", repo);
+    let zip_url = format!("https://api.github.com/repos/{}/zipball/HEAD", repo);
     let data = download_bytes(&client, &zip_url, state.upload_config.max_plugin_file_size).await?;
     let temp_dir =
         TempDir::new().map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;

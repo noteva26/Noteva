@@ -154,7 +154,10 @@ pub(super) async fn update_article_mysql(
         .unwrap_or(&existing.content_html);
     let new_category_id = input.category_id.unwrap_or(existing.category_id);
     let new_status = input.status.unwrap_or(existing.status);
-    let new_thumbnail = input.thumbnail.clone().or(existing.thumbnail.clone());
+    let new_thumbnail = input
+        .thumbnail
+        .clone()
+        .unwrap_or_else(|| existing.thumbnail.clone());
     let new_is_pinned = input.is_pinned.unwrap_or(existing.is_pinned);
     let new_pin_order = input.pin_order.unwrap_or(existing.pin_order);
     let mut new_scheduled_at = input.scheduled_at.clone().unwrap_or(existing.scheduled_at);
@@ -414,6 +417,44 @@ pub(super) async fn search_articles_mysql(
     };
 
     rows.iter().map(row_to_article_mysql).collect()
+}
+
+pub(super) async fn count_search_mysql(
+    pool: &MySqlPool,
+    keyword: &str,
+    published_only: bool,
+) -> Result<i64> {
+    let use_ft = keyword.chars().count() >= 2;
+
+    let row = if use_ft {
+        let query = if published_only {
+            "SELECT COUNT(*) as count FROM articles \
+             WHERE status = 'published' AND MATCH(title, content) AGAINST(? IN BOOLEAN MODE)"
+        } else {
+            "SELECT COUNT(*) as count FROM articles \
+             WHERE MATCH(title, content) AGAINST(? IN BOOLEAN MODE)"
+        };
+        sqlx::query(query)
+            .bind(keyword)
+            .fetch_one(pool)
+            .await
+            .context("Failed to count search results (FULLTEXT)")?
+    } else {
+        let search_pattern = format!("%{}%", keyword);
+        let query = if published_only {
+            "SELECT COUNT(*) as count FROM articles WHERE status = 'published' AND (title LIKE ? OR content LIKE ?)"
+        } else {
+            "SELECT COUNT(*) as count FROM articles WHERE title LIKE ? OR content LIKE ?"
+        };
+        sqlx::query(query)
+            .bind(&search_pattern)
+            .bind(&search_pattern)
+            .fetch_one(pool)
+            .await
+            .context("Failed to count search results")?
+    };
+
+    Ok(row.get("count"))
 }
 
 pub(super) async fn list_scheduled_due_articles_mysql(

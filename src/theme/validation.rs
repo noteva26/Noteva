@@ -91,7 +91,47 @@ pub fn validate_theme_manifest(
         validate_theme_page(page)?;
     }
 
+    if let Some(i18n) = &manifest.i18n {
+        validate_theme_i18n(i18n)?;
+    }
+
     Ok(())
+}
+
+fn validate_theme_i18n(i18n: &super::ThemeI18nDeclaration) -> Result<()> {
+    if i18n.locales.is_empty() {
+        return Err(anyhow!("i18n.locales cannot be empty"));
+    }
+
+    let default = i18n.default.trim();
+    if default.is_empty() {
+        return Err(anyhow!("i18n.default is required"));
+    }
+
+    let mut seen = HashSet::new();
+    for locale in &i18n.locales {
+        let locale = locale.trim();
+        if !is_valid_locale_code(locale) {
+            return Err(anyhow!("invalid i18n locale '{}'", locale));
+        }
+        if !seen.insert(locale.to_string()) {
+            return Err(anyhow!("duplicate i18n locale '{}'", locale));
+        }
+    }
+
+    if !seen.contains(default) {
+        return Err(anyhow!("i18n.default must be listed in i18n.locales"));
+    }
+
+    Ok(())
+}
+
+fn is_valid_locale_code(locale: &str) -> bool {
+    !locale.is_empty()
+        && locale.len() <= 20
+        && locale
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
 }
 
 pub fn validate_theme_slug(slug: &str) -> Result<()> {

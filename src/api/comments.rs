@@ -8,8 +8,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
-use crate::api::middleware::{ApiError, AppState};
-use crate::models::{CommentWithMeta, CreateCommentInput, LikeTargetType};
+use crate::api::middleware::{extract_client_ip, ApiError, AppState};
+use crate::models::{
+    Article, ArticleStatus, Comment, CommentStatus, CommentWithMeta, CreateCommentInput,
+    LikeTargetType,
+};
 use crate::services::generate_fingerprint;
 
 // ============================================================================
@@ -79,7 +82,9 @@ pub async fn get_comments(
     headers: HeaderMap,
     Path(article_id): Path<i64>,
 ) -> Result<Json<CommentsResponse>, ApiError> {
-    let client_ip = addr.ip().to_string();
+    ensure_published_article(&state, article_id).await?;
+
+    let client_ip = extract_client_ip(&headers, addr);
     let fingerprint = extract_fingerprint(&client_ip, &headers);
 
     let comments = state
@@ -162,7 +167,10 @@ pub async fn create_comment(
         return Err(ApiError::validation_error("Content is required"));
     }
 
-    let ip = Some(addr.ip().to_string());
+    ensure_published_article(&state, req.article_id).await?;
+    ensure_parent_comment(&state, req.article_id, req.parent_id).await?;
+
+    let ip = Some(extract_client_ip(&headers, addr));
     let ua = headers
         .get("user-agent")
         .and_then(|v| v.to_str().ok())
@@ -193,10 +201,11 @@ pub async fn check_like(
     Query(query): Query<CheckLikeQuery>,
 ) -> Result<Json<LikeStatusResponse>, ApiError> {
     let target_type = parse_target_type(&query.target_type)?;
+    ensure_public_like_target(&state, &target_type, query.target_id).await?;
 
     let user_id = get_user_id_from_headers(&state, &headers).await;
     let fingerprint = if user_id.is_none() {
-        let client_ip = addr.ip().to_string();
+        let client_ip = extract_client_ip(&headers, addr);
         extract_fingerprint(&client_ip, &headers)
     } else {
         None
@@ -224,10 +233,11 @@ pub async fn like(
     Json(req): Json<LikeRequest>,
 ) -> Result<Json<LikeResponse>, ApiError> {
     let target_type = parse_target_type(&req.target_type)?;
+    ensure_public_like_target(&state, &target_type, req.target_id).await?;
 
     let user_id = get_user_id_from_headers(&state, &headers).await;
     let fingerprint = if user_id.is_none() {
-        let client_ip = addr.ip().to_string();
+        let client_ip = extract_client_ip(&headers, addr);
         extract_fingerprint(&client_ip, &headers)
     } else {
         None
@@ -293,6 +303,8 @@ pub async fn increment_view(
     State(state): State<AppState>,
     Path(article_id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
+    let article = ensure_published_article(&state, article_id).await?;
+
     state
         .comment_service
         .increment_view(article_id)
@@ -300,14 +312,10 @@ pub async fn increment_view(
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
     // Clear article cache so next request gets fresh view count
-    let article_repo = crate::db::repositories::SqlxArticleRepository::new(state.pool.clone());
-    use crate::db::repositories::ArticleRepository;
-    if let Ok(Some(art)) = article_repo.get_by_id(article_id).await {
-        let _ = state
-            .article_service
-            .invalidate_article_cache(art.id, &art.slug)
-            .await;
-    }
+    let _ = state
+        .article_service
+        .invalidate_article_cache(article.id, &article.slug)
+        .await;
 
     Ok(StatusCode::OK)
 }
@@ -341,6 +349,76 @@ fn parse_target_type(s: &str) -> Result<LikeTargetType, ApiError> {
         "comment" => Ok(LikeTargetType::Comment),
         _ => Err(ApiError::validation_error("Invalid target type")),
     }
+}
+
+async fn ensure_published_article(state: &AppState, article_id: i64) -> Result<Article, ApiError> {
+    let article = state
+        .article_service
+        .get_by_id(article_id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Article not found"))?;
+
+    if article.status != ArticleStatus::Published {
+        return Err(ApiError::not_found("Article not found"));
+    }
+
+    Ok(article)
+}
+
+async fn ensure_parent_comment(
+    state: &AppState,
+    article_id: i64,
+    parent_id: Option<i64>,
+) -> Result<(), ApiError> {
+    let Some(parent_id) = parent_id else {
+        return Ok(());
+    };
+
+    let parent = state
+        .comment_service
+        .get_by_id(parent_id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Parent comment not found"))?;
+
+    if parent.article_id != article_id || parent.status != CommentStatus::Approved {
+        return Err(ApiError::validation_error("Invalid parent comment"));
+    }
+
+    Ok(())
+}
+
+async fn ensure_public_like_target(
+    state: &AppState,
+    target_type: &LikeTargetType,
+    target_id: i64,
+) -> Result<(), ApiError> {
+    match target_type {
+        LikeTargetType::Article => {
+            ensure_published_article(state, target_id).await?;
+        }
+        LikeTargetType::Comment => {
+            let comment = ensure_public_comment(state, target_id).await?;
+            ensure_published_article(state, comment.article_id).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn ensure_public_comment(state: &AppState, comment_id: i64) -> Result<Comment, ApiError> {
+    let comment = state
+        .comment_service
+        .get_by_id(comment_id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Comment not found"))?;
+
+    if comment.status != CommentStatus::Approved {
+        return Err(ApiError::not_found("Comment not found"));
+    }
+
+    Ok(comment)
 }
 
 /// Extract fingerprint from headers

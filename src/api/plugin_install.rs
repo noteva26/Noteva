@@ -234,7 +234,7 @@ pub async fn install_from_repo(
         ));
     }
 
-    let zip_url = format!("https://github.com/{}/archive/refs/heads/main.zip", repo);
+    let zip_url = format!("https://api.github.com/repos/{}/zipball/HEAD", repo);
     let data = download_bytes(&client, &zip_url, state.upload_config.max_plugin_file_size).await?;
     let temp_dir =
         TempDir::new().map_err(|e| ApiError::internal_error(format!("Temp dir error: {}", e)))?;
@@ -413,10 +413,7 @@ pub async fn uninstall_plugin(
     _user: AuthenticatedUser,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    // Validate plugin id to prevent path traversal
-    if id.contains("..") || id.contains('/') || id.contains('\\') {
-        return Err(ApiError::validation_error("Invalid plugin ID"));
-    }
+    archive::validate_package_dir_name("plugin", &id)?;
 
     let plugin_path = Path::new("plugins").join(&id);
 
@@ -498,6 +495,8 @@ pub async fn update_plugin(
     _user: AuthenticatedUser,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<PluginInstallResponse>, ApiError> {
+    archive::validate_package_dir_name("plugin", &id)?;
+
     let plugin_path = Path::new("plugins").join(&id);
     if !plugin_path.exists() {
         return Err(ApiError::not_found(format!("Plugin '{}' not found", id)));

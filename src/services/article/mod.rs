@@ -201,6 +201,7 @@ impl ArticleService {
         if input.slug.trim().is_empty() {
             input.slug = generate_slug(&input.title);
         }
+        input.slug = normalize_article_slug(input.slug)?;
 
         // Check slug uniqueness
         if self
@@ -210,6 +211,10 @@ impl ArticleService {
             .context("Failed to check slug uniqueness")?
         {
             return Err(ArticleServiceError::DuplicateSlug(input.slug));
+        }
+
+        if let Some(ids) = tag_ids.as_deref() {
+            self.validate_tag_ids(ids).await?;
         }
 
         // Render markdown to HTML with shortcode processing
@@ -246,7 +251,15 @@ impl ArticleService {
         // Associate tags if provided
         if let Some(ids) = tag_ids {
             for tag_id in ids {
-                let _ = self.tag_repo.add_to_article(tag_id, article.id).await;
+                self.tag_repo
+                    .add_to_article(tag_id, article.id)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to associate tag {} with article {}",
+                            tag_id, article.id
+                        )
+                    })?;
             }
         }
 
@@ -681,6 +694,9 @@ impl ArticleService {
         if let Some(content) = hook_data.get("content").and_then(|v| v.as_str()) {
             input.content = Some(content.to_string());
         }
+        if let Some(slug) = input.slug.take() {
+            input.slug = Some(normalize_article_slug(slug)?);
+        }
 
         // Validate input (Requirement 1.7)
         self.validate_update_input(&input, &existing)?;
@@ -697,6 +713,10 @@ impl ArticleService {
                     return Err(ArticleServiceError::DuplicateSlug(new_slug.clone()));
                 }
             }
+        }
+
+        if let Some(ref new_tag_ids) = tag_ids {
+            self.validate_tag_ids(new_tag_ids).await?;
         }
 
         // Re-render markdown if content is being updated (with shortcode processing)
@@ -735,7 +755,12 @@ impl ArticleService {
 
             // Add new tag associations
             for tag_id in new_tag_ids {
-                let _ = self.tag_repo.add_to_article(tag_id, id).await;
+                self.tag_repo
+                    .add_to_article(tag_id, id)
+                    .await
+                    .with_context(|| {
+                        format!("Failed to associate tag {} with article {}", tag_id, id)
+                    })?;
             }
         }
 
@@ -1014,6 +1039,25 @@ impl ArticleService {
         Ok(())
     }
 
+    async fn validate_tag_ids(&self, tag_ids: &[i64]) -> Result<(), ArticleServiceError> {
+        for tag_id in tag_ids {
+            let exists = self
+                .tag_repo
+                .get_by_id(*tag_id)
+                .await
+                .with_context(|| format!("Failed to validate tag {}", tag_id))?
+                .is_some();
+            if !exists {
+                return Err(ArticleServiceError::ValidationError(format!(
+                    "Tag not found: {}",
+                    tag_id
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Invalidate cache for a specific article
     ///
     /// Satisfies requirement 1.5: WHEN 文章被创建或更新 THEN Article_Manager SHALL 使相关缓存失�?
@@ -1089,6 +1133,37 @@ pub fn generate_slug(title: &str) -> String {
 
     // Trim trailing hyphen
     result.trim_end_matches('-').to_string()
+}
+
+fn normalize_article_slug(slug: String) -> Result<String, ArticleServiceError> {
+    let slug = slug.trim().trim_matches('/').to_string();
+    validate_article_slug(&slug)?;
+    Ok(slug)
+}
+
+fn validate_article_slug(slug: &str) -> Result<(), ArticleServiceError> {
+    if slug.is_empty() {
+        return Err(ArticleServiceError::ValidationError(
+            "Article slug cannot be empty".to_string(),
+        ));
+    }
+    if slug == "." || slug == ".." || slug.contains("..") {
+        return Err(ArticleServiceError::ValidationError(
+            "Article slug cannot contain path traversal".to_string(),
+        ));
+    }
+    if slug.chars().any(|ch| {
+        ch.is_control()
+            || matches!(
+                ch,
+                '/' | '\\' | '?' | '#' | '%' | ':' | '*' | '"' | '<' | '>' | '|'
+            )
+    }) {
+        return Err(ArticleServiceError::ValidationError(
+            "Article slug contains invalid characters".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

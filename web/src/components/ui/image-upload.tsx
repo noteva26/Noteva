@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { X, Image as ImageIcon, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n";
 
 interface ImageUploadProps {
   onUpload?: (url: string) => void;
@@ -13,6 +14,7 @@ interface ImageUploadProps {
 }
 
 export function ImageUpload({ onUpload, onInsert, className }: ImageUploadProps) {
+  const { t } = useTranslation();
   const [preview, setPreview] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [isUploading, startUploadTransition] = useTransition();
@@ -38,12 +40,12 @@ export function ImageUpload({ onUpload, onInsert, className }: ImageUploadProps)
 
   const handleUpload = (file: File) => {
     if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
+      toast.error(t("common.imageInvalidType"));
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      toast.error("Image size must be under 5MB");
+      toast.error(t("common.imageTooLarge"));
       return;
     }
 
@@ -53,9 +55,9 @@ export function ImageUpload({ onUpload, onInsert, className }: ImageUploadProps)
         const { data } = await uploadApi.image(file);
         onUpload?.(data.url);
         onInsert?.(`![${file.name}](${data.url})`);
-        toast.success("Image uploaded");
+        toast.success(t("common.imageUploadSuccess"));
       } catch {
-        toast.error("Image upload failed");
+        toast.error(t("common.imageUploadFailed"));
         setPreviewUrl(null);
       } finally {
         if (fileInputRef.current) {
@@ -119,7 +121,7 @@ export function ImageUpload({ onUpload, onInsert, className }: ImageUploadProps)
           <div className="relative">
             <img
               src={preview}
-              alt="Preview"
+              alt={t("common.preview")}
               className="max-h-48 mx-auto rounded-lg object-contain"
             />
             {isUploading && (
@@ -146,12 +148,12 @@ export function ImageUpload({ onUpload, onInsert, className }: ImageUploadProps)
             <div className="p-3 rounded-full bg-muted mb-3">
               <ImageIcon className="h-6 w-6 text-muted-foreground" />
             </div>
-            <p className="text-sm font-medium">Click or drag to upload an image</p>
+            <p className="text-sm font-medium">{t("common.imageUploadDropTitle")}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Supports JPG, PNG, GIF, max 5MB
+              {t("common.imageUploadHint")}
             </p>
             <p className="text-xs text-muted-foreground">
-              You can also paste an image
+              {t("common.imagePasteHint")}
             </p>
           </div>
         )}

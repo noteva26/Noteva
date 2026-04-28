@@ -9,6 +9,7 @@ import { ArrowLeft } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
 import { waitForNoteva, type NotevaSDKRef } from "@/hooks/useNoteva";
 import PluginSlot from "@/components/plugin-slot";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 
 type Page = Awaited<ReturnType<NotevaSDKRef["pages"]["get"]>>;
 
@@ -119,7 +120,7 @@ export default function CustomPage() {
           <Card className="article-card overflow-hidden">
             <CardContent className="prose prose-lg dark:prose-invert max-w-none p-6 md:p-9">
               <PluginSlot name="page_content_top" />
-              <div className="page-content" dangerouslySetInnerHTML={{ __html: page.html }} />
+              <div className="page-content" dangerouslySetInnerHTML={{ __html: sanitizeHtml(page.html) }} />
               <PluginSlot name="page_content_bottom" />
             </CardContent>
           </Card>

@@ -1,46 +1,69 @@
 # Noteva
 
-> 轻量、极简、现代化的博客系统
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-[English](README.en.md) | 简体中文
+<p align="center">
+  <a href="https://github.com/noteva26/Noteva/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.3.0-111827"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"></a>
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-1.75%2B-b7410e">
+  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-default-0f766e">
+</p>
 
-一个使用 Rust 构建的高性能博客系统，支持多主题和插件扩展。单文件部署，开箱即用。
+Noteva is a lightweight, modern blog system built with Rust. It ships as a single binary, uses SQLite by default, and keeps the editing, theme, and plugin experience simple enough for a personal site while still being extensible.
 
-![preview](themes/default/preview.png)
+<p align="center">
+  <img src="docs/images/noteva-hero.png" alt="Noteva overview" width="900">
+</p>
 
-## ✨ 特性
+## Why Noteva
 
-- 🪶 **轻量高效** — 单文件部署，内存 < 50MB，冷启动 < 1 秒
-- 🎨 **主题系统** — 支持任意前端框架开发主题，热重载切换
-- 🔌 **插件系统** — 前端 JS/CSS 注入、Shortcode、WASM 后端钩子
-- 📝 **Markdown** — 代码高亮、数学公式、Shortcode 扩展
-- 💬 **评论系统** — 嵌套回复、表情、审核、Markdown
-- 🌍 **国际化** — 简体中文 / 繁體中文 / English
-- 💾 **备份恢复** — 一键备份、Markdown 导出、WordPress 导入
-- 🌐 **SEO** — Sitemap、RSS Feed、robots.txt 自动生成
-- 🔐 **安全** — 登录限速、CSRF 保护、安全日志
+- Lightweight deployment: one binary, local SQLite by default, optional MySQL and Redis.
+- Clean admin dashboard: articles, pages, taxonomy, comments, files, plugins, themes, security logs, backups, and settings.
+- Markdown-first writing: preview, syntax highlighting, media upload, image grid, and shortcode support.
+- Sandboxed plugins: WASM backend hooks, frontend JS/CSS assets, permissions, settings, storage, and i18n files.
+- Framework-agnostic themes: build with React, Vue, vanilla JavaScript, or any frontend stack through the injected `window.Noteva` SDK.
+- Internationalization built in: common admin and default-theme languages are packaged directly.
+- SEO basics included: permalink settings, sitemap, RSS feed, robots.txt, and site metadata.
 
-## 🌐 在线演示
+## Screenshots
 
-| | |
-|---|---|
-| **演示站** | [demo.noteva.org](https://demo.noteva.org/) |
-| **管理后台** | [demo.noteva.org/manage](https://demo.noteva.org/manage) |
-| **账号 / 密码** | `demo` / `demo123456` |
+Screenshots use demo content and are intended to show the overall interface and workflow.
 
-## 🚀 部署
+| Frontend Home | Reading Page |
+| --- | --- |
+| ![Frontend home](docs/images/frontend-home.png) | ![Post reading](docs/images/post-reading.png) |
 
-### 一键脚本（推荐）
+| Article Management | Markdown Editor |
+| --- | --- |
+| ![Admin articles](docs/images/admin-articles.png) | ![Admin editor](docs/images/admin-editor.png) |
 
-适用于 Linux / macOS：
+| Plugin Management | Theme Management |
+| --- | --- |
+| ![Admin plugins](docs/images/admin-plugins.png) | ![Admin themes](docs/images/admin-themes.png) |
+
+<p align="center">
+  <img src="docs/images/mobile-post.png" alt="Mobile reading page" width="360">
+</p>
+
+## Quick Start
+
+For Linux or macOS, the install script detects the platform, downloads the latest release asset, creates the working directories, and can register a system service.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/noteva26/Noteva/main/install.sh | bash
 ```
 
-自动检测架构、下载二进制、交互式配置、注册系统服务。再次运行进入升级模式。
+After the first start, open:
 
-### Docker
+```text
+http://localhost:8080/manage/setup
+```
+
+Create the administrator account there, then continue in the admin dashboard at `/manage`.
+
+## Docker
 
 ```bash
 docker run -d \
@@ -51,8 +74,7 @@ docker run -d \
   ghcr.io/noteva26/noteva:latest
 ```
 
-<details>
-<summary>Docker Compose</summary>
+Docker Compose:
 
 ```yaml
 services:
@@ -66,74 +88,129 @@ services:
     restart: unless-stopped
 ```
 
-</details>
+## Build From Source
 
-### 手动下载
+Requirements:
 
-```bash
-# 下载最新版
-wget https://github.com/noteva26/Noteva/releases/latest/download/noteva-linux-x86_64.tar.gz
-
-# 解压运行
-tar -xzf noteva-linux-x86_64.tar.gz
-chmod +x noteva && ./noteva
-```
-
-### 从源码编译
+- Rust 1.75+
+- Node.js 20+
+- pnpm
 
 ```bash
-git clone https://github.com/noteva26/noteva.git
-cd noteva
-cargo run --release
+git clone https://github.com/noteva26/Noteva.git
+cd Noteva
+pnpm run install:all
+pnpm run build:frontend
+cargo run --bin noteva
 ```
 
-> **首次访问**：打开 `http://localhost:8080/manage/setup` 设置管理员账号。
+Development commands:
 
-## ⚙️ 配置
+```bash
+pnpm run dev:web      # admin dashboard
+pnpm run dev:theme    # default theme
+cargo run --bin noteva
+```
 
-编辑 `config.yml`（首次运行自动生成）：
+Release build:
+
+```bash
+pnpm run build:frontend
+cargo build --release
+```
+
+## Configuration
+
+Noteva reads `config.yml` from the working directory. A minimal configuration looks like this:
 
 ```yaml
 server:
   host: "0.0.0.0"
   port: 8080
+  cors_origin: "*"
 
 database:
-  url: "data/noteva.db"    # SQLite（默认）
-  # url: "mysql://user:pass@localhost/noteva"  # MySQL
+  driver: "sqlite"
+  url: "data/noteva.db"
+  # driver: "mysql"
+  # url: "mysql://username:password@localhost:3306/noteva"
 
 cache:
-  enabled: true
-  type: "memory"           # memory 或 redis
+  driver: "memory"
+  # driver: "redis"
+  # redis_url: "redis://127.0.0.1:6379"
 
 upload:
-  dir: "uploads"
-  max_size: 10485760       # 10MB
+  path: "uploads"
+  max_file_size: 10485760
+  max_plugin_file_size: 52428800
+
+theme:
+  path: "themes"
+  active: "default"
 ```
 
-## 📚 文档
+See [config.example.yml](config.example.yml) for the full example.
 
-| 文档 | 说明 |
-|------|------|
-| [API 参考](docs/api.md) | 完整 API 端点文档 |
-| [插件开发](docs/plugin-development.md) | 前端/WASM 插件开发指南 |
-| [主题开发](docs/theme-development.md) | 主题开发指南，SDK API 说明 |
-| [更新日志](CHANGELOG.md) | 版本更新记录 |
+## Plugins
 
-## 💝 赞助
+Plugins live in `plugins/<plugin-id>/` and are described by `plugin.json`. A plugin may include browser assets, a WASM backend module, settings schema, editor buttons, and locale files.
 
-如果 Noteva 对你有帮助，欢迎赞助支持！
+```text
+plugins/my-plugin/
+|-- plugin.json
+|-- frontend.js
+|-- frontend.css
+|-- backend.wasm
+|-- settings.json
+|-- editor.json
+`-- locales/
+```
 
-- [🥉 Bronze ($1)](https://www.creem.io/payment/prod_NLloGph4FdG0QH5BN2DXr)
-- [🥈 Silver ($5)](https://www.creem.io/payment/prod_1FqirOkv4JY21wExvWN3PW)
-- [🥇 Gold ($10)](https://www.creem.io/payment/prod_2wV2YqQHJHsqrpWAipx40s)
+Backend plugins run in a WASM sandbox through `wasmtime`. Permissions, hook declarations, storage, and settings are explicit so a plugin can stay isolated from the core application.
 
-## 📄 许可证
+Read the full guide: [Plugin Development](docs/plugin-development.md).
 
-[GPL-3.0](LICENSE) with Plugin/Theme Exception
+## Themes
 
-核心程序采用 GPL-3.0 许可证。通过 SDK/API 开发的主题和插件**不受 GPL 约束**，可自由选择任何许可证。详见 [LICENSE](LICENSE) 和 [COPYING](COPYING)。
+Themes live in `themes/<theme-name>/`. A theme only needs a manifest and a built frontend entry, so it can be implemented with the frontend framework of your choice.
 
----
+```text
+themes/my-theme/
+|-- theme.json
+|-- settings.json
+|-- dist/index.html
+`-- preview.png
+```
 
-<p align="center">Made with ❤️ by Noteva Team</p>
+The runtime injects the `window.Noteva` SDK automatically. Themes should use that SDK for site data, posts, pages, comments, navigation, settings, and plugin slots.
+
+Read the full guide: [Theme Development](docs/theme-development.md).
+
+## Documentation
+
+| Document | Description |
+| --- | --- |
+| [Plugin Development](docs/plugin-development.md) | Plugin package structure, hooks, permissions, WASM bridge, settings, and frontend integration. |
+| [Theme Development](docs/theme-development.md) | Theme package structure, SDK usage, settings, dark mode, plugin slots, and compatibility rules. |
+| [Changelog](CHANGELOG.en.md) | English release notes. |
+| [中文更新日志](CHANGELOG.md) | Chinese release notes. |
+| [License](LICENSE) | License text and additional terms. |
+
+## Roadmap Direction
+
+Noteva is intentionally focused: a quiet writing workflow, a compact admin surface, safe extension points, and simple deployment. Features that add visible complexity are expected to justify their place in the product.
+
+## Support
+
+If Noteva is useful to you, sponsorship helps keep development moving:
+
+- [Bronze ($1)](https://www.creem.io/payment/prod_NLloGph4FdG0QH5BN2DXr)
+- [Silver ($5)](https://www.creem.io/payment/prod_1FqirOkv4JY21wExvWN3PW)
+- [Gold ($10)](https://www.creem.io/payment/prod_2wV2YqQHJHsqrpWAipx40s)
+
+## License
+
+Noteva is licensed under [GPL-3.0-or-later](LICENSE) with a plugin and theme exception.
+
+Core modifications remain under the GPL. Plugins and themes that interact with Noteva only through the published SDK/API may use their own license. See [LICENSE](LICENSE) and [COPYING](COPYING) for details.

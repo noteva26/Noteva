@@ -1,0 +1,148 @@
+{
+  "common": {
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "create": "Créer",
+    "search": "Rechercher",
+    "loading": "Chargement...",
+    "noData": "Aucune donnée",
+    "confirm": "Confirmer",
+    "success": "Succès",
+    "error": "Erreur",
+    "back": "Retour",
+    "show": "Afficher",
+    "hide": "Masquer",
+    "backToHome": "Retour à l'accueil",
+    "switchLanguage": "Changer de langue"
+  },
+  "nav": {
+    "home": "Accueil",
+    "archive": "Archives",
+    "categories": "Catégories",
+    "tags": "Étiquettes",
+    "about": "À propos",
+    "login": "Connexion",
+    "register": "Inscription",
+    "logout": "Déconnexion",
+    "manage": "Tableau de bord",
+    "profile": "Profil"
+  },
+  "auth": {
+    "login": "Connexion",
+    "register": "Inscription",
+    "usernameOrEmail": "Nom d'utilisateur ou e-mail",
+    "username": "Nom d'utilisateur",
+    "email": "E-mail",
+    "password": "Mot de passe",
+    "confirmPassword": "Confirmer le mot de passe",
+    "noAccount": "Vous n'avez pas encore de compte ?",
+    "hasAccount": "Vous avez déjà un compte ?",
+    "loginSuccess": "Connexion réussie",
+    "loginFailed": "Échec de la connexion",
+    "registerSuccess": "Inscription réussie",
+    "registerFailed": "Échec de l'inscription",
+    "passwordMismatch": "Les mots de passe ne correspondent pas",
+    "passwordTooShort": "Le mot de passe doit contenir au moins 6 caractères",
+    "loginToAccount": "Connectez-vous à votre compte",
+    "createAccount": "Créer un nouveau compte",
+    "verificationCode": "Code de vérification",
+    "verificationCodeRequired": "Veuillez saisir le code de vérification",
+    "sendCode": "Envoyer le code",
+    "codeSent": "Code de vérification envoyé",
+    "sendCodeFailed": "Échec de l'envoi du code",
+    "enterValidEmail": "Veuillez saisir une adresse e-mail valide"
+  },
+  "profile": {
+    "title": "Profil",
+    "description": "Gérez vos informations personnelles et les paramètres du compte",
+    "info": "Informations personnelles",
+    "changePassword": "Changer le mot de passe",
+    "displayName": "Nom affiché",
+    "displayNamePlaceholder": "Saisissez le nom à afficher",
+    "displayNameDesc": "Ce nom apparaîtra sur vos articles et commentaires",
+    "avatar": "Avatar",
+    "usernameCannotChange": "Le nom d'utilisateur ne peut pas être modifié",
+    "emailCannotChange": "L'e-mail ne peut pas être modifié",
+    "currentPassword": "Mot de passe actuel",
+    "newPassword": "Nouveau mot de passe",
+    "confirmNewPassword": "Confirmer le nouveau mot de passe",
+    "updatePassword": "Mettre à jour le mot de passe",
+    "updateSuccess": "Profil mis à jour",
+    "updateFailed": "Échec de la mise à jour",
+    "passwordChanged": "Mot de passe modifié",
+    "passwordChangeFailed": "Échec du changement de mot de passe"
+  },
+  "home": {
+    "welcome": "Bienvenue sur",
+    "subtitle": "Un système de blog simple et élégant",
+    "readMore": "Lire la suite",
+    "noPostsYet": "Aucun article pour le moment"
+  },
+  "article": {
+    "totalArticles": "Nombre d'articles",
+    "noArticles": "Aucun article",
+    "pinned": "Épinglé",
+    "words": " mots",
+    "minRead": " min de lecture",
+    "prev": "Article précédent",
+    "next": "Article suivant",
+    "related": "Articles associés",
+    "toc": "Sommaire"
+  },
+  "category": {
+    "totalCategories": "Nombre de catégories",
+    "noCategories": "Aucune catégorie"
+  },
+  "tag": {
+    "totalTags": "Nombre d'étiquettes",
+    "noTags": "Aucune étiquette"
+  },
+  "comment": {
+    "title": "Commentaires",
+    "placeholder": "Écrivez votre commentaire...",
+    "replyPlaceholder": "Écrivez votre réponse...",
+    "nickname": "Pseudo",
+    "email": "E-mail (pour l'avatar)",
+    "emailOptional": "E-mail (facultatif, pour l'avatar)",
+    "submit": "Publier le commentaire",
+    "reply": "Répondre",
+    "noComments": "Aucun commentaire pour le moment. Soyez le premier à commenter !",
+    "loginRequired": "Veuillez vous connecter pour commenter",
+    "contentRequired": "Veuillez saisir le contenu du commentaire",
+    "nicknameRequired": "Veuillez saisir un pseudo",
+    "submitSuccess": "Commentaire publié",
+    "submitFailed": "Échec de la publication du commentaire",
+    "liked": "Aimé",
+    "unliked": "Mention retirée",
+    "likeFailed": "Échec de l'action",
+    "authorTag": "Auteur",
+    "postingAsAdmin": "Publication en tant que {name}"
+  },
+  "theme": {
+    "light": "Clair",
+    "dark": "Sombre",
+    "system": "Système"
+  },
+  "error": {
+    "notFound": "Page introuvable",
+    "notFoundDesc": "Désolé, la page que vous recherchez n'existe pas ou a été supprimée.",
+    "backHome": "Retour à l'accueil"
+  },
+  "footer": {
+    "copyright": "© {year} {name}. Tous droits réservés.",
+    "allRightsReserved": "Tous droits réservés"
+  },
+  "settings": {
+    "appearance": "Apparence"
+  },
+  "pagination": {
+    "prev": "Précédent",
+    "next": "Suivant",
+    "page": "Page {current} sur {total}"
+  },
+  "user": {
+    "userBanned": "Ce compte a été banni et ne peut pas se connecter"
+  }
+}

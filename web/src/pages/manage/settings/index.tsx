@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useTransition } from "react";
-import { motion } from "motion/react";
-import { adminApi, authApi, localesApi, CustomLocaleItem } from "@/lib/api";
+import { adminApi, authApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
 import { Button } from "@/components/ui/button";
@@ -27,10 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Settings, User, MessageSquare, Loader2, Download, AlertCircle, Link, Code, Database, Upload, FileText, Type, Shield, ShieldCheck, ShieldOff, Globe, Trash2 } from "lucide-react";
+import { Settings, User, MessageSquare, Loader2, Download, AlertCircle, Link, Code, Database, Upload, FileText, Type, Shield, ShieldCheck, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
-import { useTranslation, registerCustomLocale, unregisterCustomLocale } from "@/lib/i18n";
-import { ConfirmDialog } from "@/components/admin/confirm-dialog";
+import { useTranslation } from "@/lib/i18n";
 import { getApiErrorMessage } from "@/lib/api-error";
 
 // Permalink format options
@@ -64,238 +62,6 @@ function downloadBlob(blob: Blob, filename: string) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
-}
-
-// Custom Locale Management Card
-function CustomLocaleCard() {
-  const { t } = useTranslation();
-  const [localeList, setLocaleList] = useState<CustomLocaleItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, startSavingTransition] = useTransition();
-  const [code, setCode] = useState("");
-  const [name, setName] = useState("");
-  const [jsonText, setJsonText] = useState("");
-  const [urlInput, setUrlInput] = useState("");
-  const [loadingUrl, startLoadingUrlTransition] = useTransition();
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [deleting, startDeletingTransition] = useTransition();
-
-  const fetchList = async () => {
-    try {
-      const res = await localesApi.list();
-      setLocaleList(res.data.locales);
-    } catch {
-      // silent
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    let active = true;
-
-    const loadLocales = async () => {
-      try {
-        const res = await localesApi.list();
-        if (active) setLocaleList(res.data.locales);
-      } catch {
-        // silent
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-
-    void loadLocales();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const handleLoadFromUrl = () => {
-    if (!urlInput.trim()) return;
-    startLoadingUrlTransition(async () => {
-      try {
-        const res = await fetch(urlInput.trim());
-        const text = await res.text();
-        JSON.parse(text);
-        setJsonText(text);
-        toast.success("JSON loaded from URL");
-      } catch {
-        toast.error(t("manage.localeJsonInvalid"));
-      }
-    });
-  };
-
-  const handleSubmit = () => {
-    if (!code.trim() || !name.trim() || !jsonText.trim()) return;
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(jsonText);
-      if (typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
-    } catch {
-      toast.error(t("manage.localeJsonInvalid"));
-      return;
-    }
-    startSavingTransition(async () => {
-      try {
-        await localesApi.upsert(code.trim(), name.trim(), parsed);
-        registerCustomLocale(code.trim(), name.trim(), parsed);
-        toast.success(t("manage.localeUploadSuccess"));
-        setCode(""); setName(""); setJsonText(""); setUrlInput("");
-        await fetchList();
-      } catch {
-        toast.error(t("manage.localeUploadError"));
-      }
-    });
-  };
-
-  const handleDelete = (localeCode: string) => {
-    setDeleteTarget(localeCode);
-  };
-
-  const confirmDelete = () => {
-    if (!deleteTarget) return;
-
-    const localeCode = deleteTarget;
-    setDeleteTarget(null);
-    startDeletingTransition(async () => {
-      try {
-        await localesApi.delete(localeCode);
-        unregisterCustomLocale(localeCode);
-        toast.success(t("manage.localeDeleteSuccess"));
-        await fetchList();
-      } catch {
-        toast.error(t("manage.localeDeleteError"));
-      }
-    });
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target?.result as string;
-      try {
-        JSON.parse(text);
-        setJsonText(text);
-        // Auto-fill code from filename (e.g. "ja.json" -> "ja")
-        const basename = file.name.replace(/\.json$/i, "");
-        if (!code) setCode(basename);
-      } catch {
-        toast.error(t("manage.localeJsonInvalid"));
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  return (
-    <>
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Globe className="h-5 w-5" />
-          {t("manage.customLocales")}
-        </CardTitle>
-        <CardDescription>{t("manage.customLocalesDesc")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Existing custom locales */}
-        {loading ? (
-          <Skeleton className="h-10 w-full" />
-        ) : localeList.length > 0 ? (
-          <div className="space-y-2">
-            {localeList.map((loc) => (
-              <div key={loc.code} className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                <div>
-                  <span className="font-medium">{loc.name}</span>
-                  <span className="ml-2 text-sm text-muted-foreground">({loc.code})</span>
-                </div>
-                <Button variant="ghost" size="icon" onClick={() => handleDelete(loc.code)}>
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">{t("manage.localeNoCustom")}</p>
-        )}
-
-        {/* Upload form */}
-        <div className="space-y-4 pt-4 border-t">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>{t("manage.localeCode")}</Label>
-              <Input
-                placeholder={t("manage.localeCodePlaceholder")}
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{t("manage.localeName")}</Label>
-              <Input
-                placeholder={t("manage.localeNamePlaceholder")}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {/* Load from URL */}
-          <div className="space-y-2">
-            <Label>{t("manage.localeLoadFromUrl")}</Label>
-            <div className="flex gap-2">
-              <Input
-                placeholder={t("manage.localeUrlPlaceholder")}
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                className="flex-1"
-              />
-              <Button variant="outline" onClick={handleLoadFromUrl} disabled={loadingUrl || !urlInput.trim()}>
-                {loadingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              </Button>
-            </div>
-          </div>
-
-          {/* JSON content */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>{t("manage.localeJsonContent")}</Label>
-              <label className="cursor-pointer text-sm text-primary hover:underline flex items-center gap-1">
-                <Upload className="h-3.5 w-3.5" />
-                <span>{t("manage.localeUpload")}</span>
-                <input type="file" accept=".json" className="hidden" onChange={handleFileUpload} />
-              </label>
-            </div>
-            <textarea
-              className="w-full min-h-[200px] p-3 rounded-md border bg-background text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder={t("manage.localeJsonPlaceholder")}
-              value={jsonText}
-              onChange={(e) => setJsonText(e.target.value)}
-            />
-          </div>
-
-          <Button onClick={handleSubmit} disabled={saving || !code.trim() || !name.trim() || !jsonText.trim()}>
-            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {saving ? t("manage.localeUploading") : t("manage.localeUpload")}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-    <ConfirmDialog
-      open={deleteTarget !== null}
-      title={t("common.confirm")}
-      description={t("manage.localeDeleteConfirm")}
-      confirmLabel={t("common.delete")}
-      cancelLabel={t("common.cancel")}
-      destructive
-      loading={deleting}
-      onOpenChange={(open) => !open && setDeleteTarget(null)}
-      onConfirm={confirmDelete}
-    />
-    </>
-  );
 }
 
 // Two-Factor Authentication Card component
@@ -770,29 +536,17 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-      >
+      <div>
         <h1 className="text-3xl font-bold">{t("settings.title")}</h1>
         <p className="text-muted-foreground">{t("settings.site")}</p>
-      </motion.div>
+      </div>
 
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.4, delay: 0.1 }}
-      >
+      <div>
         <Tabs defaultValue="general" className="space-y-6">
           <TabsList>
             <TabsTrigger value="general" className="gap-2">
               <Settings className="h-4 w-4" />
               {t("settings.general")}
-            </TabsTrigger>
-            <TabsTrigger value="locales" className="gap-2">
-              <Globe className="h-4 w-4" />
-              {t("manage.customLocales")}
             </TabsTrigger>
             <TabsTrigger value="comments" className="gap-2">
               <MessageSquare className="h-4 w-4" />
@@ -988,10 +742,6 @@ export default function SettingsPage() {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
-
-          <TabsContent value="locales" className="space-y-4">
-            <CustomLocaleCard />
           </TabsContent>
 
           <TabsContent value="comments" className="space-y-4">
@@ -1261,7 +1011,7 @@ export default function SettingsPage() {
             </Card>
           </TabsContent>
         </Tabs>
-      </motion.div>
+      </div>
 
       {/* Restore Backup Confirmation Dialog */}
       <AlertDialog open={restoreDialogOpen} onOpenChange={setRestoreDialogOpen}>

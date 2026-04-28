@@ -1,0 +1,148 @@
+{
+  "common": {
+    "save": "Salva",
+    "cancel": "Annulla",
+    "delete": "Elimina",
+    "edit": "Modifica",
+    "create": "Crea",
+    "search": "Cerca",
+    "loading": "Caricamento...",
+    "noData": "Nessun dato",
+    "confirm": "Conferma",
+    "success": "Operazione riuscita",
+    "error": "Errore",
+    "back": "Indietro",
+    "show": "Mostra",
+    "hide": "Nascondi",
+    "backToHome": "Torna alla home",
+    "switchLanguage": "Cambia lingua"
+  },
+  "nav": {
+    "home": "Home",
+    "archive": "Archivio",
+    "categories": "Categorie",
+    "tags": "Tag",
+    "about": "Informazioni",
+    "login": "Accedi",
+    "register": "Registrati",
+    "logout": "Esci",
+    "manage": "Dashboard",
+    "profile": "Profilo"
+  },
+  "auth": {
+    "login": "Accedi",
+    "register": "Registrati",
+    "usernameOrEmail": "Nome utente o e-mail",
+    "username": "Nome utente",
+    "email": "E-mail",
+    "password": "Password",
+    "confirmPassword": "Conferma password",
+    "noAccount": "Non hai ancora un account?",
+    "hasAccount": "Hai già un account?",
+    "loginSuccess": "Accesso effettuato",
+    "loginFailed": "Accesso non riuscito",
+    "registerSuccess": "Registrazione completata",
+    "registerFailed": "Registrazione non riuscita",
+    "passwordMismatch": "Le password non corrispondono",
+    "passwordTooShort": "La password deve contenere almeno 6 caratteri",
+    "loginToAccount": "Accedi al tuo account",
+    "createAccount": "Crea un nuovo account",
+    "verificationCode": "Codice di verifica",
+    "verificationCodeRequired": "Inserisci il codice di verifica",
+    "sendCode": "Invia codice",
+    "codeSent": "Codice di verifica inviato",
+    "sendCodeFailed": "Invio del codice non riuscito",
+    "enterValidEmail": "Inserisci un indirizzo e-mail valido"
+  },
+  "profile": {
+    "title": "Profilo",
+    "description": "Gestisci le informazioni personali e le impostazioni dell'account",
+    "info": "Informazioni personali",
+    "changePassword": "Cambia password",
+    "displayName": "Nome visualizzato",
+    "displayNamePlaceholder": "Inserisci il nome da mostrare",
+    "displayNameDesc": "Questo nome sarà mostrato nei tuoi articoli e commenti",
+    "avatar": "Avatar",
+    "usernameCannotChange": "Il nome utente non può essere modificato",
+    "emailCannotChange": "L'e-mail non può essere modificata",
+    "currentPassword": "Password attuale",
+    "newPassword": "Nuova password",
+    "confirmNewPassword": "Conferma nuova password",
+    "updatePassword": "Aggiorna password",
+    "updateSuccess": "Profilo aggiornato",
+    "updateFailed": "Aggiornamento non riuscito",
+    "passwordChanged": "Password modificata",
+    "passwordChangeFailed": "Modifica della password non riuscita"
+  },
+  "home": {
+    "welcome": "Benvenuto in",
+    "subtitle": "Un sistema di blog semplice ed elegante",
+    "readMore": "Leggi altro",
+    "noPostsYet": "Ancora nessun articolo"
+  },
+  "article": {
+    "totalArticles": "Articoli totali",
+    "noArticles": "Nessun articolo",
+    "pinned": "In evidenza",
+    "words": " parole",
+    "minRead": " min di lettura",
+    "prev": "Articolo precedente",
+    "next": "Articolo successivo",
+    "related": "Articoli correlati",
+    "toc": "Indice"
+  },
+  "category": {
+    "totalCategories": "Categorie totali",
+    "noCategories": "Nessuna categoria"
+  },
+  "tag": {
+    "totalTags": "Tag totali",
+    "noTags": "Nessun tag"
+  },
+  "comment": {
+    "title": "Commenti",
+    "placeholder": "Scrivi il tuo commento...",
+    "replyPlaceholder": "Scrivi la tua risposta...",
+    "nickname": "Nickname",
+    "email": "E-mail (per avatar)",
+    "emailOptional": "E-mail (opzionale, per avatar)",
+    "submit": "Pubblica commento",
+    "reply": "Rispondi",
+    "noComments": "Ancora nessun commento. Sii il primo a commentare!",
+    "loginRequired": "Accedi per commentare",
+    "contentRequired": "Inserisci il contenuto del commento",
+    "nicknameRequired": "Inserisci un nickname",
+    "submitSuccess": "Commento pubblicato",
+    "submitFailed": "Pubblicazione del commento non riuscita",
+    "liked": "Mi piace",
+    "unliked": "Mi piace rimosso",
+    "likeFailed": "Operazione non riuscita",
+    "authorTag": "Autore",
+    "postingAsAdmin": "Commento come {name}"
+  },
+  "theme": {
+    "light": "Chiaro",
+    "dark": "Scuro",
+    "system": "Sistema"
+  },
+  "error": {
+    "notFound": "Pagina non trovata",
+    "notFoundDesc": "La pagina che stai cercando non esiste o è stata rimossa.",
+    "backHome": "Torna alla home"
+  },
+  "footer": {
+    "copyright": "© {year} {name}. Tutti i diritti riservati.",
+    "allRightsReserved": "Tutti i diritti riservati"
+  },
+  "settings": {
+    "appearance": "Aspetto"
+  },
+  "pagination": {
+    "prev": "Precedente",
+    "next": "Successivo",
+    "page": "Pagina {current} di {total}"
+  },
+  "user": {
+    "userBanned": "Questo account è stato bloccato e non può accedere"
+  }
+}

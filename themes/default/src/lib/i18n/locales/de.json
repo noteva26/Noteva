@@ -1,0 +1,148 @@
+{
+  "common": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "create": "Erstellen",
+    "search": "Suchen",
+    "loading": "Wird geladen...",
+    "noData": "Keine Daten",
+    "confirm": "Bestätigen",
+    "success": "Erfolgreich",
+    "error": "Fehler",
+    "back": "Zurück",
+    "show": "Anzeigen",
+    "hide": "Ausblenden",
+    "backToHome": "Zur Startseite",
+    "switchLanguage": "Sprache wechseln"
+  },
+  "nav": {
+    "home": "Startseite",
+    "archive": "Archiv",
+    "categories": "Kategorien",
+    "tags": "Tags",
+    "about": "Über",
+    "login": "Anmelden",
+    "register": "Registrieren",
+    "logout": "Abmelden",
+    "manage": "Dashboard",
+    "profile": "Profil"
+  },
+  "auth": {
+    "login": "Anmelden",
+    "register": "Registrieren",
+    "usernameOrEmail": "Benutzername oder E-Mail",
+    "username": "Benutzername",
+    "email": "E-Mail",
+    "password": "Passwort",
+    "confirmPassword": "Passwort bestätigen",
+    "noAccount": "Noch kein Konto?",
+    "hasAccount": "Sie haben bereits ein Konto?",
+    "loginSuccess": "Anmeldung erfolgreich",
+    "loginFailed": "Anmeldung fehlgeschlagen",
+    "registerSuccess": "Registrierung erfolgreich",
+    "registerFailed": "Registrierung fehlgeschlagen",
+    "passwordMismatch": "Die Passwörter stimmen nicht überein",
+    "passwordTooShort": "Das Passwort muss mindestens 6 Zeichen lang sein",
+    "loginToAccount": "Bei Ihrem Konto anmelden",
+    "createAccount": "Neues Konto erstellen",
+    "verificationCode": "Bestätigungscode",
+    "verificationCodeRequired": "Bitte geben Sie den Bestätigungscode ein",
+    "sendCode": "Code senden",
+    "codeSent": "Bestätigungscode wurde gesendet",
+    "sendCodeFailed": "Bestätigungscode konnte nicht gesendet werden",
+    "enterValidEmail": "Bitte geben Sie eine gültige E-Mail-Adresse ein"
+  },
+  "profile": {
+    "title": "Profil",
+    "description": "Verwalten Sie Ihre persönlichen Informationen und Kontoeinstellungen",
+    "info": "Persönliche Informationen",
+    "changePassword": "Passwort ändern",
+    "displayName": "Anzeigename",
+    "displayNamePlaceholder": "Geben Sie den anzuzeigenden Namen ein",
+    "displayNameDesc": "Dieser Name wird in Ihren Artikeln und Kommentaren angezeigt",
+    "avatar": "Avatar",
+    "usernameCannotChange": "Der Benutzername kann nicht geändert werden",
+    "emailCannotChange": "Die E-Mail-Adresse kann nicht geändert werden",
+    "currentPassword": "Aktuelles Passwort",
+    "newPassword": "Neues Passwort",
+    "confirmNewPassword": "Neues Passwort bestätigen",
+    "updatePassword": "Passwort aktualisieren",
+    "updateSuccess": "Profil wurde aktualisiert",
+    "updateFailed": "Aktualisierung fehlgeschlagen",
+    "passwordChanged": "Passwort wurde geändert",
+    "passwordChangeFailed": "Passwortänderung fehlgeschlagen"
+  },
+  "home": {
+    "welcome": "Willkommen bei",
+    "subtitle": "Ein schlichtes und elegantes Blogsystem",
+    "readMore": "Weiterlesen",
+    "noPostsYet": "Noch keine Beiträge"
+  },
+  "article": {
+    "totalArticles": "Artikel insgesamt",
+    "noArticles": "Keine Artikel",
+    "pinned": "Angeheftet",
+    "words": " Wörter",
+    "minRead": " Min. Lesezeit",
+    "prev": "Vorheriger Artikel",
+    "next": "Nächster Artikel",
+    "related": "Ähnliche Artikel",
+    "toc": "Inhalt"
+  },
+  "category": {
+    "totalCategories": "Kategorien insgesamt",
+    "noCategories": "Keine Kategorien"
+  },
+  "tag": {
+    "totalTags": "Tags insgesamt",
+    "noTags": "Keine Tags"
+  },
+  "comment": {
+    "title": "Kommentare",
+    "placeholder": "Schreiben Sie einen Kommentar...",
+    "replyPlaceholder": "Schreiben Sie eine Antwort...",
+    "nickname": "Spitzname",
+    "email": "E-Mail (für Avatar)",
+    "emailOptional": "E-Mail (optional, für Avatar)",
+    "submit": "Kommentar veröffentlichen",
+    "reply": "Antworten",
+    "noComments": "Noch keine Kommentare. Schreiben Sie den ersten Kommentar!",
+    "loginRequired": "Bitte melden Sie sich an, um zu kommentieren",
+    "contentRequired": "Bitte geben Sie einen Kommentar ein",
+    "nicknameRequired": "Bitte geben Sie einen Spitznamen ein",
+    "submitSuccess": "Kommentar veröffentlicht",
+    "submitFailed": "Kommentar konnte nicht veröffentlicht werden",
+    "liked": "Gefällt mir",
+    "unliked": "Gefällt mir entfernt",
+    "likeFailed": "Aktion fehlgeschlagen",
+    "authorTag": "Autor",
+    "postingAsAdmin": "Kommentieren als {name}"
+  },
+  "theme": {
+    "light": "Hell",
+    "dark": "Dunkel",
+    "system": "System"
+  },
+  "error": {
+    "notFound": "Seite nicht gefunden",
+    "notFoundDesc": "Die gesuchte Seite existiert nicht oder wurde entfernt.",
+    "backHome": "Zur Startseite"
+  },
+  "footer": {
+    "copyright": "© {year} {name}. Alle Rechte vorbehalten.",
+    "allRightsReserved": "Alle Rechte vorbehalten"
+  },
+  "settings": {
+    "appearance": "Darstellung"
+  },
+  "pagination": {
+    "prev": "Zurück",
+    "next": "Weiter",
+    "page": "Seite {current} von {total}"
+  },
+  "user": {
+    "userBanned": "Dieses Konto wurde gesperrt und kann sich nicht anmelden"
+  }
+}

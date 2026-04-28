@@ -2,13 +2,21 @@ import { useState, useRef, useEffect, useCallback, useDeferredValue, useMemo } f
 import twemoji from "@twemoji/api";
 import { EMOJI_CATEGORIES } from "@/lib/emoji-data";
 import { useI18nStore, t as i18nT } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
 interface EmojiPickerProps {
   onSelect: (emoji: string) => void;
   onClose: () => void;
+  className?: string;
+  autoFocusSearch?: boolean;
 }
 
-export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
+export function EmojiPicker({
+  onSelect,
+  onClose,
+  className,
+  autoFocusSearch = true,
+}: EmojiPickerProps) {
   const [activeCategory, setActiveCategory] = useState(0);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
@@ -104,7 +112,10 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
   return (
     <div
       ref={containerRef}
-      className="flex flex-col w-[360px] h-[300px] bg-popover border rounded-lg shadow-xl overflow-hidden"
+      className={cn(
+        "flex h-[320px] w-[360px] flex-col overflow-hidden rounded-lg border bg-popover shadow-xl",
+        className
+      )}
     >
       <div className="px-2 pt-2 pb-1">
         <input
@@ -112,20 +123,20 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
           placeholder={i18nT("editor.searchEmoji")}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="w-full px-3 py-1.5 text-sm border rounded-md bg-background outline-none focus:ring-1 focus:ring-ring"
-          autoFocus
+          className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+          autoFocus={autoFocusSearch}
         />
       </div>
 
       <div className="flex flex-1 min-h-0">
-        <div ref={sidebarRef} className="emoji-picker-sidebar flex flex-col w-11 border-r py-1 gap-1 items-center overflow-y-auto hide-scrollbar">
+        <div ref={sidebarRef} className="emoji-picker-sidebar flex w-11 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r py-1 hide-scrollbar">
           {EMOJI_CATEGORIES.map((category, index) => (
             <button
               key={category.id}
               type="button"
               onClick={() => handleCategoryClick(index)}
               title={getCatLabel(category)}
-              className={`w-9 h-9 flex items-center justify-center rounded-md text-lg hover:bg-muted transition-colors ${
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-lg transition-colors hover:bg-muted ${
                 activeCategory === index && !search ? "bg-muted ring-1 ring-ring/30" : ""
               }`}
             >
@@ -144,21 +155,21 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
               <div className="text-xs text-muted-foreground mb-1 px-1">
                 {i18nT("common.search")} ({searchResults.length})
               </div>
-              <div className="grid grid-cols-8 gap-1">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-1">
                 {searchResults.map(({ code, emoji }) => (
                   <button
                     key={code}
                     type="button"
                     onClick={() => onSelect(emoji)}
                     title={`:${code}:`}
-                    className="w-9 h-9 flex items-center justify-center text-base hover:bg-muted rounded-md cursor-pointer transition-colors"
+                    className="flex h-9 w-9 items-center justify-center justify-self-center rounded-md text-base transition-colors hover:bg-muted"
                   >
                     {emoji}
                   </button>
                 ))}
               </div>
               {searchResults.length === 0 && (
-                <div className="text-sm text-muted-foreground text-center py-8">
+                <div className="py-8 text-center text-sm text-muted-foreground">
                   {i18nT("common.noData")}
                 </div>
               )}
@@ -169,17 +180,17 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
                 key={category.id}
                 ref={(element) => { sectionRefs.current[index] = element; }}
               >
-                <div className="text-xs text-muted-foreground sticky top-0 bg-popover py-1 px-1 font-medium">
+                <div className="sticky top-0 bg-popover px-1 py-1 text-xs font-medium text-muted-foreground">
                   {getCatLabel(category)}
                 </div>
-                <div className="grid grid-cols-8 gap-1">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-1">
                   {Object.entries(category.emojis).map(([code, emoji]) => (
                     <button
                       key={code}
                       type="button"
                       onClick={() => onSelect(emoji)}
                       title={`:${code}:`}
-                      className="w-9 h-9 flex items-center justify-center text-base hover:bg-muted rounded-md cursor-pointer transition-colors"
+                      className="flex h-9 w-9 items-center justify-center justify-self-center rounded-md text-base transition-colors hover:bg-muted"
                     >
                       {emoji}
                     </button>

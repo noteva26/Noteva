@@ -12,13 +12,15 @@ import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { ChevronDown, ChevronUp, Plus, X, GripVertical } from "lucide-react";
 import type { PluginSettingsSchema, PluginSettingsField } from "@/lib/api";
+import { useI18nStore, useTranslation } from "@/lib/i18n";
 
-function loc(value: string | Record<string, string> | undefined): string {
+function loc(value: string | Record<string, string> | undefined, locale: string): string {
   if (!value) return "";
   if (typeof value === "string") return value;
 
-  const lang = document.documentElement.lang || "en";
-  return value[lang] || value[lang.split("-")[0]] || value.en || Object.values(value)[0] || "";
+  const lang = locale || "en";
+  const prefix = lang.split("-")[0];
+  return value[lang] || value[prefix] || value.en || Object.values(value)[0] || "";
 }
 
 export function parseSettingsValues(raw: Record<string, unknown>): Record<string, unknown> {
@@ -54,6 +56,7 @@ interface ArrayFieldEditorProps {
   value: Record<string, unknown>[];
   onChange: (value: Record<string, unknown>[]) => void;
   itemFields: NonNullable<PluginSettingsField["itemFields"]>;
+  locale: string;
 }
 
 const createArrayItemId = () =>
@@ -74,7 +77,8 @@ function moveArrayItem<T>(items: T[], from: number, to: number) {
   ];
 }
 
-function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps) {
+function ArrayFieldEditor({ value, onChange, itemFields, locale }: ArrayFieldEditorProps) {
+  const { t } = useTranslation();
   const items = Array.isArray(value) ? value : [];
   const itemIdsRef = useRef<string[]>([]);
 
@@ -123,10 +127,10 @@ function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps
               <span className="text-sm font-medium text-muted-foreground">#{index + 1}</span>
             </div>
             <div className="flex items-center gap-1">
-              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveItem(index, index - 1)} disabled={index === 0} title="Move up">
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveItem(index, index - 1)} disabled={index === 0} title={t("common.moveUp")}>
                 <ChevronUp className="h-4 w-4" />
               </Button>
-              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveItem(index, index + 1)} disabled={index === items.length - 1} title="Move down">
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => moveItem(index, index + 1)} disabled={index === items.length - 1} title={t("common.moveDown")}>
                 <ChevronDown className="h-4 w-4" />
               </Button>
               <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => removeItem(index)}>
@@ -140,7 +144,7 @@ function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps
               <Input
                 key={field.id}
                 type={field.type === "number" ? "number" : "text"}
-                placeholder={loc(field.placeholder) || loc(field.label) + (field.required ? " *" : "")}
+                placeholder={loc(field.placeholder, locale) || loc(field.label, locale) + (field.required ? " *" : "")}
                 value={(item[field.id] as string) || ""}
                 onChange={(event) => updateItem(index, field.id, field.type === "number" ? Number(event.target.value) : event.target.value)}
               />
@@ -150,7 +154,7 @@ function ArrayFieldEditor({ value, onChange, itemFields }: ArrayFieldEditorProps
       ))}
       <Button type="button" variant="outline" className="w-full" onClick={addItem}>
         <Plus className="h-4 w-4 mr-2" />
-        Add item
+        {t("common.addItem")}
       </Button>
     </div>
   );
@@ -160,9 +164,10 @@ interface SettingsFieldProps {
   field: PluginSettingsField;
   value: unknown;
   onChange: (value: unknown) => void;
+  locale: string;
 }
 
-export function SettingsField({ field, value, onChange }: SettingsFieldProps) {
+export function SettingsField({ field, value, onChange, locale }: SettingsFieldProps) {
   const fieldValue = value ?? field.default ?? "";
 
   switch (field.type) {
@@ -190,7 +195,7 @@ export function SettingsField({ field, value, onChange }: SettingsFieldProps) {
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             {field.options?.map((option) => (
-              <SelectItem key={option.value} value={option.value}>{loc(option.label)}</SelectItem>
+              <SelectItem key={option.value} value={option.value}>{loc(option.label, locale)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -228,6 +233,7 @@ export function SettingsField({ field, value, onChange }: SettingsFieldProps) {
           value={fieldValue as Record<string, unknown>[]}
           onChange={onChange as (value: Record<string, unknown>[]) => void}
           itemFields={field.itemFields}
+          locale={locale}
         />
       ) : null;
     default:
@@ -257,10 +263,13 @@ interface SettingsRendererProps {
 }
 
 export function SettingsRenderer({ schema, values, onChange, emptyMessage }: SettingsRendererProps) {
+  const { t } = useTranslation();
+  const locale = useI18nStore((state) => state.locale);
+
   if (!schema?.sections?.length) {
     return (
       <p className="text-center text-muted-foreground py-8">
-        {emptyMessage || "No settings available"}
+        {emptyMessage || t("plugin.noSettings")}
       </p>
     );
   }
@@ -275,7 +284,7 @@ export function SettingsRenderer({ schema, values, onChange, emptyMessage }: Set
     <Accordion type="multiple" defaultValue={defaultOpen ? [defaultOpen] : []} className="w-full">
       {schema.sections.map((section) => (
         <AccordionItem key={section.id} value={section.id}>
-          <AccordionTrigger className="text-sm">{loc(section.title)}</AccordionTrigger>
+          <AccordionTrigger className="text-sm">{loc(section.title, locale)}</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-4">
               {section.fields.map((field) => (
@@ -283,27 +292,29 @@ export function SettingsRenderer({ schema, values, onChange, emptyMessage }: Set
                   {field.type === "switch" ? (
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <Label htmlFor={field.id}>{loc(field.label)}</Label>
+                        <Label htmlFor={field.id}>{loc(field.label, locale)}</Label>
                         {field.description && (
-                          <p className="text-xs text-muted-foreground">{loc(field.description)}</p>
+                          <p className="text-xs text-muted-foreground">{loc(field.description, locale)}</p>
                         )}
                       </div>
                       <SettingsField
                         field={field}
                         value={values[field.id]}
+                        locale={locale}
                         onChange={(nextValue) => updateValue(field.id, nextValue)}
                       />
                     </div>
                   ) : (
                     <>
-                      <Label htmlFor={field.id}>{loc(field.label)}</Label>
+                      <Label htmlFor={field.id}>{loc(field.label, locale)}</Label>
                       <SettingsField
                         field={field}
                         value={values[field.id]}
+                        locale={locale}
                         onChange={(nextValue) => updateValue(field.id, nextValue)}
                       />
                       {field.description && (
-                        <p className="text-xs text-muted-foreground">{loc(field.description)}</p>
+                        <p className="text-xs text-muted-foreground">{loc(field.description, locale)}</p>
                       )}
                     </>
                   )}

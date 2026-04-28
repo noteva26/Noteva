@@ -145,17 +145,10 @@ interface NotevaInjectedSiteConfig {
   [key: string]: unknown;
 }
 
-interface NotevaCustomLocale {
-  code: string;
-  name: string;
-  translations: Record<string, unknown>;
-}
-
 interface NotevaLocaleInfo {
   code: string;
   name: string;
   nativeName?: string;
-  isCustom?: boolean;
   builtIn?: boolean;
 }
 
@@ -415,8 +408,6 @@ interface NotevaSDK {
     setLocale(locale: string): void;
     addMessages(locale: string, messages: Record<string, any>): void;
     t(key: string, params?: Record<string, any>): string;
-    loadCustomLocales(): NotevaCustomLocale[];
-    getCustomLocales(): NotevaCustomLocale[];
     getLocales(builtinLocales?: NotevaLocaleInfo[]): NotevaLocaleInfo[];
   };
 
@@ -489,7 +480,6 @@ declare global {
   interface Window {
     Noteva: NotevaSDK;
     __SITE_CONFIG__?: NotevaInjectedSiteConfig;
-    __CUSTOM_LOCALES__?: NotevaCustomLocale[];
   }
 }
 

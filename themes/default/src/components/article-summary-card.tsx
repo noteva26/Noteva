@@ -18,6 +18,7 @@ import {
   type NotevaArticle,
 } from "@/hooks/useNoteva";
 import { useTranslation } from "@/lib/i18n";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 import { cn } from "@/lib/utils";
 
 interface ArticleSummaryCardProps {
@@ -68,8 +69,8 @@ export function ArticleSummaryCard({
   const excerpt = article.excerpt || stripMarkup(article.content).trim().slice(0, 180);
   const isPinned = Boolean(article.isPinned);
   const formattedDate = publishedAt ? formatArticleDate(publishedAt, dateLocale) : "";
-  const highlightedTitle = highlightSearchText(article.title, highlightQuery);
-  const highlightedExcerpt = highlightSearchText(excerpt, highlightQuery);
+  const highlightedTitle = sanitizeHtml(highlightSearchText(article.title, highlightQuery));
+  const highlightedExcerpt = sanitizeHtml(highlightSearchText(excerpt, highlightQuery));
 
   return (
     <Card className={cn("article-card group overflow-hidden", className)} data-article-id={article.id}>

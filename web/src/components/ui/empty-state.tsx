@@ -4,6 +4,7 @@ import { motion } from "motion/react"
 import { FileText, LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "./button"
+import { useTranslation } from "@/lib/i18n"
 
 interface EmptyStateProps {
   title?: string
@@ -21,13 +22,15 @@ interface EmptyStateProps {
  */
 export function EmptyState({
   title,
-  description = "暂无数据",
+  description,
   icon: Icon = FileText,
   actionText,
   onAction,
   className,
   size = "md",
 }: EmptyStateProps) {
+  const { t } = useTranslation()
+  const resolvedDescription = description ?? t("common.noData")
   const sizes = {
     sm: { container: "py-8", icon: "size-10", iconInner: "size-4" },
     md: { container: "py-12", icon: "size-12", iconInner: "size-5" },
@@ -60,7 +63,7 @@ export function EmptyState({
         <Icon className={cn("text-muted-foreground", s.iconInner)} />
       </div>
       {title && <h3 className="text-sm font-medium mb-1">{title}</h3>}
-      <p className="text-xs text-muted-foreground max-w-md">{description}</p>
+      <p className="text-xs text-muted-foreground max-w-md">{resolvedDescription}</p>
       {onAction && actionText && (
         <Button onClick={onAction} variant="outline" size="sm" className="mt-4">
           {actionText}
@@ -85,7 +88,7 @@ export function EmptyStateWithBorder(props: EmptyStateProps) {
  * 内联空状态
  */
 export function EmptyInline({
-  message = "暂无数据",
+  message,
   icon: Icon = FileText,
   className,
 }: {
@@ -93,6 +96,9 @@ export function EmptyInline({
   icon?: LucideIcon
   className?: string
 }) {
+  const { t } = useTranslation()
+  const resolvedMessage = message ?? t("common.noData")
+
   return (
     <div
       className={cn(
@@ -101,7 +107,7 @@ export function EmptyInline({
       )}
     >
       <Icon className="size-4" />
-      <span>{message}</span>
+      <span>{resolvedMessage}</span>
     </div>
   )
 }

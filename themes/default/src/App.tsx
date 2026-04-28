@@ -14,17 +14,11 @@ const CustomPage = lazy(() => import("@/pages/custom-page"));
 
 function RouteFallback() {
   return (
-    <div className="min-h-screen bg-background">
-      <div className="fixed left-0 right-0 top-0 z-[100] h-0.5 overflow-hidden bg-primary/15">
-        <div className="h-full w-1/2 animate-pulse bg-primary" />
-      </div>
-      <div className="container mx-auto max-w-4xl px-4 py-8">
-        <div className="mx-auto mb-8 h-10 w-64 rounded skeleton-shimmer" />
-        <div className="space-y-6">
-          <div className="h-36 rounded-lg border bg-card skeleton-shimmer" />
-          <div className="h-36 rounded-lg border bg-card skeleton-shimmer" />
-        </div>
-      </div>
+    <div
+      className="fixed left-0 right-0 top-0 z-[100] h-0.5 overflow-hidden bg-primary/15"
+      aria-label="Loading"
+    >
+      <div className="h-full w-1/2 animate-pulse bg-primary" />
     </div>
   );
 }

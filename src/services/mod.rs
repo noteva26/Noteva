@@ -12,7 +12,6 @@ pub mod category;
 pub mod comment;
 pub mod email;
 pub mod emoji;
-pub mod locale;
 pub mod markdown;
 pub mod nav_item;
 pub mod page;

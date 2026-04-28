@@ -24,7 +24,6 @@ pub mod categories;
 pub mod comments;
 pub mod common;
 mod github_update;
-pub mod locales;
 pub mod middleware;
 pub mod nav;
 pub mod pages;
@@ -148,15 +147,6 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
             "/admin/comments/{id}",
             axum::routing::delete(comments::delete_comment),
         )
-        // Admin locale management
-        .route(
-            "/admin/locales",
-            axum::routing::post(locales::upsert_locale),
-        )
-        .route(
-            "/admin/locales/{code}",
-            axum::routing::delete(locales::delete_locale),
-        )
         .layer(DefaultBodyLimit::max(admin_body_limit))
         .route_layer(axum_middleware::from_fn(middleware::require_admin))
         .route_layer(axum_middleware::from_fn_with_state(
@@ -267,9 +257,6 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
             "/view/{article_id}",
             axum::routing::post(comments::increment_view),
         )
-        // Public locale endpoints
-        .route("/locales", axum::routing::get(locales::list_locales))
-        .route("/locales/{code}", axum::routing::get(locales::get_locale))
         .merge(admin_routes)
         .merge(protected_routes)
 }

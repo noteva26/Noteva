@@ -122,7 +122,7 @@ export default function CommentsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
-  const [isRefreshing, startRefreshTransition] = useTransition();
+  const refreshInFlightRef = useRef(false);
   const [, startActionTransition] = useTransition();
 
   useEffect(() => {
@@ -260,12 +260,23 @@ export default function CommentsPage() {
     setDeleteConfirm(null);
   }, []);
 
+  const handleRefresh = useCallback(async () => {
+    if (refreshInFlightRef.current) return;
+
+    refreshInFlightRef.current = true;
+    try {
+      await fetchComments(true);
+    } finally {
+      refreshInFlightRef.current = false;
+    }
+  }, [fetchComments]);
+
   const currentStatusTitle = useMemo(() => {
     return statusFilter ? getStatusLabel(statusFilter, t) : t("comment.allComments");
   }, [statusFilter, t]);
 
   const showInitialLoading = loading && !hasLoaded;
-  const isSyncing = (loading && hasLoaded) || isRefreshing;
+  const isSyncing = loading && hasLoaded;
 
   return (
     <div className="space-y-6">
@@ -282,12 +293,10 @@ export default function CommentsPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => startRefreshTransition(async () => { await fetchComments(true); })}
-          disabled={isRefreshing}
+          onClick={() => void handleRefresh()}
+          disabled={showInitialLoading || isSyncing}
         >
-          <RefreshCw
-            className={cn("mr-2 h-4 w-4", isRefreshing && "animate-spin")}
-          />
+          <RefreshCw className="mr-2 h-4 w-4" />
           {t("common.refresh")}
         </Button>
       </div>

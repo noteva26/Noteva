@@ -531,10 +531,10 @@ async fn list_all_sqlite(
 async fn list_recent_sqlite(pool: &SqlitePool, limit: i64) -> Result<Vec<CommentWithMeta>> {
     let rows = sqlx::query(
         r#"SELECT c.*, u.username, a.title as article_title, a.slug as article_slug
-           FROM comments c 
+           FROM comments c
            LEFT JOIN users u ON c.user_id = u.id
-           LEFT JOIN articles a ON c.article_id = a.id
-           WHERE c.status = 'approved'
+           INNER JOIN articles a ON c.article_id = a.id
+           WHERE c.status = 'approved' AND a.status = 'published'
            ORDER BY c.created_at DESC
            LIMIT ?"#,
     )
@@ -652,6 +652,10 @@ async fn add_like_sqlite(
     user_id: Option<i64>,
     fingerprint: Option<String>,
 ) -> Result<bool> {
+    if !like_target_exists_sqlite(pool, &target_type, target_id).await? {
+        return Ok(false);
+    }
+
     let result = if let Some(uid) = user_id {
         sqlx::query(
             "INSERT OR IGNORE INTO likes (target_type, target_id, user_id) VALUES (?, ?, ?)",
@@ -762,11 +766,36 @@ async fn is_liked_sqlite(
 }
 
 async fn increment_view_sqlite(pool: &SqlitePool, article_id: i64) -> Result<()> {
-    sqlx::query("UPDATE articles SET view_count = view_count + 1 WHERE id = ?")
+    let result = sqlx::query("UPDATE articles SET view_count = view_count + 1 WHERE id = ?")
         .bind(article_id)
         .execute(pool)
         .await?;
+    if result.rows_affected() == 0 {
+        anyhow::bail!("Article not found: {}", article_id);
+    }
     Ok(())
+}
+
+async fn like_target_exists_sqlite(
+    pool: &SqlitePool,
+    target_type: &LikeTargetType,
+    target_id: i64,
+) -> Result<bool> {
+    let count: i64 = match target_type {
+        LikeTargetType::Article => {
+            sqlx::query_scalar("SELECT COUNT(*) FROM articles WHERE id = ?")
+                .bind(target_id)
+                .fetch_one(pool)
+                .await?
+        }
+        LikeTargetType::Comment => {
+            sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE id = ?")
+                .bind(target_id)
+                .fetch_one(pool)
+                .await?
+        }
+    };
+    Ok(count > 0)
 }
 
 // MySQL implementations (similar to SQLite)
@@ -1062,10 +1091,10 @@ async fn list_all_mysql(
 async fn list_recent_mysql(pool: &MySqlPool, limit: i64) -> Result<Vec<CommentWithMeta>> {
     let rows = sqlx::query(
         r#"SELECT c.*, u.username, a.title as article_title, a.slug as article_slug
-           FROM comments c 
+           FROM comments c
            LEFT JOIN users u ON c.user_id = u.id
-           LEFT JOIN articles a ON c.article_id = a.id
-           WHERE c.status = 'approved'
+           INNER JOIN articles a ON c.article_id = a.id
+           WHERE c.status = 'approved' AND a.status = 'published'
            ORDER BY c.created_at DESC
            LIMIT ?"#,
     )
@@ -1179,6 +1208,10 @@ async fn add_like_mysql(
     user_id: Option<i64>,
     fingerprint: Option<String>,
 ) -> Result<bool> {
+    if !like_target_exists_mysql(pool, &target_type, target_id).await? {
+        return Ok(false);
+    }
+
     let result = if let Some(uid) = user_id {
         sqlx::query("INSERT IGNORE INTO likes (target_type, target_id, user_id) VALUES (?, ?, ?)")
             .bind(target_type.to_string())
@@ -1288,9 +1321,34 @@ async fn is_liked_mysql(
 }
 
 async fn increment_view_mysql(pool: &MySqlPool, article_id: i64) -> Result<()> {
-    sqlx::query("UPDATE articles SET view_count = view_count + 1 WHERE id = ?")
+    let result = sqlx::query("UPDATE articles SET view_count = view_count + 1 WHERE id = ?")
         .bind(article_id)
         .execute(pool)
         .await?;
+    if result.rows_affected() == 0 {
+        anyhow::bail!("Article not found: {}", article_id);
+    }
     Ok(())
+}
+
+async fn like_target_exists_mysql(
+    pool: &MySqlPool,
+    target_type: &LikeTargetType,
+    target_id: i64,
+) -> Result<bool> {
+    let count: i64 = match target_type {
+        LikeTargetType::Article => {
+            sqlx::query_scalar("SELECT COUNT(*) FROM articles WHERE id = ?")
+                .bind(target_id)
+                .fetch_one(pool)
+                .await?
+        }
+        LikeTargetType::Comment => {
+            sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE id = ?")
+                .bind(target_id)
+                .fetch_one(pool)
+                .await?
+        }
+    };
+    Ok(count > 0)
 }

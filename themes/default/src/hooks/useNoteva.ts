@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type NotevaSDKRef = NonNullable<typeof window.Noteva>;
 export type NotevaArticle = Awaited<ReturnType<NotevaSDKRef["articles"]["get"]>>;
@@ -218,33 +218,51 @@ export function useArticles(params?: {
   tag?: string;
   keyword?: string;
 }) {
+  const mountedRef = useRef(false);
+  const requestIdRef = useRef(0);
   const [articles, setArticles] = useState<NotevaArticle[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const fetchArticles = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    const canUpdate = () => mountedRef.current && requestId === requestIdRef.current;
+
     setLoading(true);
     setError(null);
 
     const noteva = await waitForNoteva();
     if (!noteva) {
-      setArticles([]);
-      setTotal(0);
-      setLoading(false);
+      if (canUpdate()) {
+        setArticles([]);
+        setTotal(0);
+        setLoading(false);
+      }
       return;
     }
 
     try {
       const result = await noteva.articles.list(params);
-      setArticles(result.articles);
-      setTotal(result.total);
+      if (canUpdate()) {
+        setArticles(result.articles);
+        setTotal(result.total);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err : new Error("Failed to load articles"));
-      setArticles([]);
-      setTotal(0);
+      if (canUpdate()) {
+        setError(err instanceof Error ? err : new Error("Failed to load articles"));
+        setArticles([]);
+        setTotal(0);
+      }
     } finally {
-      setLoading(false);
+      if (canUpdate()) setLoading(false);
     }
   }, [
     params?.page,

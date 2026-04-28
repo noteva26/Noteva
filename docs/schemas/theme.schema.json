@@ -88,6 +88,26 @@
     },
     "configuration": {
       "type": "object"
+    },
+    "i18n": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locales", "default"],
+      "properties": {
+        "locales": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,20}$"
+          }
+        },
+        "default": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,20}$"
+        }
+      }
     }
   }
 }

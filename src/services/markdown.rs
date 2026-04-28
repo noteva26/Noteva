@@ -45,6 +45,14 @@ pub struct TocEntry {
     pub id: String,
 }
 
+#[derive(Debug, Clone)]
+struct ImageGridItem {
+    src: String,
+    alt: String,
+    title: String,
+    link: Option<(String, String)>,
+}
+
 /// A thread-safe Markdown renderer with syntax highlighting support.
 ///
 /// The renderer supports common Markdown features including:
@@ -190,8 +198,12 @@ impl MarkdownRenderer {
         options.insert(Options::ENABLE_SMART_PUNCTUATION);
         options.insert(Options::ENABLE_FOOTNOTES);
 
+        // Pre-process: extract [grid] image blocks before generic Markdown
+        // handling so Markdown image syntax inside the grid still works.
+        let (content, image_grids) = Self::extract_image_grids(content);
+
         // Pre-process: image resize syntax (![alt|50%](url))
-        let content = Self::preprocess_image_resize(content);
+        let content = Self::preprocess_image_resize(&content);
 
         // Pre-process: protect math expressions from markdown parsing
         let (content, math_placeholders) = Self::extract_math_expressions(&content);
@@ -207,6 +219,9 @@ impl MarkdownRenderer {
 
         // Post-process: restore math expressions as KaTeX-ready elements
         let html_output = Self::restore_math_expressions(&html_output, &math_placeholders);
+
+        // Post-process: restore image grids before plugin hooks and sanitizing.
+        let html_output = Self::restore_image_grids(&html_output, &image_grids);
 
         // Trigger markdown_after_parse hook
         let hook_data = self.trigger_hook(
@@ -646,6 +661,220 @@ impl MarkdownRenderer {
         result
     }
 
+    fn extract_image_grids(content: &str) -> (String, Vec<String>) {
+        let mut output = String::new();
+        let mut grids = Vec::new();
+        let mut in_grid = false;
+        let mut grid_content = String::new();
+        let mut grid_original = String::new();
+        let mut fence_marker: Option<&'static str> = None;
+
+        for line in content.split_inclusive('\n') {
+            let trimmed = line.trim();
+
+            if in_grid {
+                grid_original.push_str(line);
+                if trimmed == "[/grid]" {
+                    if let Some(grid_html) = Self::render_image_grid_block(&grid_content) {
+                        let index = grids.len();
+                        let placeholder = Self::image_grid_placeholder(index);
+                        grids.push(grid_html);
+                        output.push('\n');
+                        output.push_str(&placeholder);
+                        output.push('\n');
+                    } else {
+                        output.push_str(&grid_original);
+                    }
+                    in_grid = false;
+                    grid_content.clear();
+                    grid_original.clear();
+                } else {
+                    grid_content.push_str(line);
+                }
+                continue;
+            }
+
+            if let Some(marker) = fence_marker {
+                output.push_str(line);
+                if trimmed.starts_with(marker) {
+                    fence_marker = None;
+                }
+                continue;
+            }
+
+            if let Some(marker) = Self::markdown_fence_marker(trimmed) {
+                fence_marker = Some(marker);
+                output.push_str(line);
+                continue;
+            }
+
+            if trimmed == "[grid]" {
+                in_grid = true;
+                grid_original.push_str(line);
+                continue;
+            }
+
+            output.push_str(line);
+        }
+
+        if in_grid {
+            output.push_str(&grid_original);
+        }
+
+        (output, grids)
+    }
+
+    fn markdown_fence_marker(trimmed_line: &str) -> Option<&'static str> {
+        if trimmed_line.starts_with("```") {
+            Some("```")
+        } else if trimmed_line.starts_with("~~~") {
+            Some("~~~")
+        } else {
+            None
+        }
+    }
+
+    fn render_image_grid_block(content: &str) -> Option<String> {
+        let mut options = Options::empty();
+        options.insert(Options::ENABLE_TABLES);
+        options.insert(Options::ENABLE_STRIKETHROUGH);
+        options.insert(Options::ENABLE_TASKLISTS);
+        options.insert(Options::ENABLE_FOOTNOTES);
+
+        let parser = Parser::new_ext(content, options);
+        let mut items = Vec::new();
+        let mut active_link: Option<(String, String)> = None;
+        let mut active_image: Option<ImageGridItem> = None;
+
+        for event in parser {
+            match event {
+                Event::Start(Tag::Link {
+                    dest_url, title, ..
+                }) if active_image.is_none() => {
+                    active_link = Some((dest_url.to_string(), title.to_string()));
+                }
+                Event::End(TagEnd::Link) if active_image.is_none() => {
+                    active_link = None;
+                }
+                Event::Start(Tag::Image {
+                    dest_url, title, ..
+                }) => {
+                    active_image = Some(ImageGridItem {
+                        src: dest_url.to_string(),
+                        alt: String::new(),
+                        title: title.to_string(),
+                        link: active_link.clone(),
+                    });
+                }
+                Event::Text(text) | Event::Code(text) if active_image.is_some() => {
+                    if let Some(image) = &mut active_image {
+                        image.alt.push_str(&text);
+                    }
+                }
+                Event::SoftBreak | Event::HardBreak if active_image.is_some() => {
+                    if let Some(image) = &mut active_image {
+                        if !image.alt.ends_with(' ') {
+                            image.alt.push(' ');
+                        }
+                    }
+                }
+                Event::End(TagEnd::Image) => {
+                    if let Some(mut image) = active_image.take() {
+                        image.alt = Self::strip_image_size_hint(&image.alt);
+                        items.push(image);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if items.is_empty() {
+            return None;
+        }
+
+        let mut html = format!(
+            r#"<div class="noteva-image-grid" data-count="{}">"#,
+            items.len()
+        );
+        for item in items {
+            html.push_str(r#"<figure class="noteva-image-grid-item">"#);
+            html.push_str(&Self::render_image_grid_item(&item));
+            html.push_str("</figure>");
+        }
+        html.push_str("</div>");
+        Some(html)
+    }
+
+    fn render_image_grid_item(item: &ImageGridItem) -> String {
+        let title_attr = if item.title.trim().is_empty() {
+            String::new()
+        } else {
+            format!(r#" title="{}""#, html_escape(item.title.trim()))
+        };
+        let image = format!(
+            r#"<img src="{}" alt="{}"{} loading="lazy" />"#,
+            html_escape(item.src.trim()),
+            html_escape(item.alt.trim()),
+            title_attr
+        );
+
+        if let Some((href, title)) = &item.link {
+            let link_title_attr = if title.trim().is_empty() {
+                String::new()
+            } else {
+                format!(r#" title="{}""#, html_escape(title.trim()))
+            };
+            format!(
+                r#"<a class="noteva-image-grid-link" href="{}"{}>{}</a>"#,
+                html_escape(href.trim()),
+                link_title_attr,
+                image
+            )
+        } else {
+            image
+        }
+    }
+
+    fn strip_image_size_hint(alt: &str) -> String {
+        if let Some((label, size)) = alt.rsplit_once('|') {
+            if Self::looks_like_image_size(size.trim()) {
+                return label.trim().to_string();
+            }
+        }
+        alt.to_string()
+    }
+
+    fn looks_like_image_size(value: &str) -> bool {
+        let Some(number) = value
+            .strip_suffix('%')
+            .or_else(|| value.strip_suffix("px"))
+            .or(Some(value))
+        else {
+            return false;
+        };
+
+        !number.is_empty() && number.chars().all(|ch| ch.is_ascii_digit())
+    }
+
+    fn image_grid_placeholder(index: usize) -> String {
+        format!("NOTEVA_IMAGE_GRID_PLACEHOLDER_{}", index)
+    }
+
+    fn restore_image_grids(html: &str, grids: &[String]) -> String {
+        let mut result = html.to_string();
+        for (index, grid_html) in grids.iter().enumerate() {
+            let placeholder = Self::image_grid_placeholder(index);
+            for wrapped in [
+                format!("<p>{}</p>\n", placeholder),
+                format!("<p>{}</p>", placeholder),
+            ] {
+                result = result.replace(&wrapped, grid_html);
+            }
+            result = result.replace(&placeholder, grid_html);
+        }
+        result
+    }
+
     fn sanitize_rendered_html(html: &str) -> String {
         let mut result = html.to_string();
 
@@ -947,6 +1176,41 @@ mod tests {
         assert!(html.contains("<img"));
         assert!(html.contains("src=\"https://example.com/image.png\""));
         assert!(html.contains("alt=\"Alt text\""));
+    }
+
+    #[test]
+    fn test_render_image_grid_shortcode() {
+        let renderer = MarkdownRenderer::new();
+        let markdown = "[grid]\n![One](/uploads/one.jpg)\n![Two](/uploads/two.jpg)\n![Three](/uploads/three.jpg)\n[/grid]";
+        let html = renderer.render(markdown);
+
+        assert!(html.contains("class=\"noteva-image-grid\""));
+        assert!(html.contains("data-count=\"3\""));
+        assert_eq!(html.matches("noteva-image-grid-item").count(), 3);
+        assert!(html.contains("src=\"/uploads/one.jpg\""));
+        assert!(html.contains("src=\"/uploads/two.jpg\""));
+        assert!(html.contains("src=\"/uploads/three.jpg\""));
+    }
+
+    #[test]
+    fn test_render_image_grid_preserves_linked_images() {
+        let renderer = MarkdownRenderer::new();
+        let markdown = "[grid]\n[![One](/uploads/one.jpg)](/posts/one)\n[/grid]";
+        let html = renderer.render(markdown);
+
+        assert!(html.contains("class=\"noteva-image-grid-link\""));
+        assert!(html.contains("href=\"/posts/one\""));
+        assert!(html.contains("src=\"/uploads/one.jpg\""));
+    }
+
+    #[test]
+    fn test_render_image_grid_ignores_code_fence_marker() {
+        let renderer = MarkdownRenderer::new();
+        let markdown = "```\n[grid]\n![One](/uploads/one.jpg)\n[/grid]\n```";
+        let html = renderer.render(markdown);
+
+        assert!(!html.contains("noteva-image-grid"));
+        assert!(html.contains("[grid]"));
     }
 
     #[test]

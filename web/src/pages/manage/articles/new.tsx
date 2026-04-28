@@ -235,19 +235,24 @@ export default function NewArticlePage() {
   }, [navigate, saveState, t]);
 
   useEffect(() => {
-    Promise.all([
-      categoriesApi.list(),
-      tagsApi.list(),
-      fetch("/api/v1/plugins/enabled").then(r => r.json()).catch(() => []),
-    ])
-      .then(([catRes, tagRes, pluginsRes]) => {
+    let active = true;
+
+    const loadData = async () => {
+      try {
+        const [catRes, tagRes, pluginsRes] = await Promise.all([
+          categoriesApi.list(),
+          tagsApi.list(),
+          fetch("/api/v1/plugins/enabled").then(r => r.json()).catch(() => []),
+        ]);
+        if (!active) return;
+
         const catData = catRes.data?.categories || [];
         const tagData = tagRes.data?.tags || [];
         setCategories(Array.isArray(catData) ? catData : []);
         setTags(Array.isArray(tagData) ? tagData : []);
         const defaultCat = catData.find((c: Category) => c.slug === "uncategorized") || catData[0];
         if (defaultCat) {
-          setForm((f) => ({ ...f, category_id: defaultCat.id }));
+          setForm((f) => ({ ...f, category_id: f.category_id || defaultCat.id }));
         }
         const buttons: PluginEditorButton[] = [];
         if (Array.isArray(pluginsRes)) {
@@ -257,9 +262,19 @@ export default function NewArticlePage() {
         }
         setPluginButtons(buttons);
         setDataReady(true);
-      })
-      .catch(() => { toast.error(t("error.loadFailed")); setDataReady(true); });
-  }, []);
+      } catch {
+        if (!active) return;
+        toast.error(t("error.loadFailed"));
+        setDataReady(true);
+      }
+    };
+
+    void loadData();
+
+    return () => {
+      active = false;
+    };
+  }, [t]);
 
   const generateSlug = (title: string) => {
     return title
@@ -341,7 +356,7 @@ export default function NewArticlePage() {
               <Suspense fallback={<EditorFallback />}>
                 <MarkdownEditor
                   ref={editorRef}
-                  initialValue=""
+                  initialValue={form.content}
                   onChange={(value: string) => setForm((f) => ({ ...f, content: value }))}
                   pluginButtons={pluginButtons}
                   placeholder={t("article.useMarkdown")}

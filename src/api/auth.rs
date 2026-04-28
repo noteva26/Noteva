@@ -11,7 +11,9 @@
 //! - 4.2: User registration
 //! - 4.3: User login
 
-use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
+use crate::api::middleware::{
+    extract_client_ip, should_set_secure_cookie, ApiError, AppState, AuthenticatedUser,
+};
 use crate::config::DatabaseDriver;
 use crate::db::DynDatabasePool;
 use crate::services::user::{LoginInput, RegisterInput, UserServiceError};
@@ -158,7 +160,7 @@ async fn register(
 
     // Create session for the new user
     let login_input = LoginInput::new(&user.username, &password);
-    let ip_addr = Some(addr.ip().to_string());
+    let ip_addr = Some(extract_client_ip(&headers, addr));
     let ua = headers
         .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
@@ -169,12 +171,7 @@ async fn register(
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
-    // Detect if behind HTTPS
-    let is_secure = headers
-        .get("x-forwarded-proto")
-        .and_then(|h| h.to_str().ok())
-        .map(|p| p == "https")
-        .unwrap_or(false);
+    let is_secure = should_set_secure_cookie(&state, &headers, Some(addr)).await;
     let secure_flag = if is_secure { "; Secure" } else { "" };
 
     // Generate CSRF token
@@ -227,7 +224,7 @@ async fn login(
     Json(body): Json<LoginRequest>,
 ) -> Result<Response, ApiError> {
     // Extract IP address and User-Agent
-    let ip_address = Some(addr.ip().to_string());
+    let ip_address = Some(extract_client_ip(&headers, addr));
     let user_agent = headers
         .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
@@ -333,6 +330,7 @@ async fn login(
                     expires_at: now + Duration::from_secs(5 * 60),
                     ip_address: ip_address.clone(),
                     user_agent: user_agent.clone(),
+                    failed_attempts: 0,
                 },
             );
         }
@@ -380,12 +378,7 @@ async fn login(
     )
     .await;
 
-    // Detect if behind HTTPS (for Secure flag on cookies)
-    let is_secure = headers
-        .get("x-forwarded-proto")
-        .and_then(|h| h.to_str().ok())
-        .map(|p| p == "https")
-        .unwrap_or(false);
+    let is_secure = should_set_secure_cookie(&state, &headers, Some(addr)).await;
     let secure_flag = if is_secure { "; Secure" } else { "" };
 
     // Generate CSRF token

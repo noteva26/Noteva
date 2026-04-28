@@ -702,7 +702,7 @@ mod tests {
             repository: "noteva26/noteva-plugins".to_string(),
             license: "MIT".to_string(),
             requires: crate::plugin::loader::PluginRequirements {
-                noteva: ">=0.2.9".to_string(),
+                noteva: ">=0.3.0".to_string(),
                 plugins: Vec::new(),
             },
             hooks: Default::default(),

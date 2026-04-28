@@ -571,6 +571,8 @@ impl PluginManager {
 
     /// Enable a plugin
     pub async fn enable(&mut self, id: &str) -> Result<()> {
+        let last_version = self.current_last_version(id).await?;
+
         if let Some(plugin) = self.plugins.get_mut(id) {
             // Check version compatibility
             let version_check =
@@ -603,7 +605,7 @@ impl PluginManager {
                 plugin_id: id.to_string(),
                 enabled: true,
                 settings: plugin.settings.clone(),
-                last_version: None,
+                last_version,
             };
             self.repo.save(&state).await?;
 
@@ -623,6 +625,8 @@ impl PluginManager {
 
     /// Disable a plugin
     pub async fn disable(&mut self, id: &str) -> Result<()> {
+        let last_version = self.current_last_version(id).await?;
+
         if let Some(plugin) = self.plugins.get_mut(id) {
             plugin.enabled = false;
 
@@ -631,7 +635,7 @@ impl PluginManager {
                 plugin_id: id.to_string(),
                 enabled: false,
                 settings: plugin.settings.clone(),
-                last_version: None,
+                last_version,
             };
             self.repo.save(&state).await?;
 
@@ -648,6 +652,8 @@ impl PluginManager {
         id: &str,
         settings: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
+        let last_version = self.current_last_version(id).await?;
+
         if let Some(plugin) = self.plugins.get_mut(id) {
             plugin.settings = settings.clone();
 
@@ -656,7 +662,7 @@ impl PluginManager {
                 plugin_id: id.to_string(),
                 enabled: plugin.enabled,
                 settings,
-                last_version: None,
+                last_version,
             };
             self.repo.save(&state).await?;
 
@@ -697,6 +703,10 @@ impl PluginManager {
     pub async fn get_last_version(&self, plugin_id: &str) -> Result<Option<String>> {
         let state = self.repo.get(plugin_id).await?;
         Ok(state.and_then(|s| s.last_version))
+    }
+
+    async fn current_last_version(&self, plugin_id: &str) -> Result<Option<String>> {
+        Ok(self.repo.get(plugin_id).await?.and_then(|s| s.last_version))
     }
 
     /// Update the last known version for a plugin in the database

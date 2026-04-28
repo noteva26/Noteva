@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { List } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getNoteva } from "@/hooks/useNoteva";
+import { useTranslation } from "@/lib/i18n";
 
 interface TocItem {
     level: number;
@@ -14,6 +15,7 @@ interface TocSidebarProps {
 }
 
 export function TocSidebar({ toc }: TocSidebarProps) {
+    const { t } = useTranslation();
     const [activeId, setActiveId] = useState<string>("");
 
     const visibleToc = useMemo(
@@ -73,7 +75,7 @@ export function TocSidebar({ toc }: TocSidebarProps) {
             <nav className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto rounded-lg border bg-card/70 p-4 shadow-sm shadow-black/[0.02] backdrop-blur">
                 <h4 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-foreground">
                     <List className="h-4 w-4" />
-                    目录
+                    {t("article.toc")}
                 </h4>
                 <ul className="space-y-0.5 border-l text-sm">
                     {visibleToc.map((item) => (

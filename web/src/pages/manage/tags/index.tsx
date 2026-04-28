@@ -23,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -181,14 +181,9 @@ export default function TagsPage({ embedded = false }: TagsPageProps) {
   const isSyncing = (loading && hasLoaded) || isRefreshing;
 
   return (
-    <div className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="flex items-center justify-between"
-      >
-        <div>
+    <div className={embedded ? "flex h-full min-h-0 flex-col gap-4" : "space-y-6"}>
+      <div className="flex min-h-[44px] items-center justify-between gap-3">
+        <div className="min-w-0">
           {embedded ? (
             <h2 className="text-xl font-semibold">{t("manage.tags")}</h2>
           ) : (
@@ -200,88 +195,86 @@ export default function TagsPage({ embedded = false }: TagsPageProps) {
         </div>
         <div className="flex items-center gap-2">
           {selectedTags.size > 0 && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-            >
-              <Button variant="destructive" onClick={handleBatchDelete} disabled={isMutating}>
-                <Trash2 className="h-4 w-4 mr-2" />
-                {t("tag.batchDelete")} ({selectedTags.size})
-              </Button>
-            </motion.div>
-          )}
-          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-            <Button onClick={() => setDialogOpen(true)} disabled={isMutating}>
-              <Plus className="h-4 w-4 mr-2" />
-              {t("tag.newTag")}
+            <Button variant="destructive" onClick={handleBatchDelete} disabled={isMutating}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              {t("tag.batchDelete")} ({selectedTags.size})
             </Button>
-          </motion.div>
+          )}
+          <Button
+            size={embedded ? "sm" : "default"}
+            onClick={() => setDialogOpen(true)}
+            disabled={isMutating}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            {t("tag.newTag")}
+          </Button>
         </div>
-      </motion.div>
+      </div>
       <DataSyncBadge active={isSyncing} label={t("common.loading")} />
 
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder={t("common.search")}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <span className="text-sm text-muted-foreground">
-          {optimisticTags.length} {t("manage.tags")}
-        </span>
-      </div>
-
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.4, delay: 0.1 }}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t("tag.tagList")}</CardTitle>
-          </CardHeader>
-          <CardContent>
+      <div className={embedded ? "min-h-0 flex-1" : undefined}>
+        <Card className={embedded ? "flex h-full min-h-[460px] flex-col" : undefined}>
+          <CardContent className="flex min-h-0 flex-1 flex-col p-4">
+            <div className="mb-3 flex items-center gap-3">
+              <div className="relative min-w-0 flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder={t("common.search")}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="h-9 pl-9"
+                />
+              </div>
+              <span className="shrink-0 text-sm text-muted-foreground">
+                {filteredTags.length} / {optimisticTags.length}
+              </span>
+            </div>
             <DataSyncBar active={isSyncing} label={t("common.loading")} className="mb-3" />
             {showInitialLoading ? (
-              <div className="space-y-2">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="h-10 w-full skeleton-shimmer rounded" />
+              <div className="space-y-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="h-11 w-full skeleton-shimmer rounded" />
                 ))}
               </div>
             ) : filteredTags.length === 0 ? (
               <EmptyState size="sm" description={t("tag.noTags")} />
             ) : (
-              <div className={`space-y-2 max-h-[400px] overflow-auto transition-opacity ${isSyncing ? "opacity-70" : ""}`}>
+              <div
+                className={`min-h-0 flex-1 space-y-2 overflow-auto transition-opacity ${embedded ? "max-h-[420px]" : ""} ${isSyncing ? "opacity-70" : ""}`}
+              >
                 {filteredTags.map((tag, index) => (
                   <motion.div
                     key={tag.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.02 }}
-                    whileHover={{ x: 2 }}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 400,
+                      damping: 30,
+                      delay: index * 0.025,
+                    }}
                     className={cn(
-                      "flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors",
+                      "flex min-h-11 items-center justify-between rounded-lg p-3 transition-colors hover:bg-muted/50",
                       selectedTags.has(tag.id) && "bg-muted"
                     )}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       <Checkbox
                         checked={selectedTags.has(tag.id)}
                         onCheckedChange={() => toggleSelect(tag.id)}
                         aria-label={tag.name}
                       />
-                      <Badge variant="outline">{tag.name}</Badge>
-                      <span className="text-sm text-muted-foreground">
+                      <Badge variant="outline" className="max-w-[12rem] truncate">
+                        {tag.name}
+                      </Badge>
+                      <span className="shrink-0 text-sm text-muted-foreground">
                         {t("tag.articlesCount", { count: tag.count.toString() })}
                       </span>
                     </div>
                     <Button
                       variant="ghost"
                       size="icon"
+                      className="h-8 w-8"
                       onClick={() => {
                         setDeletingTag(tag);
                         setDeleteDialogOpen(true);
@@ -295,7 +288,7 @@ export default function TagsPage({ embedded = false }: TagsPageProps) {
             )}
           </CardContent>
         </Card>
-      </motion.div>
+      </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>

@@ -1,4 +1,4 @@
-import { useEffect, useOptimistic, useState, useTransition } from "react";
+import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +37,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
+import { Plus, Pencil, Trash2, RefreshCw, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
@@ -59,6 +59,9 @@ interface Page {
 
 export default function PagesManagePage() {
   const { t, locale } = useTranslation();
+  const mountedRef = useRef(false);
+  const refreshInFlightRef = useRef(false);
+  const refreshDoneTimerRef = useRef<number | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
   const [optimisticPages, removeOptimisticPages] = useOptimistic(
     pages,
@@ -68,7 +71,8 @@ export default function PagesManagePage() {
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [isRefreshing, startRefreshTransition] = useTransition();
+  const [isRefreshPending, setIsRefreshPending] = useState(false);
+  const [refreshDone, setRefreshDone] = useState(false);
   const [isMutating, startMutationTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -80,6 +84,29 @@ export default function PagesManagePage() {
     content: "",
     status: "draft",
   });
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      if (refreshDoneTimerRef.current) {
+        window.clearTimeout(refreshDoneTimerRef.current);
+      }
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const markRefreshDone = useCallback(() => {
+    if (refreshDoneTimerRef.current) {
+      window.clearTimeout(refreshDoneTimerRef.current);
+    }
+
+    setRefreshDone(true);
+    refreshDoneTimerRef.current = window.setTimeout(() => {
+      setRefreshDone(false);
+      refreshDoneTimerRef.current = null;
+    }, 1500);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -170,12 +197,31 @@ export default function PagesManagePage() {
     });
   };
 
-  const refreshPages = () => {
-    startRefreshTransition(() => setRefreshKey((key) => key + 1));
-  };
+  const refreshPages = useCallback(async () => {
+    if (refreshInFlightRef.current) return;
+
+    refreshInFlightRef.current = true;
+    setIsRefreshPending(true);
+    try {
+      const res = await api.get<{ pages: Page[] }>("/admin/pages");
+      if (!mountedRef.current) return;
+
+      setPages(res.data.pages || []);
+      markRefreshDone();
+    } catch (error) {
+      if (mountedRef.current) {
+        toast.error(getApiErrorMessage(error, t("page.loadFailed")));
+      }
+    } finally {
+      refreshInFlightRef.current = false;
+      if (mountedRef.current) {
+        setIsRefreshPending(false);
+      }
+    }
+  }, [markRefreshDone, t]);
 
   const showInitialLoading = loading && !hasLoaded;
-  const isSyncing = (loading && hasLoaded) || isRefreshing;
+  const isSyncing = loading && hasLoaded;
 
   return (
     <div className="space-y-6">
@@ -183,9 +229,19 @@ export default function PagesManagePage() {
         title={t("page.title")}
         actions={
           <>
-            <Button variant="outline" onClick={refreshPages} disabled={isSyncing}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? "animate-spin" : ""}`} />
-              {t("common.refresh")}
+            <Button
+              variant="outline"
+              className="min-w-28"
+              onClick={() => void refreshPages()}
+              disabled={showInitialLoading || isSyncing || isRefreshPending}
+              aria-busy={isRefreshPending}
+            >
+              {refreshDone ? (
+                <CheckCircle2 className="h-4 w-4 mr-2 text-green-500 animate-in fade-in duration-300" />
+              ) : (
+                <RefreshCw className={`h-4 w-4 mr-2 transition-transform duration-500 ${isRefreshPending ? "animate-spin" : ""}`} />
+              )}
+              {refreshDone ? t("common.done") : t("common.refresh")}
             </Button>
             <Button onClick={openCreateDialog}>
               <Plus className="h-4 w-4 mr-2" />

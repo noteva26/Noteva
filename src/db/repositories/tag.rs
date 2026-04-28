@@ -250,9 +250,10 @@ async fn list_tags_sqlite(pool: &SqlitePool) -> Result<Vec<Tag>> {
 async fn get_tags_with_counts_sqlite(pool: &SqlitePool, limit: usize) -> Result<Vec<TagWithCount>> {
     let rows = sqlx::query(
         r#"
-        SELECT t.id, t.slug, t.name, t.created_at, COUNT(at.article_id) as article_count
+        SELECT t.id, t.slug, t.name, t.created_at, COUNT(a.id) as article_count
         FROM tags t
         LEFT JOIN article_tags at ON t.id = at.tag_id
+        LEFT JOIN articles a ON a.id = at.article_id AND a.status = 'published'
         GROUP BY t.id, t.slug, t.name, t.created_at
         ORDER BY article_count DESC, t.name ASC
         LIMIT ?
@@ -441,9 +442,10 @@ async fn list_tags_mysql(pool: &MySqlPool) -> Result<Vec<Tag>> {
 async fn get_tags_with_counts_mysql(pool: &MySqlPool, limit: usize) -> Result<Vec<TagWithCount>> {
     let rows = sqlx::query(
         r#"
-        SELECT t.id, t.slug, t.name, t.created_at, COUNT(at.article_id) as article_count
+        SELECT t.id, t.slug, t.name, t.created_at, COUNT(a.id) as article_count
         FROM tags t
         LEFT JOIN article_tags at ON t.id = at.tag_id
+        LEFT JOIN articles a ON a.id = at.article_id AND a.status = 'published'
         GROUP BY t.id, t.slug, t.name, t.created_at
         ORDER BY article_count DESC, t.name ASC
         LIMIT ?
@@ -683,15 +685,25 @@ mod tests {
 
     /// Helper to create an article for tag association tests
     async fn create_test_article(pool: &SqlitePool, author_id: i64, slug: &str) -> i64 {
+        create_test_article_with_status(pool, author_id, slug, "published").await
+    }
+
+    async fn create_test_article_with_status(
+        pool: &SqlitePool,
+        author_id: i64,
+        slug: &str,
+        status: &str,
+    ) -> i64 {
         let result = sqlx::query(
             r#"INSERT INTO articles (slug, title, content, content_html, author_id, category_id, status) 
-               VALUES (?, ?, ?, ?, ?, 1, 'published')"#,
+               VALUES (?, ?, ?, ?, ?, 1, ?)"#,
         )
         .bind(slug)
         .bind(format!("Title for {}", slug))
         .bind("Content")
         .bind("<p>Content</p>")
         .bind(author_id)
+        .bind(status)
         .execute(pool)
         .await
         .expect("Failed to create test article");
@@ -1037,6 +1049,35 @@ mod tests {
 
         assert_eq!(tags_with_counts[2].tag.slug, "rare");
         assert_eq!(tags_with_counts[2].article_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_with_counts_excludes_unpublished_articles() {
+        let (pool, repo) = setup_test_repo().await;
+        let sqlite_pool = pool.as_sqlite().unwrap();
+
+        let user_id = create_test_user(sqlite_pool).await;
+        let published_id = create_test_article(sqlite_pool, user_id, "published-article").await;
+        let draft_id =
+            create_test_article_with_status(sqlite_pool, user_id, "draft-article", "draft").await;
+
+        let tag = repo
+            .create(&create_test_tag("public-only", "Public Only"))
+            .await
+            .expect("Failed to create tag");
+        repo.add_to_article(tag.id, published_id).await.unwrap();
+        repo.add_to_article(tag.id, draft_id).await.unwrap();
+
+        let tags_with_counts = repo
+            .get_with_counts(10)
+            .await
+            .expect("Failed to get tags with counts");
+
+        let public_only = tags_with_counts
+            .iter()
+            .find(|item| item.tag.slug == "public-only")
+            .expect("tag should be present");
+        assert_eq!(public_only.article_count, 1);
     }
 
     #[tokio::test]

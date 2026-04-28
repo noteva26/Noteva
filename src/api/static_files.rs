@@ -769,38 +769,15 @@ async fn inject_seo_into_html(
         format!("\n<style id=\"noteva-custom-css\">{}</style>", custom_css)
     };
 
-    // Load custom locales from file storage for theme i18n
-    let custom_locales_json = {
-        use crate::services::locale;
-        let locales = locale::list_locales().await.unwrap_or_default();
-        if locales.is_empty() {
-            String::from("[]")
-        } else {
-            let mut items = Vec::new();
-            for loc in &locales {
-                if let Ok(Some(full)) = locale::get_locale(&loc.code).await {
-                    items.push(serde_json::json!({
-                        "code": loc.code,
-                        "name": loc.name,
-                        "translations": serde_json::from_str::<serde_json::Value>(&full.json_content)
-                            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
-                    }));
-                }
-            }
-            serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
-        }
-    };
-
     let head_injection = format!(
         r#"{}
-<script>window.__SITE_CONFIG__={};window.__CUSTOM_LOCALES__={};</script>
+<script>window.__SITE_CONFIG__={};</script>
 <link rel="stylesheet" href="/noteva-sdk.css?v={}">
 <script src="/noteva-sdk.js?v={}"></script>
 <link rel="stylesheet" href="/api/v1/plugins/assets/plugins.css?v={}">
 <script src="/api/v1/plugins/assets/plugins.js?v={}"></script>{}"#,
         meta_tags,
         serde_json::to_string(&config_json).unwrap_or_else(|_| "{}".to_string()),
-        custom_locales_json,
         version,
         version,
         version,

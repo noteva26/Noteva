@@ -314,6 +314,7 @@ impl ThemeEngine {
                 compatible: version_check.compatible,
                 compatibility_message: version_check.message,
                 config: metadata.configuration,
+                i18n: metadata.i18n,
                 has_settings,
                 pages: metadata.pages,
             });
@@ -335,6 +336,22 @@ impl ThemeEngine {
                 compatible: version_check.compatible,
                 compatibility_message: version_check.message,
                 config: None,
+                i18n: Some(ThemeI18nDeclaration {
+                    locales: vec![
+                        "zh-CN".to_string(),
+                        "zh-TW".to_string(),
+                        "en".to_string(),
+                        "ja".to_string(),
+                        "ko".to_string(),
+                        "fr".to_string(),
+                        "de".to_string(),
+                        "es".to_string(),
+                        "pt-BR".to_string(),
+                        "ru".to_string(),
+                        "it".to_string(),
+                    ],
+                    default: "en".to_string(),
+                }),
                 has_settings,
                 pages: Vec::new(),
             });
@@ -775,6 +792,8 @@ pub struct ThemeJsonMetadata {
     pub requires: ThemeRequirements,
     /// Theme configuration
     pub configuration: Option<serde_json::Value>,
+    /// Theme i18n declaration
+    pub i18n: Option<ThemeI18nDeclaration>,
     /// Routes that require auto-created pages (slug → title)
     #[serde(default)]
     pub pages: Vec<ThemePageDeclaration>,
@@ -786,6 +805,17 @@ pub struct ThemeRequirements {
     /// Minimum Noteva version
     #[serde(default)]
     pub noteva: String,
+}
+
+/// Theme i18n capabilities declared by theme.json
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ThemeI18nDeclaration {
+    /// Locales supported by the theme, such as "zh-CN", "en", or "pt-BR"
+    #[serde(default)]
+    pub locales: Vec<String>,
+    /// Default locale used when requested locale is unsupported
+    #[serde(default)]
+    pub default: String,
 }
 
 /// A page that a theme declares should exist
@@ -824,6 +854,8 @@ pub struct ThemeInfo {
     pub compatibility_message: Option<String>,
     /// Theme configuration from theme.json
     pub config: Option<serde_json::Value>,
+    /// Theme i18n declaration from theme.json
+    pub i18n: Option<ThemeI18nDeclaration>,
     /// Whether theme has settings.json
     pub has_settings: bool,
     /// Pages declared by this theme

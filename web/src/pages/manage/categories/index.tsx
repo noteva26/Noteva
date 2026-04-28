@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useOptimistic, useState, useTransition } from "react";
+import { useDeferredValue, useEffect, useMemo, useOptimistic, useState, useTransition } from "react";
 import { motion } from "motion/react";
 import { categoriesApi, Category, CreateCategoryInput } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
-import { Plus, Edit, Trash2, FolderTree } from "lucide-react";
+import { Plus, Edit, Trash2, FolderTree, Search } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -53,6 +53,8 @@ export default function CategoriesPage({ embedded = false }: CategoriesPageProps
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, startRefreshTransition] = useTransition();
   const [isMutating, startMutationTransition] = useTransition();
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -88,6 +90,16 @@ export default function CategoriesPage({ embedded = false }: CategoriesPageProps
       (category) => category.id !== editingCategory.id && !descendantIds.has(category.id)
     );
   }, [categories, editingCategory]);
+
+  const filteredCategories = useMemo(() => {
+    const keyword = deferredSearch.trim().toLowerCase();
+    if (!keyword) return optimisticCategories;
+
+    return optimisticCategories.filter((category) =>
+      [category.name, category.slug, category.description || ""]
+        .some((value) => value.toLowerCase().includes(keyword))
+    );
+  }, [deferredSearch, optimisticCategories]);
 
   useEffect(() => {
     let active = true;
@@ -200,14 +212,9 @@ export default function CategoriesPage({ embedded = false }: CategoriesPageProps
   const isSyncing = (loading && hasLoaded) || isRefreshing;
 
   return (
-    <div className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="flex items-center justify-between"
-      >
-        <div>
+    <div className={embedded ? "flex h-full min-h-0 flex-col gap-4" : "space-y-6"}>
+      <div className="flex min-h-[44px] items-center justify-between gap-3">
+        <div className="min-w-0">
           {embedded ? (
             <h2 className="text-xl font-semibold">{t("manage.categories")}</h2>
           ) : (
@@ -217,39 +224,49 @@ export default function CategoriesPage({ embedded = false }: CategoriesPageProps
             {t("category.totalCategories")}
           </p>
         </div>
-        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-          <Button onClick={openCreateDialog}>
-            <Plus className="h-4 w-4 mr-2" />
-            {t("category.newCategory")}
-          </Button>
-        </motion.div>
-      </motion.div>
+        <Button size={embedded ? "sm" : "default"} onClick={openCreateDialog}>
+          <Plus className="h-4 w-4 mr-2" />
+          {t("category.newCategory")}
+        </Button>
+      </div>
       <DataSyncBadge active={isSyncing} label={t("common.loading")} />
 
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.4, delay: 0.1 }}
-      >
-        <Card>
-          <CardContent className="p-4">
+      <div className={embedded ? "min-h-0 flex-1" : undefined}>
+        <Card className={embedded ? "flex h-full min-h-[460px] flex-col" : undefined}>
+          <CardContent className="flex min-h-0 flex-1 flex-col p-4">
+            <div className="mb-3 flex items-center gap-3">
+              <div className="relative min-w-0 flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder={t("common.search")}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="h-9 pl-9"
+                />
+              </div>
+              <span className="shrink-0 text-sm text-muted-foreground">
+                {filteredCategories.length} / {optimisticCategories.length}
+              </span>
+            </div>
             <DataSyncBar active={isSyncing} label={t("common.loading")} className="mb-3" />
             {showInitialLoading ? (
               <div className="space-y-3">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="h-12 w-full skeleton-shimmer rounded" />
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="h-11 w-full skeleton-shimmer rounded" />
                 ))}
               </div>
-            ) : optimisticCategories.length === 0 ? (
+            ) : filteredCategories.length === 0 ? (
               <EmptyState
                 icon={FolderTree}
                 title={t("category.noCategories")}
-                actionText={t("category.createFirst")}
-                onAction={openCreateDialog}
+                actionText={optimisticCategories.length === 0 ? t("category.createFirst") : undefined}
+                onAction={optimisticCategories.length === 0 ? openCreateDialog : undefined}
               />
             ) : (
-              <div className={`space-y-1 transition-opacity ${isSyncing ? "opacity-70" : ""}`}>
-                {optimisticCategories.map((category, i) => {
+              <div
+                className={`min-h-0 flex-1 space-y-2 overflow-auto transition-opacity ${embedded ? "max-h-[420px]" : ""} ${isSyncing ? "opacity-70" : ""}`}
+              >
+                {filteredCategories.map((category, i) => {
                   const isDefault = category.slug === "uncategorized";
                   const parentName = category.parent_id
                     ? categoryById.get(category.parent_id)?.name
@@ -257,29 +274,42 @@ export default function CategoriesPage({ embedded = false }: CategoriesPageProps
                   return (
                     <motion.div
                       key={category.id}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.03 }}
-                      className="flex items-center gap-2 p-3 hover:bg-muted/50 rounded-lg transition-colors"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{
+                        type: "spring",
+                        stiffness: 400,
+                        damping: 30,
+                        delay: i * 0.025,
+                      }}
+                      className="flex min-h-11 items-center gap-2 rounded-lg p-3 transition-colors hover:bg-muted/50"
                     >
                       <FolderTree className="h-4 w-4 text-muted-foreground" />
-                      <span className="flex-1 font-medium">
-                        {isDefault ? t("category.uncategorized") : category.name}
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium">
+                          {isDefault ? t("category.uncategorized") : category.name}
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground">{category.slug}</div>
+                      </div>
                       {parentName ? (
                         <span className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
                           {parentName}
                         </span>
                       ) : null}
-                      <span className="text-sm text-muted-foreground">{category.slug}</span>
                       <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(category)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => openEditDialog(category)}
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
                         {!isDefault && (
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="h-8 w-8"
                             onClick={() => { setDeletingCategory(category); setDeleteDialogOpen(true); }}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
@@ -293,7 +323,7 @@ export default function CategoriesPage({ embedded = false }: CategoriesPageProps
             )}
           </CardContent>
         </Card>
-      </motion.div>
+      </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
@@ -322,7 +352,7 @@ export default function CategoriesPage({ embedded = false }: CategoriesPageProps
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="parent_id">Parent</Label>
+              <Label htmlFor="parent_id">{t("category.parent")}</Label>
               <Select
                 value={form.parent_id ? String(form.parent_id) : "none"}
                 onValueChange={(value) =>
@@ -333,10 +363,10 @@ export default function CategoriesPage({ embedded = false }: CategoriesPageProps
                 }
               >
                 <SelectTrigger id="parent_id">
-                  <SelectValue placeholder="None" />
+                  <SelectValue placeholder={t("category.noParent")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="none">{t("category.noParent")}</SelectItem>
                   {availableParentCategories.map((category) => (
                     <SelectItem key={category.id} value={String(category.id)}>
                       {category.name}

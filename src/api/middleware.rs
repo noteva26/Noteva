@@ -10,13 +10,14 @@
 
 use axum::{
     extract::{Request, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -90,6 +91,7 @@ pub struct TwoFactorLoginChallenge {
     pub expires_at: Instant,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    pub failed_attempts: u8,
 }
 
 pub type TwoFactorChallengeStore =
@@ -194,10 +196,163 @@ impl IntoResponse for ApiError {
             "VALIDATION_ERROR" => StatusCode::BAD_REQUEST,
             "CONFLICT" => StatusCode::CONFLICT,
             "USER_BANNED" => StatusCode::FORBIDDEN,
+            "RATE_LIMIT" => StatusCode::TOO_MANY_REQUESTS,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         (status, Json(self)).into_response()
+    }
+}
+
+/// Extract the real client IP while only trusting forwarding headers from local/private proxies.
+pub fn extract_client_ip(headers: &HeaderMap, peer_addr: SocketAddr) -> String {
+    let peer_ip = peer_addr.ip();
+    if is_trusted_proxy_ip(peer_ip) {
+        if let Some(ip) = forwarded_client_ip(headers) {
+            return ip.to_string();
+        }
+    }
+    peer_ip.to_string()
+}
+
+/// Decide whether auth cookies should include the Secure flag.
+///
+/// Prefer the configured site URL because it is controlled by the admin. Only
+/// fall back to forwarding headers when the immediate peer is a trusted proxy.
+pub async fn should_set_secure_cookie(
+    state: &AppState,
+    headers: &HeaderMap,
+    peer_addr: Option<SocketAddr>,
+) -> bool {
+    if let Ok(Some(site_url)) = state.settings_service.get("site_url").await {
+        if site_url.trim().to_ascii_lowercase().starts_with("https://") {
+            return true;
+        }
+    }
+
+    peer_addr
+        .map(|addr| is_https_from_trusted_proxy(headers, addr.ip()))
+        .unwrap_or(false)
+}
+
+fn is_https_from_trusted_proxy(headers: &HeaderMap, peer_ip: IpAddr) -> bool {
+    if !is_trusted_proxy_ip(peer_ip) {
+        return false;
+    }
+
+    forwarded_proto(headers)
+        .map(|proto| proto.eq_ignore_ascii_case("https"))
+        .unwrap_or(false)
+}
+
+fn forwarded_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
+    headers
+        .get("forwarded")
+        .and_then(|value| value.to_str().ok())
+        .and_then(parse_forwarded_header)
+        .or_else(|| {
+            headers
+                .get("x-forwarded-for")
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_comma_separated_ip)
+        })
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_header_ip)
+        })
+}
+
+fn forwarded_proto(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("forwarded")
+        .and_then(|value| value.to_str().ok())
+        .and_then(parse_forwarded_proto)
+        .or_else(|| {
+            headers
+                .get("x-forwarded-proto")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.split(',').next())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+}
+
+fn parse_forwarded_header(value: &str) -> Option<IpAddr> {
+    for forwarded_value in value.split(',') {
+        for pair in forwarded_value.split(';') {
+            let pair = pair.trim();
+            if let Some((name, raw_value)) = pair.split_once('=') {
+                if name.trim().eq_ignore_ascii_case("for") {
+                    if let Some(ip) = parse_header_ip(raw_value) {
+                        return Some(ip);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn parse_forwarded_proto(value: &str) -> Option<&str> {
+    for forwarded_value in value.split(',') {
+        for pair in forwarded_value.split(';') {
+            let pair = pair.trim();
+            if let Some((name, raw_value)) = pair.split_once('=') {
+                if name.trim().eq_ignore_ascii_case("proto") {
+                    let proto = raw_value.trim().trim_matches('"');
+                    if !proto.is_empty() {
+                        return Some(proto);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn parse_comma_separated_ip(value: &str) -> Option<IpAddr> {
+    value.split(',').find_map(parse_header_ip)
+}
+
+fn parse_header_ip(value: &str) -> Option<IpAddr> {
+    let value = value.trim().trim_matches('"');
+    if value.is_empty() || value.eq_ignore_ascii_case("unknown") {
+        return None;
+    }
+
+    if let Ok(ip) = value.parse::<IpAddr>() {
+        return Some(ip);
+    }
+
+    if let Some(rest) = value.strip_prefix('[') {
+        if let Some((ip, _)) = rest.split_once(']') {
+            return ip.parse().ok();
+        }
+    }
+
+    if value.matches(':').count() == 1 {
+        if let Some((host, _port)) = value.rsplit_once(':') {
+            return host.parse().ok();
+        }
+    }
+
+    None
+}
+
+fn is_trusted_proxy_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
+        }
+        IpAddr::V6(v6) => {
+            let first = v6.segments()[0];
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80
+        }
     }
 }
 
@@ -768,6 +923,34 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         assert!(extract_session_token(&request).is_none());
+    }
+
+    #[test]
+    fn test_forwarded_proto_only_trusted_for_secure_cookie() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", "https".parse().unwrap());
+
+        assert!(is_https_from_trusted_proxy(
+            &headers,
+            "127.0.0.1".parse().unwrap()
+        ));
+        assert!(!is_https_from_trusted_proxy(
+            &headers,
+            "8.8.8.8".parse().unwrap()
+        ));
+    }
+
+    #[test]
+    fn test_forwarded_header_proto_parsing() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "forwarded",
+            "for=203.0.113.1;proto=https;host=example.com"
+                .parse()
+                .unwrap(),
+        );
+
+        assert_eq!(forwarded_proto(&headers), Some("https"));
     }
 
     #[test]

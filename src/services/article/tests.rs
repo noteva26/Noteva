@@ -164,6 +164,48 @@ async fn test_create_article_whitespace_content_fails() {
     ));
 }
 
+#[tokio::test]
+async fn test_create_article_generated_empty_slug_fails() {
+    let (pool, service) = setup_test_service().await;
+    let sqlite_pool = pool.as_sqlite().unwrap();
+    let author_id = create_test_user(sqlite_pool).await;
+
+    let input = CreateArticleInput::new(
+        "".to_string(),
+        "!!!".to_string(),
+        "Some content".to_string(),
+        author_id,
+        1,
+    );
+
+    let result = service.create(input, None).await;
+    assert!(matches!(
+        result,
+        Err(ArticleServiceError::ValidationError(_))
+    ));
+}
+
+#[tokio::test]
+async fn test_create_article_invalid_slug_fails() {
+    let (pool, service) = setup_test_service().await;
+    let sqlite_pool = pool.as_sqlite().unwrap();
+    let author_id = create_test_user(sqlite_pool).await;
+
+    let input = CreateArticleInput::new(
+        "../bad".to_string(),
+        "Valid title".to_string(),
+        "Some content".to_string(),
+        author_id,
+        1,
+    );
+
+    let result = service.create(input, None).await;
+    assert!(matches!(
+        result,
+        Err(ArticleServiceError::ValidationError(_))
+    ));
+}
+
 // ========================================================================
 // Create article tests (Requirement 1.1)
 // ========================================================================
@@ -588,6 +630,33 @@ async fn test_update_article_empty_title_fails() {
         .expect("Failed to create article");
 
     let update_input = UpdateArticleInput::new().with_title("".to_string());
+
+    let result = service.update(created.id, update_input, None).await;
+    assert!(matches!(
+        result,
+        Err(ArticleServiceError::ValidationError(_))
+    ));
+}
+
+#[tokio::test]
+async fn test_update_article_invalid_slug_fails() {
+    let (pool, service) = setup_test_service().await;
+    let sqlite_pool = pool.as_sqlite().unwrap();
+    let author_id = create_test_user(sqlite_pool).await;
+
+    let input = CreateArticleInput::new(
+        "update-invalid-slug".to_string(),
+        "Original Title".to_string(),
+        "Content".to_string(),
+        author_id,
+        1,
+    );
+    let created = service
+        .create(input, None)
+        .await
+        .expect("Failed to create article");
+
+    let update_input = UpdateArticleInput::new().with_slug("bad/slug".to_string());
 
     let result = service.update(created.id, update_input, None).await;
     assert!(matches!(

@@ -5,7 +5,6 @@ import { Archive, CalendarDays } from "lucide-react";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   getArticleUrl,
   waitForNoteva,
@@ -13,6 +12,11 @@ import {
 } from "@/hooks/useNoteva";
 import { fetchAllArticles } from "@/lib/articles";
 import { useI18nStore, useTranslation } from "@/lib/i18n";
+import {
+  getThemeListItemMotion,
+  themeHoverLift,
+  themePageHeaderMotion,
+} from "@/lib/motion";
 
 interface ArchiveGroup {
   year: number;
@@ -22,13 +26,12 @@ interface ArchiveGroup {
 const ARCHIVE_SKELETON_KEYS = ["archive-a", "archive-b", "archive-c"];
 
 function getDateLocale(locale: string) {
-  switch (locale) {
-    case "zh-TW":
-      return "zh-TW";
-    case "en":
-      return "en-US";
-    default:
-      return "zh-CN";
+  const candidate = locale === "en" ? "en-US" : locale;
+  try {
+    new Intl.DateTimeFormat(candidate);
+    return candidate;
+  } catch {
+    return "zh-CN";
   }
 }
 
@@ -140,18 +143,24 @@ export default function ArchivesPage() {
       <SiteHeader />
       <main className="flex-1">
         <div className="container mx-auto max-w-4xl py-10">
-          <div className="mb-8">
+          <motion.div {...themePageHeaderMotion} className="mb-8">
             <p className="mb-2 flex items-center gap-2 text-sm font-medium text-muted-foreground">
               <Archive className="h-4 w-4" />
               {t("article.totalArticles")}: {totalArticles}
             </p>
             <h1 className="text-3xl font-semibold">{t("nav.archive")}</h1>
-          </div>
+          </motion.div>
 
           {loading ? (
             <div className="space-y-6">
               {ARCHIVE_SKELETON_KEYS.map((key) => (
-                <Skeleton key={key} className="h-32 w-full" />
+                <Card key={key} className="overflow-hidden">
+                  <CardContent className="p-5">
+                    <div className="mb-4 h-5 w-28 rounded skeleton-shimmer" />
+                    <div className="mb-3 h-4 w-20 rounded skeleton-shimmer" />
+                    <div className="h-14 rounded-lg border bg-card skeleton-shimmer" />
+                  </CardContent>
+                </Card>
               ))}
             </div>
           ) : archives.length === 0 ? (
@@ -191,9 +200,8 @@ export default function ArchivesPage() {
                                 key={article.id}
                                 data-article-id={article.id}
                                 className="relative"
-                                initial={{ opacity: 0, x: -8 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: index * 0.025 }}
+                                {...getThemeListItemMotion(index)}
+                                whileHover={themeHoverLift}
                               >
                                 <span className="absolute -left-[1.82rem] top-3 h-3 w-3 rounded-full border-2 border-background bg-primary" />
                                 <Link

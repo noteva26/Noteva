@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Upload, X, Loader2, User } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n";
 
 interface AvatarUploadProps {
   value?: string;
@@ -13,17 +14,18 @@ interface AvatarUploadProps {
 }
 
 export function AvatarUpload({ value, onChange, className }: AvatarUploadProps) {
+  const { t } = useTranslation();
   const [isUploading, startUploadTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUpload = (file: File) => {
     if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
+      toast.error(t("settings.avatarInvalidType"));
       return;
     }
 
     if (file.size > 2 * 1024 * 1024) {
-      toast.error("Avatar size must be under 2MB");
+      toast.error(t("settings.avatarTooLarge"));
       return;
     }
 
@@ -31,9 +33,9 @@ export function AvatarUpload({ value, onChange, className }: AvatarUploadProps) 
       try {
         const { data } = await uploadApi.image(file);
         onChange?.(data.url);
-        toast.success("Avatar uploaded");
+        toast.success(t("settings.avatarUploadSuccess"));
       } catch {
-        toast.error("Avatar upload failed");
+        toast.error(t("settings.avatarUploadFailed"));
       } finally {
         if (fileInputRef.current) {
           fileInputRef.current.value = "";

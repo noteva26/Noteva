@@ -518,6 +518,67 @@
   border: none;
 }
 
+/* Image grid shortcode */
+.noteva-image-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 20px 0;
+}
+
+.noteva-image-grid[data-count="1"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 768px) {
+  .noteva-image-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .noteva-image-grid[data-count="1"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .noteva-image-grid[data-count="2"],
+  .noteva-image-grid[data-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.noteva-image-grid-item {
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.noteva-image-grid-link {
+  display: block;
+  height: 100%;
+}
+
+.noteva-image-grid img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  object-fit: cover;
+}
+
+.noteva-image-grid[data-count="1"] .noteva-image-grid-item {
+  aspect-ratio: auto;
+}
+
+.noteva-image-grid[data-count="1"] img {
+  height: auto;
+  object-fit: contain;
+}
+
 /* 深色模式 Shortcode 样式 */
 @media (prefers-color-scheme: dark) {
   .shortcode-note-info {
@@ -566,6 +627,11 @@
   
   .shortcode-quote footer {
     color: #9ca3af;
+  }
+
+  .noteva-image-grid-item {
+    border-color: #374151;
+    background: #111827;
   }
 }
 

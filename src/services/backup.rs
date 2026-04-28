@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::path::Path;
 use tracing::{info, warn};
 use zip::write::SimpleFileOptions;
@@ -47,6 +47,10 @@ const RESTORE_ORDER: &[&str] = &[
     "plugin_states",
     "plugin_data",
 ];
+
+const MAX_BACKUP_ZIP_ENTRIES: usize = 4096;
+const MAX_BACKUP_ENTRY_BYTES: u64 = 50 * 1024 * 1024;
+const MAX_BACKUP_UNPACKED_BYTES: u64 = 200 * 1024 * 1024;
 
 /// Backup manifest
 #[derive(Debug, Serialize, Deserialize)]
@@ -105,6 +109,7 @@ pub async fn restore_backup(
 ) -> Result<BackupManifest> {
     let reader = std::io::Cursor::new(zip_data);
     let mut archive = zip::ZipArchive::new(reader)?;
+    validate_zip_archive_limits(&mut archive)?;
 
     // Read manifest
     let manifest: BackupManifest = {
@@ -147,54 +152,93 @@ pub async fn restore_backup(
                 .execute(&mut *conn)
                 .await?;
 
-            // Clear tables in reverse order (children first)
-            for table in RESTORE_ORDER.iter().rev() {
-                let sql = format!("DELETE FROM {}", table);
-                if let Err(e) = sqlx::query(&sql).execute(&mut *conn).await {
-                    warn!(table = table, error = %e, "failed to clear table, continuing");
-                }
-            }
+            let restore_result: Result<()> = async {
+                sqlx::query("BEGIN IMMEDIATE")
+                    .execute(&mut *conn)
+                    .await
+                    .context("Failed to start SQLite restore transaction")?;
 
-            // Insert rows in dependency order
-            for (table, rows) in &table_data {
-                for row in rows {
-                    if let Some(obj) = row.as_object() {
-                        if obj.is_empty() {
-                            continue;
-                        }
-                        let columns: Vec<&String> = obj.keys().collect();
-                        let col_names = columns
-                            .iter()
-                            .map(|c| format!("`{}`", c))
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        let ph = (1..=columns.len())
-                            .map(|i| format!("${}", i))
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        let sql = format!(
-                            "INSERT OR REPLACE INTO {} ({}) VALUES ({})",
-                            table, col_names, ph
-                        );
-                        let mut q = sqlx::query(&sql);
-                        for col in &columns {
-                            q = bind_json_value_sqlite(
-                                q,
-                                obj.get(*col).unwrap_or(&serde_json::Value::Null),
+                let work_result: Result<()> = async {
+                    // Clear tables in reverse order (children first)
+                    for table in RESTORE_ORDER.iter().rev() {
+                        let sql = format!("DELETE FROM {}", table);
+                        sqlx::query(&sql)
+                            .execute(&mut *conn)
+                            .await
+                            .with_context(|| format!("Failed to clear table '{}'", table))?;
+                    }
+
+                    // Insert rows in dependency order
+                    for (table, rows) in &table_data {
+                        for row in rows {
+                            let obj = row.as_object().ok_or_else(|| {
+                                anyhow::anyhow!("Invalid backup row for table '{}'", table)
+                            })?;
+                            if obj.is_empty() {
+                                continue;
+                            }
+                            let columns: Vec<&String> = obj.keys().collect();
+                            let col_names = columns
+                                .iter()
+                                .map(|c| format!("`{}`", c))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let ph = (1..=columns.len())
+                                .map(|i| format!("${}", i))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let sql = format!(
+                                "INSERT OR REPLACE INTO {} ({}) VALUES ({})",
+                                table, col_names, ph
                             );
+                            let mut q = sqlx::query(&sql);
+                            for col in &columns {
+                                q = bind_json_value_sqlite(
+                                    q,
+                                    obj.get(*col).unwrap_or(&serde_json::Value::Null),
+                                );
+                            }
+                            q.execute(&mut *conn)
+                                .await
+                                .with_context(|| format!("Failed to insert row into '{}'", table))?;
                         }
-                        if let Err(e) = q.execute(&mut *conn).await {
-                            warn!(table = table, error = %e, "failed to insert row, continuing");
+                        info!(table = table, rows = rows.len(), "restored table");
+                    }
+
+                    Ok(())
+                }
+                .await;
+
+                match work_result {
+                    Ok(()) => {
+                        sqlx::query("COMMIT")
+                            .execute(&mut *conn)
+                            .await
+                            .context("Failed to commit SQLite restore transaction")?;
+                        Ok(())
+                    }
+                    Err(e) => {
+                        if let Err(rollback_err) = sqlx::query("ROLLBACK").execute(&mut *conn).await
+                        {
+                            warn!(error = %rollback_err, "failed to roll back SQLite restore transaction");
                         }
+                        Err(e)
                     }
                 }
-                info!(table = table, rows = rows.len(), "restored table");
             }
+            .await;
 
             // Re-enable FK constraints
-            sqlx::query("PRAGMA foreign_keys = ON")
+            let fk_result = sqlx::query("PRAGMA foreign_keys = ON")
                 .execute(&mut *conn)
-                .await?;
+                .await;
+            if let Err(e) = restore_result {
+                if let Err(fk_error) = fk_result {
+                    warn!(error = %fk_error, "failed to re-enable SQLite foreign keys after restore error");
+                }
+                return Err(e);
+            }
+            fk_result.context("Failed to re-enable SQLite foreign keys")?;
         }
         DatabaseDriver::Mysql => {
             let p = pool.as_mysql_or_err()?;
@@ -204,45 +248,85 @@ pub async fn restore_backup(
                 .execute(&mut *conn)
                 .await?;
 
-            for table in RESTORE_ORDER.iter().rev() {
-                let sql = format!("DELETE FROM {}", table);
-                if let Err(e) = sqlx::query(&sql).execute(&mut *conn).await {
-                    warn!(table = table, error = %e, "failed to clear table, continuing");
-                }
-            }
+            let restore_result: Result<()> = async {
+                sqlx::query("START TRANSACTION")
+                    .execute(&mut *conn)
+                    .await
+                    .context("Failed to start MySQL restore transaction")?;
 
-            for (table, rows) in &table_data {
-                for row in rows {
-                    if let Some(obj) = row.as_object() {
-                        if obj.is_empty() {
-                            continue;
+                let work_result: Result<()> = async {
+                    for table in RESTORE_ORDER.iter().rev() {
+                        let sql = format!("DELETE FROM {}", table);
+                        sqlx::query(&sql)
+                            .execute(&mut *conn)
+                            .await
+                            .with_context(|| format!("Failed to clear table '{}'", table))?;
+                    }
+
+                    for (table, rows) in &table_data {
+                        for row in rows {
+                            let obj = row.as_object().ok_or_else(|| {
+                                anyhow::anyhow!("Invalid backup row for table '{}'", table)
+                            })?;
+                            if obj.is_empty() {
+                                continue;
+                            }
+                            let columns: Vec<&String> = obj.keys().collect();
+                            let col_names = columns
+                                .iter()
+                                .map(|c| format!("`{}`", c))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let ph = columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                            let sql =
+                                format!("REPLACE INTO {} ({}) VALUES ({})", table, col_names, ph);
+                            let mut q = sqlx::query(&sql);
+                            for col in &columns {
+                                q = bind_json_value_mysql(
+                                    q,
+                                    obj.get(*col).unwrap_or(&serde_json::Value::Null),
+                                );
+                            }
+                            q.execute(&mut *conn)
+                                .await
+                                .with_context(|| format!("Failed to insert row into '{}'", table))?;
                         }
-                        let columns: Vec<&String> = obj.keys().collect();
-                        let col_names = columns
-                            .iter()
-                            .map(|c| format!("`{}`", c))
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        let ph = columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-                        let sql = format!("REPLACE INTO {} ({}) VALUES ({})", table, col_names, ph);
-                        let mut q = sqlx::query(&sql);
-                        for col in &columns {
-                            q = bind_json_value_mysql(
-                                q,
-                                obj.get(*col).unwrap_or(&serde_json::Value::Null),
-                            );
+                        info!(table = table, rows = rows.len(), "restored table");
+                    }
+
+                    Ok(())
+                }
+                .await;
+
+                match work_result {
+                    Ok(()) => {
+                        sqlx::query("COMMIT")
+                            .execute(&mut *conn)
+                            .await
+                            .context("Failed to commit MySQL restore transaction")?;
+                        Ok(())
+                    }
+                    Err(e) => {
+                        if let Err(rollback_err) = sqlx::query("ROLLBACK").execute(&mut *conn).await
+                        {
+                            warn!(error = %rollback_err, "failed to roll back MySQL restore transaction");
                         }
-                        if let Err(e) = q.execute(&mut *conn).await {
-                            warn!(table = table, error = %e, "failed to insert row, continuing");
-                        }
+                        Err(e)
                     }
                 }
-                info!(table = table, rows = rows.len(), "restored table");
             }
+            .await;
 
-            sqlx::query("SET FOREIGN_KEY_CHECKS = 1")
+            let fk_result = sqlx::query("SET FOREIGN_KEY_CHECKS = 1")
                 .execute(&mut *conn)
-                .await?;
+                .await;
+            if let Err(e) = restore_result {
+                if let Err(fk_error) = fk_result {
+                    warn!(error = %fk_error, "failed to re-enable MySQL foreign key checks after restore error");
+                }
+                return Err(e);
+            }
+            fk_result.context("Failed to re-enable MySQL foreign key checks")?;
         }
     }
 
@@ -379,6 +463,7 @@ async fn import_markdown_zip(
     let entries = {
         let reader = std::io::Cursor::new(zip_data);
         let mut archive = zip::ZipArchive::new(reader)?;
+        validate_zip_archive_limits(&mut archive)?;
         let mut entries = Vec::new();
 
         for i in 0..archive.len() {
@@ -699,6 +784,39 @@ fn html_to_basic_markdown(html: &str) -> String {
         .replace("&quot;", "\"")
         .trim()
         .to_string()
+}
+
+fn validate_zip_archive_limits<R: Read + Seek>(archive: &mut zip::ZipArchive<R>) -> Result<()> {
+    if archive.len() > MAX_BACKUP_ZIP_ENTRIES {
+        anyhow::bail!("ZIP contains too many entries");
+    }
+
+    let mut unpacked_bytes = 0u64;
+    for i in 0..archive.len() {
+        let file = archive.by_index(i)?;
+        if file.is_symlink() {
+            anyhow::bail!("ZIP symlink entries are not allowed: {}", file.name());
+        }
+        if file.enclosed_name().is_none() {
+            anyhow::bail!("ZIP contains unsafe entry path: {}", file.name());
+        }
+        if file.is_dir() {
+            continue;
+        }
+
+        let size = file.size();
+        if size > MAX_BACKUP_ENTRY_BYTES {
+            anyhow::bail!("ZIP entry is too large: {}", file.name());
+        }
+        unpacked_bytes = unpacked_bytes
+            .checked_add(size)
+            .ok_or_else(|| anyhow::anyhow!("ZIP uncompressed size is too large"))?;
+        if unpacked_bytes > MAX_BACKUP_UNPACKED_BYTES {
+            anyhow::bail!("ZIP uncompressed size is too large");
+        }
+    }
+
+    Ok(())
 }
 
 // ---- Internal helpers ----

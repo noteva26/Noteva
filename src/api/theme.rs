@@ -65,6 +65,9 @@ pub async fn get_theme_config(
         if let Some(custom_config) = &info.config {
             config_map.insert("custom".to_string(), custom_config.clone());
         }
+        if let Some(i18n) = &info.i18n {
+            config_map.insert("i18n".to_string(), serde_json::json!(i18n));
+        }
 
         config_map
     } else {
@@ -104,6 +107,7 @@ pub async fn get_theme_info(
             "compatible": info.compatible,
             "compatibility_message": info.compatibility_message,
             "config": info.config,
+            "i18n": info.i18n,
             "has_settings": info.has_settings,
         })))
     } else {

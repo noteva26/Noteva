@@ -152,9 +152,16 @@ export default function FilesPage() {
         });
     };
 
-    const copyUrl = (url: string) => {
-        navigator.clipboard.writeText(window.location.origin + url);
-        toast.success(t("fileManage.linkCopied"));
+    const copyUrl = async (url: string) => {
+        try {
+            if (!navigator.clipboard?.writeText) {
+                throw new Error("Clipboard API unavailable");
+            }
+            await navigator.clipboard.writeText(new URL(url, window.location.origin).toString());
+            toast.success(t("fileManage.linkCopied"));
+        } catch {
+            toast.error(t("fileManage.linkCopyFailed"));
+        }
     };
 
     const formatDate = (dateStr: string) => {
@@ -360,7 +367,7 @@ export default function FilesPage() {
                                                 variant="ghost"
                                                 size="icon"
                                                 className="h-8 w-8"
-                                                onClick={() => copyUrl(file.url)}
+                                                onClick={() => void copyUrl(file.url)}
                                                 title={t("fileManage.copyLink")}
                                             >
                                                 <Copy className="h-3.5 w-3.5" />

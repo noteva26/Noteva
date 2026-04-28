@@ -19,7 +19,7 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use crate::api::common::{default_page, default_page_size};
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
@@ -81,11 +81,35 @@ pub struct UpdateArticleRequest {
     pub status: Option<String>,
     #[serde(default)]
     pub tag_ids: Option<Vec<i64>>,
-    pub thumbnail: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_string_patch")]
+    pub thumbnail: Option<Option<String>>,
     pub is_pinned: Option<bool>,
     pub pin_order: Option<i32>,
     #[serde(default)]
     pub scheduled_at: Option<Option<String>>,
+}
+
+fn deserialize_nullable_string_patch<'de, D>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Null => Ok(Some(None)),
+        serde_json::Value::String(value) => {
+            let value = value.trim();
+            if value.is_empty() {
+                Ok(Some(None))
+            } else {
+                Ok(Some(Some(value.to_string())))
+            }
+        }
+        _ => Err(serde::de::Error::custom(
+            "thumbnail must be a string or null",
+        )),
+    }
 }
 
 fn parse_scheduled_at(value: &str) -> Result<chrono::DateTime<chrono::Utc>, ApiError> {
@@ -110,6 +134,16 @@ fn parse_article_status_input(status: Option<&str>) -> Result<Option<ArticleStat
             ApiError::validation_error(format!("Invalid article status: {}", value))
         }),
     }
+}
+
+fn empty_articles_response(params: &ListParams) -> Json<PaginatedArticlesResponse> {
+    Json(PaginatedArticlesResponse {
+        articles: Vec::new(),
+        total: 0,
+        page: params.page,
+        page_size: params.per_page,
+        total_pages: 0,
+    })
 }
 
 /// Build the public articles router (read-only)
@@ -181,36 +215,48 @@ async fn list_articles_inner(
     let filter_published = public_only || status_filter == Some(ArticleStatus::Published);
 
     // Resolve category: try as ID first, then as slug
-    let category_id = if let Some(ref cat) = query.category {
+    let category_id = if let Some(cat) = query
+        .category
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         if let Ok(id) = cat.parse::<i64>() {
             Some(id)
         } else {
-            // Try to find by slug
-            state
+            match state
                 .category_service
                 .get_by_slug(cat)
                 .await
-                .ok()
-                .flatten()
-                .map(|c| c.id)
+                .map_err(|e| ApiError::internal_error(e.to_string()))?
+            {
+                Some(category) => Some(category.id),
+                None => return Ok(empty_articles_response(&params)),
+            }
         }
     } else {
         None
     };
 
     // Resolve tag: try as ID first, then as slug
-    let tag_id = if let Some(ref t) = query.tag {
-        if let Ok(id) = t.parse::<i64>() {
+    let tag_id = if let Some(tag) = query
+        .tag
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if let Ok(id) = tag.parse::<i64>() {
             Some(id)
         } else {
-            // Try to find by slug
-            state
+            match state
                 .tag_service
-                .get_by_slug(t)
+                .get_by_slug(tag)
                 .await
-                .ok()
-                .flatten()
-                .map(|t| t.id)
+                .map_err(|e| ApiError::internal_error(e.to_string()))?
+            {
+                Some(tag) => Some(tag.id),
+                None => return Ok(empty_articles_response(&params)),
+            }
         }
     } else {
         None
@@ -889,5 +935,26 @@ where
             .get::<AuthenticatedUser>()
             .cloned()
             .ok_or_else(|| ApiError::unauthorized("Authentication required"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UpdateArticleRequest;
+
+    #[test]
+    fn update_article_request_distinguishes_thumbnail_patch_states() {
+        let missing: UpdateArticleRequest = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing.thumbnail, None);
+
+        let clear: UpdateArticleRequest = serde_json::from_str(r#"{"thumbnail":null}"#).unwrap();
+        assert_eq!(clear.thumbnail, Some(None));
+
+        let empty: UpdateArticleRequest = serde_json::from_str(r#"{"thumbnail":"  "}"#).unwrap();
+        assert_eq!(empty.thumbnail, Some(None));
+
+        let set: UpdateArticleRequest =
+            serde_json::from_str(r#"{"thumbnail":"/uploads/cover.png"}"#).unwrap();
+        assert_eq!(set.thumbnail, Some(Some("/uploads/cover.png".to_string())));
     }
 }

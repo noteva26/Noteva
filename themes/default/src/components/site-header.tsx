@@ -59,6 +59,14 @@ const BUILTIN_I18N: Record<string, string> = {
   tags: "nav.tags",
 };
 
+function getBuiltinTargetKey(value: string): string | null {
+  const target = value.trim();
+  if (!target) return null;
+
+  const normalized = target === "/" ? "home" : target.replace(/^\/+/, "");
+  return normalized in BUILTIN_PATHS ? normalized : null;
+}
+
 function isSafeExternalHref(value: string): boolean {
   const href = value.trim().toLowerCase();
   return (
@@ -96,6 +104,27 @@ function normalizeNavItem(item: NavResponseItem): NavItem {
   };
 }
 
+function preloadThemeRoute(href: string | null) {
+  if (!href || isSafeExternalHref(href) || href === "/") return;
+
+  const path = href.split(/[?#]/)[0]?.replace(/\/+$/, "") || "/";
+
+  switch (path) {
+    case "/archives":
+      void import("@/pages/archives");
+      break;
+    case "/categories":
+      void import("@/pages/categories");
+      break;
+    case "/tags":
+      void import("@/pages/tags");
+      break;
+    default:
+      void import("@/pages/custom-page");
+      break;
+  }
+}
+
 export function SiteHeader() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -123,26 +152,38 @@ export function SiteHeader() {
         return;
       }
 
-      try {
-        const [info, nav, currentUser] = await Promise.all([
-          noteva.site.getInfo(),
-          noteva.site.getNav(),
-          noteva.user.check(),
-        ]);
+      void noteva.site
+        .getInfo()
+        .then((info) => {
+          if (!active) return;
+          setSiteInfo({
+            name: info.name || "Noteva",
+            logo: info.logo || "/logo.png",
+          });
+        })
+        .catch(() => {});
 
-        if (!active) return;
-
-        setSiteInfo({
-          name: info.name || "Noteva",
-          logo: info.logo || "/logo.png",
+      void noteva.site
+        .getNav()
+        .then((nav) => {
+          if (!active) return;
+          setNavItems((nav || []).map((item) => normalizeNavItem(item)));
+        })
+        .catch(() => {
+          if (active) setNavItems([]);
         });
-        setNavItems((nav || []).map((item) => normalizeNavItem(item)));
-        setUser(currentUser);
-      } catch {
-        if (active) setUser(null);
-      } finally {
-        if (active) setAuthChecked(true);
-      }
+
+      void noteva.user
+        .check()
+        .then((currentUser) => {
+          if (active) setUser(currentUser);
+        })
+        .catch(() => {
+          if (active) setUser(null);
+        })
+        .finally(() => {
+          if (active) setAuthChecked(true);
+        });
     };
 
     void loadData();
@@ -195,10 +236,9 @@ export function SiteHeader() {
     const targetUrl = item.target || item.url || "";
 
     if (item.type === "builtin") {
-      const i18nKey = BUILTIN_I18N[targetUrl];
-      if (i18nKey && (!customTitle || customTitle === targetUrl)) {
-        return t(i18nKey);
-      }
+      const targetKey = getBuiltinTargetKey(targetUrl);
+      const i18nKey = targetKey ? BUILTIN_I18N[targetKey] : null;
+      if (i18nKey) return t(i18nKey);
     }
 
     return customTitle;
@@ -210,7 +250,7 @@ export function SiteHeader() {
 
     switch (item.type) {
       case "builtin":
-        return BUILTIN_PATHS[targetUrl] || "/";
+        return BUILTIN_PATHS[getBuiltinTargetKey(targetUrl) || "home"] || "/";
       case "page":
         return `/${targetUrl.replace(/^\/+/, "")}`;
       case "external":
@@ -270,7 +310,13 @@ export function SiteHeader() {
     }
 
     return (
-      <Link key={item.id} to={href} className={className}>
+      <Link
+        key={item.id}
+        to={href}
+        className={className}
+        onMouseEnter={() => preloadThemeRoute(href)}
+        onFocus={() => preloadThemeRoute(href)}
+      >
         {title}
       </Link>
     );
@@ -347,6 +393,8 @@ export function SiteHeader() {
                     key={item.href}
                     to={item.href}
                     className={navLinkClass(isActiveHref(item.href))}
+                    onMouseEnter={() => preloadThemeRoute(item.href)}
+                    onFocus={() => preloadThemeRoute(item.href)}
                   >
                     {item.label}
                   </Link>
@@ -466,6 +514,8 @@ export function SiteHeader() {
                             ? "bg-muted text-foreground"
                             : "text-muted-foreground hover:bg-muted hover:text-foreground"
                         )}
+                        onMouseEnter={() => preloadThemeRoute(item.href)}
+                        onFocus={() => preloadThemeRoute(item.href)}
                       >
                         {item.label}
                       </Link>

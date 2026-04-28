@@ -16,6 +16,11 @@ import {
 } from "@/hooks/useNoteva";
 import { fetchAllArticles } from "@/lib/articles";
 import { useI18nStore, useTranslation } from "@/lib/i18n";
+import {
+  getThemeListItemMotion,
+  themeHoverLift,
+  themePageHeaderMotion,
+} from "@/lib/motion";
 
 const CATEGORY_SKELETON_KEYS = [
   "category-a",
@@ -27,13 +32,12 @@ const CATEGORY_SKELETON_KEYS = [
 ];
 
 function getDateLocale(locale: string) {
-  switch (locale) {
-    case "zh-TW":
-      return "zh-TW";
-    case "en":
-      return "en-US";
-    default:
-      return "zh-CN";
+  const candidate = locale === "en" ? "en-US" : locale;
+  try {
+    new Intl.DateTimeFormat(candidate);
+    return candidate;
+  } catch {
+    return "zh-CN";
   }
 }
 
@@ -146,7 +150,7 @@ export default function CategoriesPage() {
         <SiteHeader />
         <main className="flex-1">
           <div className="container mx-auto max-w-4xl py-10">
-            <div className="mb-8">
+            <motion.div {...themePageHeaderMotion} className="mb-8">
               <Button variant="ghost" size="sm" className="mb-5" asChild>
                 <Link to="/categories">
                   <ArrowLeft className="mr-2 h-4 w-4" />
@@ -173,7 +177,7 @@ export default function CategoriesPage() {
               <p className="mt-4 text-sm text-muted-foreground">
                 {t("article.totalArticles")}: {articles.length}
               </p>
-            </div>
+            </motion.div>
 
             <div className="grid gap-6 article-list">
               {loading ? (
@@ -195,9 +199,8 @@ export default function CategoriesPage() {
                 articles.map((article, index) => (
                   <motion.div
                     key={article.id}
-                    initial={{ opacity: 0, y: 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.035 }}
+                    {...getThemeListItemMotion(index)}
+                    whileHover={themeHoverLift}
                   >
                     <ArticleSummaryCard
                       article={article}
@@ -218,15 +221,15 @@ export default function CategoriesPage() {
 
   return (
     <div className="theme-page-shell relative flex min-h-screen flex-col">
-      <SiteHeader />
-      <main className="flex-1">
-        <div className="container mx-auto max-w-4xl py-10">
-          <div className="mb-8">
+        <SiteHeader />
+        <main className="flex-1">
+          <div className="container mx-auto max-w-4xl py-10">
+          <motion.div {...themePageHeaderMotion} className="mb-8">
             <p className="mb-2 text-sm font-medium text-muted-foreground">
               {t("category.totalCategories")}: {categories.length}
             </p>
             <h1 className="text-3xl font-semibold">{t("nav.categories")}</h1>
-          </div>
+          </motion.div>
 
           {loading ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -249,9 +252,8 @@ export default function CategoriesPage() {
                 return (
                   <motion.div
                     key={category.id}
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.03 }}
+                    {...getThemeListItemMotion(index)}
+                    whileHover={themeHoverLift}
                   >
                     <Card className="group h-full transition-colors hover:border-primary/60 hover:bg-muted/30">
                       <CardContent className="p-5">

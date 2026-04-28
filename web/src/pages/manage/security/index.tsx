@@ -1,4 +1,4 @@
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { adminApi, type LoginLogEntry } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -30,6 +30,9 @@ const EMPTY_FILTERS: LoginLogFilters = {
 
 export default function SecurityPage() {
   const { t, locale } = useTranslation();
+  const mountedRef = useRef(false);
+  const refreshInFlightRef = useRef(false);
+  const refreshDoneTimerRef = useRef<number | null>(null);
   const [logs, setLogs] = useState<LoginLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -39,6 +42,8 @@ export default function SecurityPage() {
   const [page, setPage] = useState(1);
   const [perPage] = useState(20);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshPending, setIsRefreshPending] = useState(false);
+  const [refreshDone, setRefreshDone] = useState(false);
   const [isFilterPending, startFilterTransition] = useTransition();
 
   // Filters
@@ -46,19 +51,45 @@ export default function SecurityPage() {
   const [appliedFilters, setAppliedFilters] = useState<LoginLogFilters>(EMPTY_FILTERS);
 
   useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      if (refreshDoneTimerRef.current) {
+        window.clearTimeout(refreshDoneTimerRef.current);
+      }
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const markRefreshDone = useCallback(() => {
+    if (refreshDoneTimerRef.current) {
+      window.clearTimeout(refreshDoneTimerRef.current);
+    }
+
+    setRefreshDone(true);
+    refreshDoneTimerRef.current = window.setTimeout(() => {
+      setRefreshDone(false);
+      refreshDoneTimerRef.current = null;
+    }, 1500);
+  }, []);
+
+  const getLoginLogParams = useCallback(() => {
+    const params: Parameters<typeof adminApi.getLoginLogs>[0] = { page, per_page: perPage };
+    if (appliedFilters.username.trim()) params.username = appliedFilters.username.trim();
+    if (appliedFilters.ipAddress.trim()) params.ip_address = appliedFilters.ipAddress.trim();
+    if (appliedFilters.success !== "all") {
+      params.success = appliedFilters.success === "success";
+    }
+    return params;
+  }, [appliedFilters, page, perPage]);
+
+  useEffect(() => {
     let active = true;
 
     const fetchLogs = async () => {
       setLoading(true);
       try {
-        const params: Parameters<typeof adminApi.getLoginLogs>[0] = { page, per_page: perPage };
-        if (appliedFilters.username.trim()) params.username = appliedFilters.username.trim();
-        if (appliedFilters.ipAddress.trim()) params.ip_address = appliedFilters.ipAddress.trim();
-        if (appliedFilters.success !== "all") {
-          params.success = appliedFilters.success === "success";
-        }
-
-        const { data } = await adminApi.getLoginLogs(params);
+        const { data } = await adminApi.getLoginLogs(getLoginLogParams());
         if (!active) return;
 
         setLogs(data.logs);
@@ -81,7 +112,33 @@ export default function SecurityPage() {
     return () => {
       active = false;
     };
-  }, [appliedFilters, page, perPage, refreshKey, t]);
+  }, [getLoginLogParams, refreshKey, t]);
+
+  const handleRefresh = useCallback(async () => {
+    if (refreshInFlightRef.current) return;
+
+    refreshInFlightRef.current = true;
+    setIsRefreshPending(true);
+    try {
+      const { data } = await adminApi.getLoginLogs(getLoginLogParams());
+      if (!mountedRef.current) return;
+
+      setLogs(data.logs);
+      setTotal(data.total);
+      setSuccessCount(data.success_count);
+      setFailedCount(data.failed_count);
+      markRefreshDone();
+    } catch (error) {
+      if (mountedRef.current) {
+        toast.error(getApiErrorMessage(error, t("error.loadFailed")));
+      }
+    } finally {
+      refreshInFlightRef.current = false;
+      if (mountedRef.current) {
+        setIsRefreshPending(false);
+      }
+    }
+  }, [getLoginLogParams, markRefreshDone, t]);
 
   const handleSearch = () => {
     startFilterTransition(() => {
@@ -132,9 +189,20 @@ export default function SecurityPage() {
               {t("security.description")}
             </p>
           </div>
-          <Button onClick={() => setRefreshKey((key) => key + 1)} variant="outline" size="sm" disabled={isSyncing}>
-            <RefreshCw className={cn("h-4 w-4 mr-2", isSyncing && "animate-spin")} />
-            {t("common.refresh")}
+          <Button
+            onClick={() => void handleRefresh()}
+            variant="outline"
+            size="sm"
+            className="min-w-28"
+            disabled={showInitialLoading || isSyncing || isRefreshPending}
+            aria-busy={isRefreshPending}
+          >
+            {refreshDone ? (
+              <CheckCircle2 className="h-4 w-4 mr-2 text-green-500 animate-in fade-in duration-300" />
+            ) : (
+              <RefreshCw className={cn("h-4 w-4 mr-2 transition-transform duration-500", isRefreshPending && "animate-spin")} />
+            )}
+            {refreshDone ? t("common.done") : t("common.refresh")}
           </Button>
         </div>
         <DataSyncBadge active={isSyncing} label={t("common.loading")} />

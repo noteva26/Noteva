@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::github_update::{fetch_latest_version, is_newer_version, PackageKind};
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
+use crate::theme::ThemeI18nDeclaration;
 
 /// Request for theme switching
 #[derive(Debug, Deserialize)]
@@ -26,6 +27,7 @@ pub struct ThemeResponse {
     pub requires_noteva: String,
     pub compatible: bool,
     pub compatibility_message: Option<String>,
+    pub i18n: Option<ThemeI18nDeclaration>,
     pub has_settings: bool,
 }
 
@@ -140,6 +142,7 @@ pub async fn list_themes(
             requires_noteva: info.requires_noteva,
             compatible: info.compatible,
             compatibility_message: info.compatibility_message,
+            i18n: info.i18n,
             has_settings: info.has_settings,
         })
         .collect();
@@ -300,6 +303,7 @@ pub async fn switch_theme(
         compatibility_message: theme_info
             .as_ref()
             .and_then(|i| i.compatibility_message.clone()),
+        i18n: theme_info.as_ref().and_then(|i| i.i18n.clone()),
         has_settings: theme_info.as_ref().map(|i| i.has_settings).unwrap_or(false),
     }))
 }
