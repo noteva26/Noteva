@@ -57,7 +57,13 @@ export default function PostPage() {
   const slug = location.pathname.replace(/^\/posts\//, '').replace(/\/$/, '');
 
   const [article, setArticle] = useState<Article | null>(null);
-  const [siteInfo, setSiteInfo] = useState({ name: "Noteva" });
+  const [siteInfo, setSiteInfo] = useState({
+    name: "Noteva",
+    showToc: true,
+    showPostNav: true,
+    showRelatedPosts: true,
+    showComments: true,
+  });
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
@@ -100,7 +106,13 @@ export default function PostPage() {
 
       try {
         const info = await Noteva.site.getInfo();
-        if (active) setSiteInfo({ name: info.name || "Noteva" });
+        if (active) setSiteInfo({
+          name: info.name || "Noteva",
+          showToc: info.showToc ?? true,
+          showPostNav: info.showPostNav ?? true,
+          showRelatedPosts: info.showRelatedPosts ?? true,
+          showComments: info.showComments ?? true,
+        });
       } catch { }
     };
     void loadSiteInfo();
@@ -225,6 +237,7 @@ export default function PostPage() {
   const thumbnail = article.thumbnail;
   const publishedAt = article.publishedAt || "";
   const hasReadableToc =
+    siteInfo.showToc &&
     (article.toc?.filter((item) => item.level >= 2 && item.level <= 3).length || 0) >= 2;
 
   return (
@@ -308,7 +321,7 @@ export default function PostPage() {
               </Button>
             </div>
 
-            {(article.prev || article.next) && (
+            {siteInfo.showPostNav && (article.prev || article.next) && (
               <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {article.prev ? (
                   <Link to={getArticleUrl(article.prev)} className="group flex items-center gap-2 rounded-lg border bg-card p-4 transition-colors hover:border-primary/60 hover:bg-muted/40">
@@ -331,7 +344,7 @@ export default function PostPage() {
               </div>
             )}
 
-            {article.related && article.related.length > 0 && (
+            {siteInfo.showRelatedPosts && article.related && article.related.length > 0 && (
               <div className="mt-7">
                 <h3 className="text-lg font-semibold mb-3">{t("article.related")}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -344,9 +357,11 @@ export default function PostPage() {
               </div>
             )}
 
-            <Suspense fallback={<CommentsFallback />}>
-              <Comments articleId={article.id} />
-            </Suspense>
+            {siteInfo.showComments && (
+              <Suspense fallback={<CommentsFallback />}>
+                <Comments articleId={article.id} />
+              </Suspense>
+            )}
           </article>
           {hasReadableToc && article.toc && (
             <TocSidebar toc={article.toc} />

@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
+import { ImageUpload } from "@/components/ui/image-upload";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -26,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Settings, User, MessageSquare, Loader2, Download, AlertCircle, Link, Code, Database, Upload, FileText, Type, Shield, ShieldCheck, ShieldOff } from "lucide-react";
+import { Settings, User, MessageSquare, Loader2, Download, AlertCircle, Link, Code, Database, Upload, FileText, Type, Shield, ShieldCheck, ShieldOff, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import { getApiErrorMessage } from "@/lib/api-error";
@@ -260,6 +261,37 @@ function TwoFactorCard() {
     </Card>
   );
 }
+/** A labeled on/off toggle row used in the display settings card. */
+function ToggleRow({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="space-y-0.5">
+        <Label>{label}</Label>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+      <label className="relative inline-flex shrink-0 items-center cursor-pointer">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="sr-only peer"
+        />
+        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+      </label>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { user, setUser } = useAuthStore();
   const { updateSettings } = useSiteStore();
@@ -267,6 +299,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [savingSite, startSavingSiteTransition] = useTransition();
   const [savingComment, startSavingCommentTransition] = useTransition();
+  const [savingDisplay, startSavingDisplayTransition] = useTransition();
   const [savingProfile, startSavingProfileTransition] = useTransition();
   const [savingCustomCode, startSavingCustomCodeTransition] = useTransition();
 
@@ -286,6 +319,13 @@ export default function SettingsPage() {
   const [commentForm, setCommentForm] = useState({
     commentModeration: false,
     moderationKeywords: "",
+  });
+
+  const [displayForm, setDisplayForm] = useState({
+    showToc: true,
+    showPostNav: true,
+    showRelatedPosts: true,
+    showComments: true,
   });
 
   const [profileForm, setProfileForm] = useState({
@@ -334,6 +374,12 @@ export default function SettingsPage() {
         setCommentForm({
           commentModeration: data.comment_moderation === "true",
           moderationKeywords: data.moderation_keywords || "",
+        });
+        setDisplayForm({
+          showToc: data.show_toc !== "false",
+          showPostNav: data.show_post_nav !== "false",
+          showRelatedPosts: data.show_related_posts !== "false",
+          showComments: data.show_comments !== "false",
         });
         setCustomCodeForm({
           customCss: String(data.custom_css || ""),
@@ -441,6 +487,22 @@ export default function SettingsPage() {
         await adminApi.updateSettings({
           comment_moderation: commentForm.commentModeration ? "true" : "false",
           moderation_keywords: commentForm.moderationKeywords,
+        });
+        toast.success(t("settings.saveSuccess"));
+      } catch {
+        toast.error(t("settings.saveFailed"));
+      }
+    });
+  };
+
+  const handleSaveDisplaySettings = () => {
+    startSavingDisplayTransition(async () => {
+      try {
+        await adminApi.updateSettings({
+          show_toc: displayForm.showToc ? "true" : "false",
+          show_post_nav: displayForm.showPostNav ? "true" : "false",
+          show_related_posts: displayForm.showRelatedPosts ? "true" : "false",
+          show_comments: displayForm.showComments ? "true" : "false",
         });
         toast.success(t("settings.saveSuccess"));
       } catch {
@@ -610,11 +672,9 @@ export default function SettingsPage() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="siteLogo">{t("settings.siteLogo")}</Label>
-                      <Input
-                        id="siteLogo"
-                        placeholder="https://..."
+                      <ImageUpload
                         value={siteForm.siteLogo}
-                        onChange={(e) => setSiteForm((f) => ({ ...f, siteLogo: e.target.value }))}
+                        onChange={(url) => setSiteForm((f) => ({ ...f, siteLogo: url }))}
                       />
                     </div>
                     <div className="space-y-2">
@@ -736,6 +796,56 @@ export default function SettingsPage() {
                     </div>
                     <Button onClick={handleSaveSiteSettings} disabled={savingSite}>
                       {savingSite && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                      {t("settings.saveSettings")}
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Eye className="h-5 w-5" />
+                  {t("settings.display")}
+                </CardTitle>
+                <CardDescription>{t("settings.displayDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {loading ? (
+                  <div className="space-y-4">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full" />
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    <ToggleRow
+                      label={t("settings.showToc")}
+                      description={t("settings.showTocDesc")}
+                      checked={displayForm.showToc}
+                      onChange={(v) => setDisplayForm((f) => ({ ...f, showToc: v }))}
+                    />
+                    <ToggleRow
+                      label={t("settings.showPostNav")}
+                      description={t("settings.showPostNavDesc")}
+                      checked={displayForm.showPostNav}
+                      onChange={(v) => setDisplayForm((f) => ({ ...f, showPostNav: v }))}
+                    />
+                    <ToggleRow
+                      label={t("settings.showRelatedPosts")}
+                      description={t("settings.showRelatedPostsDesc")}
+                      checked={displayForm.showRelatedPosts}
+                      onChange={(v) => setDisplayForm((f) => ({ ...f, showRelatedPosts: v }))}
+                    />
+                    <ToggleRow
+                      label={t("settings.showComments")}
+                      description={t("settings.showCommentsDesc")}
+                      checked={displayForm.showComments}
+                      onChange={(v) => setDisplayForm((f) => ({ ...f, showComments: v }))}
+                    />
+                    <Button onClick={handleSaveDisplaySettings} disabled={savingDisplay}>
+                      {savingDisplay && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                       {t("settings.saveSettings")}
                     </Button>
                   </>

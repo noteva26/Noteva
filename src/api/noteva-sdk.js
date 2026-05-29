@@ -493,6 +493,12 @@
     };
   };
 
+  const getInjectedNavItems = () => {
+    const injected = window.__NAV_ITEMS__;
+    if (!Array.isArray(injected)) return null;
+    return injected.map(normalizeNavItem).filter(Boolean);
+  };
+
   const normalizeLikeResult = (result = {}) => ({
     success: asBoolean(firstValue(result.success, true), true),
     liked: asBoolean(result.liked, false),
@@ -513,6 +519,10 @@
     customCss: firstValue(data.customCss, data.custom_css, ''),
     customJs: firstValue(data.customJs, data.custom_js, ''),
     fontFamily: firstValue(data.fontFamily, data.font_family, ''),
+    showToc: asBoolean(firstValue(data.showToc, data.show_toc), true),
+    showPostNav: asBoolean(firstValue(data.showPostNav, data.show_post_nav), true),
+    showRelatedPosts: asBoolean(firstValue(data.showRelatedPosts, data.show_related_posts), true),
+    showComments: asBoolean(firstValue(data.showComments, data.show_comments), true),
     stats: {
       totalArticles: asNumber(firstValue(data.stats?.totalArticles, data.stats?.total_articles), 0),
       totalCategories: asNumber(firstValue(data.stats?.totalCategories, data.stats?.total_categories), 0),
@@ -587,6 +597,11 @@
 
     async getNav() {
       if (this._nav) return this._nav;
+      const injected = getInjectedNavItems();
+      if (injected) {
+        this._nav = injected;
+        return this._nav;
+      }
       const result = await api.get('/nav');
       this._nav = asArray(result.items).map(normalizeNavItem).filter(Boolean);
       return this._nav;
@@ -2737,7 +2752,7 @@
   // ============================================
   window.Noteva = {
     // 版本
-    version: '0.3.0',
+    version: '0.3.1',
     sdkVersion: SDK_VERSION,
 
     // 核心系统

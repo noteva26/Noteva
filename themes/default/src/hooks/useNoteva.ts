@@ -19,6 +19,26 @@ export interface InjectedSiteConfig {
   [key: string]: unknown;
 }
 
+export interface InjectedNavItem {
+  id?: number;
+  parentId?: number | null;
+  parent_id?: number | null;
+  title?: string;
+  name?: string;
+  type?: string;
+  navType?: string;
+  nav_type?: string;
+  target?: string;
+  url?: string;
+  openNewTab?: boolean;
+  open_new_tab?: boolean;
+  order?: number;
+  sortOrder?: number;
+  sort_order?: number;
+  visible?: boolean;
+  children?: InjectedNavItem[];
+}
+
 interface WaitForNotevaOptions {
   interval?: number;
   timeout?: number;
@@ -34,6 +54,11 @@ export function getNoteva(): NotevaSDKRef | null {
 export function getInjectedSiteConfig(): InjectedSiteConfig | null {
   if (typeof window === "undefined") return null;
   return window.__SITE_CONFIG__ ?? null;
+}
+
+export function getInjectedNavItems(): InjectedNavItem[] {
+  if (typeof window === "undefined") return [];
+  return Array.isArray(window.__NAV_ITEMS__) ? window.__NAV_ITEMS__ : [];
 }
 
 export async function waitForNoteva(

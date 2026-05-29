@@ -15,8 +15,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { TopLoader } from "@/components/ui/top-loader";
 import {
+  getInjectedNavItems,
   getInjectedSiteConfig,
   waitForNoteva,
+  type InjectedNavItem,
   type NotevaSDKRef,
   type NotevaUser,
 } from "@/hooks/useNoteva";
@@ -38,7 +40,9 @@ interface NavItem {
 }
 
 type SDKNavItem = Awaited<ReturnType<NotevaSDKRef["site"]["getNav"]>>[number];
-type NavResponseItem = SDKNavItem;
+interface NavResponseItem extends Partial<Omit<SDKNavItem, "children">>, InjectedNavItem {
+  children?: NavResponseItem[];
+}
 
 interface HeaderSiteInfo {
   name: string;
@@ -86,22 +90,27 @@ function getInitialSiteInfo(): HeaderSiteInfo {
 }
 
 function normalizeNavItem(item: NavResponseItem): NavItem {
+  const type = item.type ?? item.navType ?? item.nav_type;
   const opensNewTab = item.openNewTab ?? false;
   const targetOrUrl = item.target === "_blank" ? item.url : item.target || item.url;
 
   return {
-    id: item.id,
-    parentId: item.parentId ?? null,
+    id: Number(item.id ?? 0),
+    parentId: item.parentId ?? item.parent_id ?? null,
     title: item.title || item.name,
     name: item.name || item.title,
-    type: item.type,
+    type,
     target: targetOrUrl,
     url: item.url || targetOrUrl,
-    openNewTab: opensNewTab,
-    order: item.order ?? 0,
+    openNewTab: item.open_new_tab ?? opensNewTab,
+    order: item.order ?? item.sortOrder ?? item.sort_order ?? 0,
     visible: item.visible ?? true,
     children: item.children?.map((child) => normalizeNavItem(child)),
   };
+}
+
+function getInitialNavItems(): NavItem[] {
+  return getInjectedNavItems().map((item) => normalizeNavItem(item));
 }
 
 function preloadThemeRoute(href: string | null) {
@@ -131,7 +140,7 @@ export function SiteHeader() {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [navItems, setNavItems] = useState<NavItem[]>([]);
+  const [navItems, setNavItems] = useState<NavItem[]>(() => getInitialNavItems());
   const [siteInfo, setSiteInfo] = useState<HeaderSiteInfo>(() =>
     getInitialSiteInfo()
   );

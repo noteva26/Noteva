@@ -1,6 +1,6 @@
 [package]
 name = "noteva"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "A lightweight modern blog system"
 authors = ["Noteva Team"]
@@ -58,10 +58,10 @@ data-encoding = "2"
 
 # Markdown rendering
 pulldown-cmark = "0.10"
-syntect = "5"
+syntect = { version = "5", default-features = false, features = ["default-fancy"] }
 
 # WASM runtime (for plugin system)
-wasmtime = "18"
+wasmtime = { version = "18", default-features = false, features = ["cranelift", "runtime"] }
 
 # Crypto (HMAC-SHA256 for plugin host functions)
 hmac = "0.12"
@@ -95,7 +95,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
 
 # Archive handling
-zip = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 tar = "0.4"
 tempfile = "3"

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/noteva26/Noteva/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.3.0-111827"></a>
+  <a href="https://github.com/noteva26/Noteva/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.3.1-111827"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"></a>
   <img alt="Rust" src="https://img.shields.io/badge/Rust-1.75%2B-b7410e">
   <img alt="SQLite" src="https://img.shields.io/badge/SQLite-default-0f766e">

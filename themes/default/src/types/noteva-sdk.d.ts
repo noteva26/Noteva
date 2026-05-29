@@ -114,6 +114,10 @@ interface NotevaSiteInfo {
   customCss: string;
   customJs: string;
   fontFamily: string;
+  showToc: boolean;
+  showPostNav: boolean;
+  showRelatedPosts: boolean;
+  showComments: boolean;
   stats: {
     totalArticles: number;
     totalCategories: number;
@@ -143,6 +147,26 @@ interface NotevaInjectedSiteConfig {
   site_logo?: string;
   site_footer?: string;
   [key: string]: unknown;
+}
+
+interface NotevaInjectedNavItem {
+  id?: number;
+  parentId?: number | null;
+  parent_id?: number | null;
+  title?: string;
+  name?: string;
+  type?: string;
+  navType?: string;
+  nav_type?: string;
+  target?: string;
+  url?: string;
+  openNewTab?: boolean;
+  open_new_tab?: boolean;
+  order?: number;
+  sortOrder?: number;
+  sort_order?: number;
+  visible?: boolean;
+  children?: NotevaInjectedNavItem[];
 }
 
 interface NotevaLocaleInfo {
@@ -480,6 +504,7 @@ declare global {
   interface Window {
     Noteva: NotevaSDK;
     __SITE_CONFIG__?: NotevaInjectedSiteConfig;
+    __NAV_ITEMS__?: NotevaInjectedNavItem[];
   }
 }
 

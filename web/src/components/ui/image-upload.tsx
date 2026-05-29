@@ -1,64 +1,47 @@
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useTransition } from "react";
 import { uploadApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { X, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Upload, X, Loader2, ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 
 interface ImageUploadProps {
-  onUpload?: (url: string) => void;
-  onInsert?: (markdown: string) => void;
+  value?: string;
+  onChange?: (url: string) => void;
   className?: string;
+  /** Max file size in MB (default 2) */
+  maxSizeMB?: number;
 }
 
-export function ImageUpload({ onUpload, onInsert, className }: ImageUploadProps) {
+/**
+ * Generic image uploader with a square preview, suited for logos, covers, etc.
+ * Accepts a direct URL input or a file upload (via /upload/image).
+ */
+export function ImageUpload({ value, onChange, className, maxSizeMB = 2 }: ImageUploadProps) {
   const { t } = useTranslation();
-  const [preview, setPreview] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
   const [isUploading, startUploadTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const previewUrlRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (previewUrlRef.current) {
-        URL.revokeObjectURL(previewUrlRef.current);
-      }
-    };
-  }, []);
-
-  const setPreviewUrl = (url: string | null) => {
-    if (previewUrlRef.current) {
-      URL.revokeObjectURL(previewUrlRef.current);
-      previewUrlRef.current = null;
-    }
-    previewUrlRef.current = url;
-    setPreview(url);
-  };
 
   const handleUpload = (file: File) => {
     if (!file.type.startsWith("image/")) {
-      toast.error(t("common.imageInvalidType"));
+      toast.error(t("settings.avatarInvalidType"));
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error(t("common.imageTooLarge"));
+    if (file.size > maxSizeMB * 1024 * 1024) {
+      toast.error(t("settings.avatarTooLarge"));
       return;
     }
 
-    setPreviewUrl(URL.createObjectURL(file));
     startUploadTransition(async () => {
       try {
         const { data } = await uploadApi.image(file);
-        onUpload?.(data.url);
-        onInsert?.(`![${file.name}](${data.url})`);
-        toast.success(t("common.imageUploadSuccess"));
+        onChange?.(data.url);
+        toast.success(t("settings.avatarUploadSuccess"));
       } catch {
-        toast.error(t("common.imageUploadFailed"));
-        setPreviewUrl(null);
+        toast.error(t("settings.avatarUploadFailed"));
       } finally {
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
@@ -67,97 +50,67 @@ export function ImageUpload({ onUpload, onInsert, className }: ImageUploadProps)
     });
   };
 
-  const handleDrop = (event: React.DragEvent) => {
-    event.preventDefault();
-    setDragOver(false);
-    const file = event.dataTransfer.files[0];
-    if (file) handleUpload(file);
-  };
-
-  const handlePaste = (event: React.ClipboardEvent) => {
-    const items = event.clipboardData.items;
-    for (let index = 0; index < items.length; index++) {
-      const item = items[index];
-      if (item.type.startsWith("image/")) {
-        const file = item.getAsFile();
-        if (file) handleUpload(file);
-        break;
-      }
-    }
-  };
-
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) handleUpload(file);
   };
 
-  const clearPreview = () => {
-    setPreviewUrl(null);
+  const clearImage = () => {
+    onChange?.("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return (
-    <Card
-      className={cn(
-        "relative transition-colors",
-        dragOver && "border-primary bg-primary/5",
-        className
-      )}
-      onDragOver={(event) => { event.preventDefault(); setDragOver(true); }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={handleDrop}
-      onPaste={handlePaste}
-    >
-      <CardContent className="p-4">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleFileChange}
-        />
+    <div className={cn("flex items-center gap-4", className)}>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
 
-        {preview ? (
-          <div className="relative">
-            <img
-              src={preview}
-              alt={t("common.preview")}
-              className="max-h-48 mx-auto rounded-lg object-contain"
-            />
-            {isUploading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 rounded-lg">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            )}
-            {!isUploading && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute top-2 right-2"
-                onClick={clearPreview}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
+      <div
+        className="relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 border-dashed border-muted-foreground/25 bg-muted flex items-center justify-center transition-colors hover:border-primary/50"
+        onClick={() => fileInputRef.current?.click()}
+      >
+        {isUploading ? (
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        ) : value ? (
+          <img src={value} alt="" className="h-full w-full object-contain" />
         ) : (
-          <div
-            className="flex flex-col items-center justify-center py-8 cursor-pointer"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <div className="p-3 rounded-full bg-muted mb-3">
-              <ImageIcon className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <p className="text-sm font-medium">{t("common.imageUploadDropTitle")}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t("common.imageUploadHint")}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {t("common.imagePasteHint")}
-            </p>
-          </div>
+          <ImageIcon className="h-6 w-6 text-muted-foreground" />
         )}
-      </CardContent>
-    </Card>
+      </div>
+
+      <div className="flex flex-1 gap-2">
+        <Input
+          placeholder="https://..."
+          value={value || ""}
+          onChange={(event) => onChange?.(event.target.value)}
+          className="flex-1"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+        >
+          <Upload className="h-4 w-4" />
+        </Button>
+        {value && (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={clearImage}
+            disabled={isUploading}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }

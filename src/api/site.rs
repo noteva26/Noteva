@@ -24,6 +24,14 @@ pub struct SiteInfoResponse {
     pub custom_css: String,
     pub custom_js: String,
     pub font_family: String,
+    /// Whether the article table-of-contents sidebar is shown (default: true)
+    pub show_toc: bool,
+    /// Whether the previous/next article navigation is shown (default: true)
+    pub show_post_nav: bool,
+    /// Whether the related-articles section is shown (default: true)
+    pub show_related_posts: bool,
+    /// Whether the comments section is shown (default: true)
+    pub show_comments: bool,
     pub stats: SiteStats,
 }
 
@@ -139,6 +147,40 @@ async fn get_site_info(State(state): State<AppState>) -> Json<SiteInfoResponse> 
         .flatten()
         .unwrap_or_default();
 
+    // Display toggles. Default to ON (true) when unset, so existing sites
+    // keep their current behavior after upgrading.
+    let read_toggle = |value: Option<String>| -> bool {
+        match value {
+            Some(v) => !matches!(v.trim().to_ascii_lowercase().as_str(), "false" | "0" | "no" | "off"),
+            None => true,
+        }
+    };
+    let show_toc = read_toggle(state.settings_service.get("show_toc").await.ok().flatten());
+    let show_post_nav = read_toggle(
+        state
+            .settings_service
+            .get("show_post_nav")
+            .await
+            .ok()
+            .flatten(),
+    );
+    let show_related_posts = read_toggle(
+        state
+            .settings_service
+            .get("show_related_posts")
+            .await
+            .ok()
+            .flatten(),
+    );
+    let show_comments = read_toggle(
+        state
+            .settings_service
+            .get("show_comments")
+            .await
+            .ok()
+            .flatten(),
+    );
+
     Json(SiteInfoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         site_name: settings.site_name,
@@ -153,6 +195,10 @@ async fn get_site_info(State(state): State<AppState>) -> Json<SiteInfoResponse> 
         custom_css,
         custom_js,
         font_family,
+        show_toc,
+        show_post_nav,
+        show_related_posts,
+        show_comments,
         stats: SiteStats {
             total_articles,
             total_categories,

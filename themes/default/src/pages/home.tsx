@@ -101,7 +101,9 @@ export default function HomePage() {
   useEffect(() => {
     if (!siteInfo?.name) return;
 
-    document.title = siteInfo.name;
+    document.title = siteInfo.subtitle
+      ? `${siteInfo.name} - ${siteInfo.subtitle}`
+      : siteInfo.name;
 
     let active = true;
     const updateSeo = async () => {
@@ -259,10 +261,11 @@ export default function HomePage() {
               <>
                 <h1 className="mx-auto mb-3 max-w-3xl text-3xl font-semibold leading-tight md:text-4xl">
                   {t("home.welcome")} {siteInfo.name}
+                  {siteInfo.subtitle ? ` - ${siteInfo.subtitle}` : ""}
                 </h1>
                 <p className="mx-auto max-w-3xl text-base leading-7 text-muted-foreground">
-                  {siteInfo.subtitle ||
-                    siteInfo.description ||
+                  {siteInfo.description ||
+                    siteInfo.subtitle ||
                     t("home.subtitle")}
                 </p>
               </>

@@ -4,6 +4,22 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.3.1] - 2026-05-29
+
+### Default Theme
+- **Global toggles for article-page sections** - Added four global toggles under Settings → General → Display for the table of contents, previous/next navigation, related articles, and comments. When turned off, the matching sections are hidden in the default theme. All toggles default to on, so existing sites keep their current behavior after upgrading; turning off the table of contents also collapses the article page from a two-column layout back to a centered single column.
+- **Homepage title flicker fixed** - Fixed the homepage briefly showing the template's default title before switching to the site name. The backend now injects the correct `<title>` for the homepage and removes the template default, so the first paint already shows the final title.
+- **Homepage title structure updated** - The homepage browser title is now "site name - subtitle", the hero heading is now "Welcome to site name - subtitle", and the line below it now shows the site description; the separator is omitted automatically when no subtitle is set.
+
+### Admin Dashboard
+- **Site logo upload support** - The site logo field under Settings → General now supports image upload (click-to-upload, an upload button, or a direct URL) with a square preview. Added a reusable image-upload component.
+
+### Build & Version
+- **Old-server GLIBC compatibility fixed** - The release workflow's Linux build now uses `cargo-zigbuild` with an explicit minimum glibc version (2.17), so binaries built on newer runners still run on older Linux servers, resolving the `GLIBC_2.39 not found` startup error.
+- **Version unified to 0.3.1** - Updated the Rust crate, Cargo.lock, frontend packages, default theme, SDK built-in version, and documentation metadata.
+
+---
+
 ## [v0.3.0] - 2026-04-28
 
 ### Backend Quality Review

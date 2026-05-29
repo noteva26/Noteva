@@ -500,6 +500,9 @@ async fn inject_seo_into_html(
         "site_logo": site_logo,
         "site_footer": site_footer
     });
+    let nav_items = crate::api::nav::visible_nav_tree_with_hooks(state)
+        .await
+        .unwrap_or_default();
 
     let version = env!("CARGO_PKG_VERSION");
 
@@ -713,10 +716,16 @@ async fn inject_seo_into_html(
         } else {
             format!("{}/{}", base_url, asset_path.trim_end_matches('/'))
         };
+        // Homepage title: "site_name - subtitle" (or just site_name when no subtitle).
+        let home_title = if site_subtitle.is_empty() {
+            site_name.clone()
+        } else {
+            format!("{} - {}", site_name, site_subtitle)
+        };
         let mut meta = format!(
             r#"<title>{}</title>
 <meta name="description" content="{}">"#,
-            html_escape(&site_name),
+            html_escape(&home_title),
             html_escape(&site_description),
         );
         if !canonical_url.is_empty() {
@@ -734,11 +743,11 @@ async fn inject_seo_into_html(
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="{}">
 <meta name="twitter:description" content="{}">"#,
-                html_escape(&site_name),
+                html_escape(&home_title),
                 html_escape(&site_description),
                 html_escape(&canonical_url),
                 html_escape(&site_name),
-                html_escape(&site_name),
+                html_escape(&home_title),
                 html_escape(&site_description),
             ));
         }
@@ -759,7 +768,7 @@ async fn inject_seo_into_html(
                 html_escape(&site_name), base_url
             ));
         }
-        (None, meta, String::new())
+        (Some(home_title), meta, String::new())
     };
 
     // Build head injection: meta tags + config + SDK + plugins + custom CSS
@@ -771,13 +780,14 @@ async fn inject_seo_into_html(
 
     let head_injection = format!(
         r#"{}
-<script>window.__SITE_CONFIG__={};</script>
+<script>window.__SITE_CONFIG__={};window.__NAV_ITEMS__={};</script>
 <link rel="stylesheet" href="/noteva-sdk.css?v={}">
 <script src="/noteva-sdk.js?v={}"></script>
 <link rel="stylesheet" href="/api/v1/plugins/assets/plugins.css?v={}">
 <script src="/api/v1/plugins/assets/plugins.js?v={}"></script>{}"#,
         meta_tags,
-        serde_json::to_string(&config_json).unwrap_or_else(|_| "{}".to_string()),
+        json_for_script(&config_json),
+        json_for_script(&nav_items),
         version,
         version,
         version,
@@ -931,6 +941,16 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+fn json_for_script<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_string(value)
+        .unwrap_or_else(|_| "null".to_string())
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
 }
 
 /// Build HTTP response with proper headers

@@ -65,6 +65,13 @@ async fn list_nav_tree(State(state): State<AppState>) -> Result<impl IntoRespons
 async fn list_visible_nav_tree(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let items = visible_nav_tree_with_hooks(&state).await?;
+    Ok(Json(NavTreeResponse { items }))
+}
+
+pub(crate) async fn visible_nav_tree_with_hooks(
+    state: &AppState,
+) -> Result<Vec<NavItemTree>, ApiError> {
     let items = state
         .nav_service
         .list_visible_tree()
@@ -80,11 +87,11 @@ async fn list_visible_nav_tree(
     // If hook modified the items, use the modified version
     if let Some(modified_items) = modified.get("items") {
         if let Ok(items) = serde_json::from_value::<Vec<NavItemTree>>(modified_items.clone()) {
-            return Ok(Json(NavTreeResponse { items }));
+            return Ok(items);
         }
     }
 
-    Ok(Json(NavTreeResponse { items }))
+    Ok(items)
 }
 
 async fn get_nav_item(

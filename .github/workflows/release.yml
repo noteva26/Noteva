@@ -83,16 +83,29 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev
-          
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
 
-      - name: Build Rust Binary
+      # Use cargo-zigbuild so the Linux binary links against an OLD glibc floor
+      # (2.17). This lets us keep building on ubuntu-latest while producing a
+      # binary that still runs on old servers (fixes "GLIBC_2.39 not found").
+      - name: Install Zig (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - name: Install cargo-zigbuild (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo install --locked cargo-zigbuild
+
+      # Linux: build with an explicit minimum glibc version (2.17).
+      # Output still lands in target/x86_64-unknown-linux-gnu/release/ (suffix stripped).
+      - name: Build Rust Binary (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo zigbuild --release --features redis-cache --target ${{ matrix.target }}.2.17
+
+      # Windows / macOS: regular cargo build, no glibc concerns.
+      - name: Build Rust Binary (Windows/macOS)
+        if: matrix.os != 'ubuntu-latest'
         run: cargo build --release --features redis-cache --target ${{ matrix.target }}
 
       - name: Prepare artifacts (Linux)
