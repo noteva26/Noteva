@@ -23,7 +23,6 @@ pub struct SiteInfoResponse {
     pub demo_mode: bool,
     pub custom_css: String,
     pub custom_js: String,
-    pub font_family: String,
     /// Whether the article table-of-contents sidebar is shown (default: true)
     pub show_toc: bool,
     /// Whether the previous/next article navigation is shown (default: true)
@@ -138,20 +137,14 @@ async fn get_site_info(State(state): State<AppState>) -> Json<SiteInfoResponse> 
         .map(|t| t.len() as i64)
         .unwrap_or(0);
 
-    // Get font_family
-    let font_family = state
-        .settings_service
-        .get("font_family")
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-
     // Display toggles. Default to ON (true) when unset, so existing sites
     // keep their current behavior after upgrading.
     let read_toggle = |value: Option<String>| -> bool {
         match value {
-            Some(v) => !matches!(v.trim().to_ascii_lowercase().as_str(), "false" | "0" | "no" | "off"),
+            Some(v) => !matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "false" | "0" | "no" | "off"
+            ),
             None => true,
         }
     };
@@ -194,7 +187,6 @@ async fn get_site_info(State(state): State<AppState>) -> Json<SiteInfoResponse> 
         demo_mode: crate::api::middleware::is_demo_mode(),
         custom_css,
         custom_js,
-        font_family,
         show_toc,
         show_post_nav,
         show_related_posts,

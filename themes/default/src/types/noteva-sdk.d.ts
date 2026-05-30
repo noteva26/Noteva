@@ -113,7 +113,6 @@ interface NotevaSiteInfo {
   demoMode: boolean;
   customCss: string;
   customJs: string;
-  fontFamily: string;
   showToc: boolean;
   showPostNav: boolean;
   showRelatedPosts: boolean;

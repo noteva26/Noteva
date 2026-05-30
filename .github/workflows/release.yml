@@ -21,11 +21,10 @@ jobs:
             os: ubuntu-latest
             binary: noteva
             archive: noteva-linux-x86_64.tar.gz
-          # ARM64 Linux 暂时禁用（交叉编译问题）
-          # - target: aarch64-unknown-linux-gnu
-          #   os: ubuntu-latest
-          #   binary: noteva
-          #   archive: noteva-linux-arm64.tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary: noteva
+            archive: noteva-linux-arm64.tar.gz
           # Windows
           - target: x86_64-pc-windows-msvc
             os: windows-latest
@@ -98,7 +97,7 @@ jobs:
         run: cargo install --locked cargo-zigbuild
 
       # Linux: build with an explicit minimum glibc version (2.17).
-      # Output still lands in target/x86_64-unknown-linux-gnu/release/ (suffix stripped).
+      # Output still lands in target/<target>/release/ (suffix stripped).
       - name: Build Rust Binary (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: cargo zigbuild --release --features redis-cache --target ${{ matrix.target }}.2.17
@@ -146,6 +145,7 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     needs: build
+    if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
     steps:
@@ -203,6 +203,7 @@ jobs:
 
             **Linux**
             - x86_64 (Intel/AMD): `noteva-linux-x86_64.tar.gz`
+            - ARM64: `noteva-linux-arm64.tar.gz`
 
             **Windows**
             - x86_64 (Intel/AMD): `noteva-windows-x86_64.zip`

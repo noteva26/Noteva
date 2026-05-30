@@ -202,6 +202,10 @@ impl MarkdownRenderer {
         // handling so Markdown image syntax inside the grid still works.
         let (content, image_grids) = Self::extract_image_grids(content);
 
+        // Pre-process platform content primitives that are easiest to write
+        // as single-line Markdown shortcuts.
+        let content = Self::preprocess_content_primitives(&content);
+
         // Pre-process: image resize syntax (![alt|50%](url))
         let content = Self::preprocess_image_resize(&content);
 
@@ -347,7 +351,10 @@ impl MarkdownRenderer {
         let content = if options.process_shortcodes {
             // Process shortcodes first
             if let Some(ref manager) = self.shortcode_manager {
-                manager.render(markdown, &options.shortcode_context)
+                let (protected, code_segments) =
+                    Self::protect_markdown_code_segments(markdown, "SHORTCODE");
+                let rendered = manager.render(&protected, &options.shortcode_context);
+                Self::restore_protected_segments(&rendered, &code_segments)
             } else {
                 markdown.to_string()
             }
@@ -667,7 +674,7 @@ impl MarkdownRenderer {
         let mut in_grid = false;
         let mut grid_content = String::new();
         let mut grid_original = String::new();
-        let mut fence_marker: Option<&'static str> = None;
+        let mut fence_marker: Option<(char, usize)> = None;
 
         for line in content.split_inclusive('\n') {
             let trimmed = line.trim();
@@ -696,13 +703,13 @@ impl MarkdownRenderer {
 
             if let Some(marker) = fence_marker {
                 output.push_str(line);
-                if trimmed.starts_with(marker) {
+                if Self::markdown_fence_close(trimmed, marker) {
                     fence_marker = None;
                 }
                 continue;
             }
 
-            if let Some(marker) = Self::markdown_fence_marker(trimmed) {
+            if let Some(marker) = Self::markdown_fence_start(trimmed) {
                 fence_marker = Some(marker);
                 output.push_str(line);
                 continue;
@@ -724,14 +731,90 @@ impl MarkdownRenderer {
         (output, grids)
     }
 
-    fn markdown_fence_marker(trimmed_line: &str) -> Option<&'static str> {
-        if trimmed_line.starts_with("```") {
-            Some("```")
-        } else if trimmed_line.starts_with("~~~") {
-            Some("~~~")
-        } else {
-            None
+    fn markdown_fence_start(trimmed_line: &str) -> Option<(char, usize)> {
+        let marker = trimmed_line.chars().next()?;
+        if marker != '`' && marker != '~' {
+            return None;
         }
+
+        let length = trimmed_line.chars().take_while(|ch| *ch == marker).count();
+
+        (length >= 3).then_some((marker, length))
+    }
+
+    fn markdown_fence_close(trimmed_line: &str, fence: (char, usize)) -> bool {
+        let (marker, min_length) = fence;
+        let length = trimmed_line.chars().take_while(|ch| *ch == marker).count();
+
+        length >= min_length && trimmed_line[length..].trim().is_empty()
+    }
+
+    fn push_protected_segment(
+        output: &mut String,
+        segments: &mut Vec<(String, String)>,
+        prefix: &str,
+        original: &str,
+    ) {
+        let marker = format!("\x02NOTEVA_{}_CODE_{}\x02", prefix, segments.len());
+        segments.push((marker.clone(), original.to_string()));
+        output.push_str(&marker);
+    }
+
+    fn protect_markdown_code_segments(
+        content: &str,
+        prefix: &str,
+    ) -> (String, Vec<(String, String)>) {
+        let mut output = String::with_capacity(content.len());
+        let mut segments = Vec::new();
+        let mut fence: Option<(char, usize)> = None;
+        let mut fence_buffer = String::new();
+
+        for line in content.split_inclusive('\n') {
+            let body = line.trim_end_matches(['\r', '\n']);
+            let trimmed = body.trim();
+
+            if let Some(current_fence) = fence {
+                fence_buffer.push_str(line);
+                if Self::markdown_fence_close(trimmed, current_fence) {
+                    Self::push_protected_segment(&mut output, &mut segments, prefix, &fence_buffer);
+                    fence_buffer.clear();
+                    fence = None;
+                }
+                continue;
+            }
+
+            if let Some(current_fence) = Self::markdown_fence_start(trimmed) {
+                fence = Some(current_fence);
+                fence_buffer.push_str(line);
+                continue;
+            }
+
+            output.push_str(line);
+        }
+
+        if !fence_buffer.is_empty() {
+            Self::push_protected_segment(&mut output, &mut segments, prefix, &fence_buffer);
+        }
+
+        let inline_code_re = Regex::new(r"`[^`\n]+`").unwrap();
+        let snapshot = output.clone();
+        let mut protected = output;
+
+        for m in inline_code_re.find_iter(&snapshot) {
+            let marker = format!("\x02NOTEVA_{}_CODE_{}\x02", prefix, segments.len());
+            segments.push((marker.clone(), m.as_str().to_string()));
+            protected = protected.replacen(m.as_str(), &marker, 1);
+        }
+
+        (protected, segments)
+    }
+
+    fn restore_protected_segments(content: &str, segments: &[(String, String)]) -> String {
+        let mut result = content.to_string();
+        for (marker, original) in segments.iter().rev() {
+            result = result.replace(marker, original);
+        }
+        result
     }
 
     fn render_image_grid_block(content: &str) -> Option<String> {
@@ -873,6 +956,143 @@ impl MarkdownRenderer {
             result = result.replace(&placeholder, grid_html);
         }
         result
+    }
+
+    fn preprocess_content_primitives(content: &str) -> String {
+        let content = Self::preprocess_inline_date_markers(content);
+        Self::preprocess_block_cards(&content)
+    }
+
+    fn preprocess_inline_date_markers(content: &str) -> String {
+        let (protected, code_markers) = Self::protect_markdown_code_segments(content, "DATE");
+
+        let date_re = Regex::new(
+            r#"\[date=(\d{4}-\d{2}-\d{2})(?:\s+time=(\d{2}:\d{2}(?::\d{2})?))?(?:\s+timezone=([^\]]+))?\]"#,
+        )
+        .unwrap();
+        let content = date_re
+            .replace_all(&protected, |caps: &regex::Captures| {
+                let date = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                let time = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+                let timezone = caps.get(3).map(|m| m.as_str().trim()).unwrap_or("");
+                let datetime = if time.is_empty() {
+                    date.to_string()
+                } else {
+                    format!("{}T{}", date, time)
+                };
+                let timezone_attr = if timezone.is_empty() {
+                    String::new()
+                } else {
+                    format!(r#" data-timezone="{}""#, html_escape(timezone))
+                };
+                format!(
+                    r#"<time class="noteva-date" datetime="{}" data-noteva-date{}>{}</time>"#,
+                    html_escape(&datetime),
+                    timezone_attr,
+                    html_escape(date)
+                )
+            })
+            .to_string();
+
+        let range_re = Regex::new(
+            r#"\[date-range\s+from=(\d{4}-\d{2}-\d{2})\s+to=(\d{4}-\d{2}-\d{2})(?:\s+timezone=([^\]]+))?\]"#,
+        )
+        .unwrap();
+        let result = range_re
+            .replace_all(&content, |caps: &regex::Captures| {
+                let from = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                let to = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+                let timezone = caps.get(3).map(|m| m.as_str().trim()).unwrap_or("");
+                let timezone_attr = if timezone.is_empty() {
+                    String::new()
+                } else {
+                    format!(r#" data-timezone="{}""#, html_escape(timezone))
+                };
+                format!(
+                    r#"<span class="noteva-date-range" data-noteva-date-range data-from="{}" data-to="{}"{}><time datetime="{}">{}</time><span class="noteva-date-range-separator">-</span><time datetime="{}">{}</time></span>"#,
+                    html_escape(from),
+                    html_escape(to),
+                    timezone_attr,
+                    html_escape(from),
+                    html_escape(from),
+                    html_escape(to),
+                    html_escape(to)
+                )
+            })
+            .to_string();
+
+        Self::restore_protected_segments(&result, &code_markers)
+    }
+
+    fn preprocess_block_cards(content: &str) -> String {
+        let mut output = String::new();
+        let mut fence_marker: Option<(char, usize)> = None;
+        let article_re = Regex::new(r#"^@\[([A-Za-z0-9][A-Za-z0-9._~/-]*)\]\s*$"#).unwrap();
+        let url_re = Regex::new(r#"^https?://[^\s<>"']+\s*$"#).unwrap();
+
+        for line in content.split_inclusive('\n') {
+            let line_has_newline = line.ends_with('\n');
+            let body = line.trim_end_matches(['\r', '\n']);
+            let trimmed = body.trim();
+
+            if let Some(marker) = fence_marker {
+                output.push_str(line);
+                if Self::markdown_fence_close(trimmed, marker) {
+                    fence_marker = None;
+                }
+                continue;
+            }
+
+            if let Some(marker) = Self::markdown_fence_start(trimmed) {
+                fence_marker = Some(marker);
+                output.push_str(line);
+                continue;
+            }
+
+            let replacement = if let Some(caps) = article_re.captures(trimmed) {
+                let slug = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                Some(Self::render_article_card(slug, slug))
+            } else if url_re.is_match(trimmed) {
+                Some(Self::render_link_card(trimmed))
+            } else {
+                None
+            };
+
+            if let Some(html) = replacement {
+                output.push_str(&html);
+                if line_has_newline {
+                    output.push('\n');
+                }
+            } else {
+                output.push_str(line);
+            }
+        }
+
+        output
+    }
+
+    fn render_article_card(slug: &str, title: &str) -> String {
+        let href = format!("/posts/{}", urlencoding::encode(slug));
+        format!(
+            r#"<a class="noteva-article-card" href="{}" data-noteva-article-card data-slug="{}"><span class="noteva-card-kicker">Article</span><span class="noteva-card-title">{}</span><span class="noteva-card-meta">/{}</span></a>"#,
+            html_escape(&href),
+            html_escape(slug),
+            html_escape(title),
+            html_escape(slug)
+        )
+    }
+
+    fn render_link_card(url: &str) -> String {
+        let label = url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_end_matches('/');
+        format!(
+            r#"<a class="noteva-link-card" href="{}" target="_blank" rel="noopener noreferrer" data-noteva-link-card><span class="noteva-card-kicker">Link</span><span class="noteva-card-title">{}</span><span class="noteva-card-meta">{}</span></a>"#,
+            html_escape(url),
+            html_escape(label),
+            html_escape(url)
+        )
     }
 
     fn sanitize_rendered_html(html: &str) -> String {
@@ -1214,6 +1434,59 @@ mod tests {
     }
 
     #[test]
+    fn test_render_article_card_shortcut() {
+        let renderer = MarkdownRenderer::new();
+        let html = renderer.render("@[hello-world]");
+
+        assert!(html.contains("noteva-article-card"));
+        assert!(html.contains("href=\"/posts/hello-world\""));
+        assert!(html.contains("data-slug=\"hello-world\""));
+    }
+
+    #[test]
+    fn test_render_link_card_for_standalone_url() {
+        let renderer = MarkdownRenderer::new();
+        let html = renderer.render("https://example.com/path");
+
+        assert!(html.contains("noteva-link-card"));
+        assert!(html.contains("href=\"https://example.com/path\""));
+        assert!(html.contains("target=\"_blank\""));
+    }
+
+    #[test]
+    fn test_render_date_marker() {
+        let renderer = MarkdownRenderer::new();
+        let html = renderer.render("[date=2026-05-30 time=12:30 timezone=Asia/Shanghai]");
+
+        assert!(html.contains("noteva-date"));
+        assert!(html.contains("datetime=\"2026-05-30T12:30\""));
+        assert!(html.contains("data-timezone=\"Asia/Shanghai\""));
+    }
+
+    #[test]
+    fn test_content_primitives_ignore_code_fence() {
+        let renderer = MarkdownRenderer::new();
+        let html =
+            renderer.render("```\n@[hello-world]\nhttps://example.com\n[date=2026-05-30]\n```");
+
+        assert!(!html.contains("noteva-article-card"));
+        assert!(!html.contains("noteva-link-card"));
+        assert!(!html.contains("noteva-date"));
+        assert!(html.contains("@[hello-world]"));
+        assert!(html.contains("https://example.com"));
+        assert!(html.contains("[date=2026-05-30]"));
+    }
+
+    #[test]
+    fn test_date_markers_ignore_inline_code() {
+        let renderer = MarkdownRenderer::new();
+        let html = renderer.render("Use `[date=2026-05-30]` in content.");
+
+        assert!(!html.contains("noteva-date"));
+        assert!(html.contains("[date=2026-05-30]"));
+    }
+
+    #[test]
     fn test_render_blockquote() {
         let renderer = MarkdownRenderer::new();
         let html = renderer.render("> This is a quote");
@@ -1419,6 +1692,55 @@ Some **bold** text."#;
         assert!(html.contains("shortcode-note"));
         assert!(html.contains("shortcode-note-info"));
         assert!(html.contains("<strong>bold</strong>"));
+    }
+
+    #[test]
+    fn test_shortcodes_are_ignored_in_code_fence() {
+        use crate::plugin::shortcode::builtins;
+
+        let mut shortcode_manager = ShortcodeManager::new();
+        builtins::register_builtins(&mut shortcode_manager);
+
+        let renderer = MarkdownRenderer::with_shortcode_manager(Arc::new(shortcode_manager));
+        let markdown = r#"```markdown
+[spoiler]secret[/spoiler]
+[date value="2026-05-30" /]
+[article slug="hello-world" title="Hello World" /]
+```"#;
+
+        let html = renderer.render_with_shortcodes(markdown);
+
+        assert!(!html.contains("noteva-spoiler"));
+        assert!(!html.contains("noteva-date"));
+        assert!(!html.contains("noteva-article-card"));
+        assert!(html.contains("[spoiler]secret[/spoiler]"));
+        assert!(html.contains("[date value=&quot;2026-05-30&quot; /]"));
+        assert!(
+            html.contains("[article slug=&quot;hello-world&quot; title=&quot;Hello World&quot; /]")
+        );
+    }
+
+    #[test]
+    fn test_shortcodes_are_ignored_in_unclosed_code_fence() {
+        use crate::plugin::shortcode::builtins;
+
+        let mut shortcode_manager = ShortcodeManager::new();
+        builtins::register_builtins(&mut shortcode_manager);
+
+        let renderer = MarkdownRenderer::with_shortcode_manager(Arc::new(shortcode_manager));
+        let markdown = r#"```markdown
+[article slug="my-post" title="Related" /]
+[date-range from="2026-05-30" to="2026-06-02" /]
+"#;
+
+        let html = renderer.render_with_shortcodes(markdown);
+
+        assert!(!html.contains("noteva-article-card"));
+        assert!(!html.contains("noteva-date-range"));
+        assert!(html.contains("[article slug=&quot;my-post&quot; title=&quot;Related&quot; /]"));
+        assert!(
+            html.contains("[date-range from=&quot;2026-05-30&quot; to=&quot;2026-06-02&quot; /]")
+        );
     }
 
     #[test]

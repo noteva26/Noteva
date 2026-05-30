@@ -4,6 +4,23 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.3.2] - 2026-05-30
+
+### Admin Dashboard
+- **Article editor preview now supports content primitives** - Admin Markdown preview now runs the platform content-enhancement layer: `[spoiler]` can be revealed, `[date]` / `[date-range]` are formatted with the active admin locale, and `@[slug]` plus standalone URL cards have matching preview styles, reducing differences between editor preview and the public post page.
+- **Custom font and custom locale-file flows removed** - Removed custom font settings, Google Fonts injection, and custom locale-file loading from the admin settings and SDK. Language loading is now limited to built-in locale packs to reduce configuration complexity and runtime uncertainty.
+
+### Content Rendering
+- **Platform content primitives added** - Markdown rendering now supports `[spoiler]...[/spoiler]`, `[date]`, `[date-range]`, `@[slug]` article cards, and standalone naked-URL static link cards. The default theme binds interactivity and locale-aware date formatting through the SDK.
+- **Code block protection fixed** - Shortcodes and platform content primitives now skip fenced code blocks, unclosed fenced code blocks, and inline code, so tutorial examples containing `[spoiler]`, `[date]`, `[article]`, and similar syntax no longer render into HTML inside code samples.
+- **Conservative external link cards** - Naked URL cards render as safe static links only and intentionally do not fetch Open Graph metadata, avoiding SSRF, timeout, cache, and content-trust issues from server-side external fetching.
+
+### Build & Version
+- **Linux ARM64 release artifact restored** - Re-enabled the `aarch64-unknown-linux-gnu` release build, so Linux releases now produce both x86_64 and ARM64 archives. Manual workflow runs verify builds only; GitHub Releases are created only from tag-triggered runs.
+- **Version unified to 0.3.2** - Updated the Rust crate, Cargo.lock, frontend packages, default theme, SDK built-in version, and documentation metadata.
+
+---
+
 ## [v0.3.1] - 2026-05-29
 
 ### Default Theme

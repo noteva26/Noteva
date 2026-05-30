@@ -27,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Settings, User, MessageSquare, Loader2, Download, AlertCircle, Link, Code, Database, Upload, FileText, Type, Shield, ShieldCheck, ShieldOff, Eye } from "lucide-react";
+import { Settings, User, MessageSquare, Loader2, Download, AlertCircle, Link, Code, Database, Upload, FileText, Shield, ShieldCheck, ShieldOff, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import { getApiErrorMessage } from "@/lib/api-error";
@@ -38,23 +38,6 @@ const PERMALINK_OPTIONS = [
   { value: "/posts/{id}", label: "/posts/{id}", example: "/posts/42" },
 ];
 
-// Curated Google Fonts list
-const FONT_OPTIONS = [
-  { value: "", label: "System Default" },
-  { value: "Inter", label: "Inter" },
-  { value: "Noto Sans SC", label: "Noto Sans SC (思源黑体)" },
-  { value: "Noto Serif SC", label: "Noto Serif SC (思源宋体)" },
-  { value: "LXGW WenKai", label: "LXGW WenKai (霄下文楷)" },
-  { value: "Roboto", label: "Roboto" },
-  { value: "Open Sans", label: "Open Sans" },
-  { value: "Lato", label: "Lato" },
-  { value: "Poppins", label: "Poppins" },
-  { value: "Montserrat", label: "Montserrat" },
-  { value: "Source Sans 3", label: "Source Sans 3" },
-  { value: "Merriweather", label: "Merriweather" },
-  { value: "Playfair Display", label: "Playfair Display" },
-  { value: "JetBrains Mono", label: "JetBrains Mono" },
-];
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -311,7 +294,6 @@ export default function SettingsPage() {
     siteFooter: "",
     siteUrl: "",
     permalinkStructure: "/posts/{slug}",
-    fontFamily: "",
   });
 
 
@@ -368,7 +350,6 @@ export default function SettingsPage() {
           siteFooter: data.site_footer || "",
           siteUrl: data.site_url || "",
           permalinkStructure: data.permalink_structure || "/posts/{slug}",
-          fontFamily: String(data.font_family || ""),
         });
 
         setCommentForm({
@@ -403,7 +384,6 @@ export default function SettingsPage() {
           siteFooter: "",
           siteUrl: "",
           permalinkStructure: "/posts/{slug}",
-          fontFamily: "",
         });
         toast.error(t("error.loadFailed"));
       } finally {
@@ -416,17 +396,6 @@ export default function SettingsPage() {
       active = false;
     };
   }, [t, user]);
-
-  // Preload Google Font for preview when saved font is loaded
-  useEffect(() => {
-    if (siteForm.fontFamily && !document.querySelector(`link[data-font="${siteForm.fontFamily}"]`)) {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = `https://fonts.loli.net/css2?family=${encodeURIComponent(siteForm.fontFamily)}:wght@400;700&display=swap`;
-      link.setAttribute("data-font", siteForm.fontFamily);
-      document.head.appendChild(link);
-    }
-  }, [siteForm.fontFamily]);
 
   const handleSaveSiteSettings = () => {
     if (!siteForm.siteName.trim()) {
@@ -447,7 +416,6 @@ export default function SettingsPage() {
           site_footer: siteForm.siteFooter,
           site_url: siteForm.siteUrl,
           permalink_structure: siteForm.permalinkStructure,
-          font_family: siteForm.fontFamily,
         };
         await adminApi.updateSettings(newSettings);
         updateSettings(newSettings);
@@ -729,70 +697,6 @@ export default function SettingsPage() {
                           ))}
                         </SelectContent>
                       </Select>
-                    </div>
-                    <div className="space-y-2 pt-4 border-t">
-                      <Label className="flex items-center gap-2">
-                        <Type className="h-4 w-4" />
-                        {t("settings.fontFamily")}
-                      </Label>
-                      <p className="text-sm text-muted-foreground">
-                        {t("settings.fontFamilyDesc")}
-                      </p>
-                      <Select
-                        value={siteForm.fontFamily || "__system__"}
-                        onValueChange={(v) => {
-                          const val = v === "__system__" ? "" : v;
-                          setSiteForm((f) => ({ ...f, fontFamily: val }));
-                          // Dynamically load Google Font for preview
-                          if (val && !document.querySelector(`link[data-font="${val}"]`)) {
-                            const link = document.createElement("link");
-                            link.rel = "stylesheet";
-                            link.href = `https://fonts.loli.net/css2?family=${encodeURIComponent(val)}:wght@400;700&display=swap`;
-                            link.setAttribute("data-font", val);
-                            document.head.appendChild(link);
-                          }
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {FONT_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value || "__system__"} value={opt.value || "__system__"}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">
-                        {t("settings.fontCustomHint")}
-                      </p>
-                      <Input
-                        placeholder={t("settings.fontCustomPlaceholder")}
-                        value={FONT_OPTIONS.some(o => o.value === siteForm.fontFamily) ? "" : siteForm.fontFamily}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setSiteForm((f) => ({ ...f, fontFamily: val }));
-                          if (val && !document.querySelector(`link[data-font="${val}"]`)) {
-                            const link = document.createElement("link");
-                            link.rel = "stylesheet";
-                            link.href = `https://fonts.loli.net/css2?family=${encodeURIComponent(val)}:wght@400;700&display=swap`;
-                            link.setAttribute("data-font", val);
-                            document.head.appendChild(link);
-                          }
-                        }}
-                      />
-                      {siteForm.fontFamily && (
-                        <div
-                          className="p-4 rounded-md border bg-muted/30 space-y-1"
-                          style={{ fontFamily: `"${siteForm.fontFamily}", sans-serif` }}
-                        >
-                          <p className="text-sm font-medium">{t("settings.fontPreview")}</p>
-                          <p className="text-base">The quick brown fox jumps over the lazy dog.</p>
-                          <p className="text-base">你好世界！这是一段中文预览文本。1234567890</p>
-                          <p className="text-lg font-bold">Bold 粗体文本 Preview</p>
-                        </div>
-                      )}
                     </div>
                     <Button onClick={handleSaveSiteSettings} disabled={savingSite}>
                       {savingSite && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}

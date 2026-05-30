@@ -22,6 +22,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LayoutGrid, Loader2 } from "lucide-react";
 import { useI18nStore, type Locale, t as i18nT } from "@/lib/i18n";
 import { sanitizeHtml } from "@/lib/sanitize-html";
+import { enhanceRenderedContentPrimitives } from "@/lib/content-primitives";
 import { toast } from "sonner";
 
 const EmojiPicker = lazy(() =>
@@ -363,6 +364,11 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
             return () => { if (previewTimerRef.current) clearTimeout(previewTimerRef.current); };
         }, [showPreview, mobileTab, fetchPreview]);
 
+        useEffect(() => {
+            if (previewLoading || !previewHtml || !wrapperRef.current) return;
+            enhanceRenderedContentPrimitives(wrapperRef.current, locale);
+        }, [previewHtml, previewLoading, locale]);
+
         // ── Close upload panel on outside click ─────────────────
         useEffect(() => {
             if (!uploadPanelOpen) return;
@@ -622,6 +628,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                     </div>
                 ) : previewHtml ? (
                     <div
+                        className="noteva-editor-preview-content"
                         dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewHtml) }}
                     />
                 ) : (

@@ -293,6 +293,115 @@ pub mod builtins {
             format!(r#"<div class="{}">{}</div>"#, class, shortcode.content)
         });
 
+        // [spoiler]content[/spoiler] - Inline spoiler text, revealed by SDK.
+        manager.register("spoiler", |shortcode, _ctx| {
+            format!(
+                r#"<span class="noteva-spoiler" tabindex="0" role="button" aria-expanded="false">{}</span>"#,
+                shortcode.content
+            )
+        });
+
+        // [date value="2026-05-30" time="20:00" timezone="Asia/Shanghai" /]
+        // Also supports [date]2026-05-30[/date].
+        manager.register("date", |shortcode, _ctx| {
+            let raw_value = shortcode
+                .attrs
+                .get("value")
+                .or_else(|| shortcode.attrs.get("date"))
+                .map(|s| s.as_str())
+                .unwrap_or_else(|| shortcode.content.trim());
+            let value = raw_value.trim();
+            if value.is_empty() {
+                return shortcode.original.clone();
+            }
+
+            let time = shortcode.attrs.get("time").map(|s| s.trim()).unwrap_or("");
+            let timezone = shortcode
+                .attrs
+                .get("timezone")
+                .or_else(|| shortcode.attrs.get("tz"))
+                .map(|s| s.trim())
+                .unwrap_or("");
+            let datetime = if time.is_empty() {
+                value.to_string()
+            } else {
+                format!("{}T{}", value, time)
+            };
+            let timezone_attr = if timezone.is_empty() {
+                String::new()
+            } else {
+                format!(r#" data-timezone="{}""#, html_escape(timezone))
+            };
+
+            format!(
+                r#"<time class="noteva-date" datetime="{}" data-noteva-date{}>{}</time>"#,
+                html_escape(&datetime),
+                timezone_attr,
+                html_escape(value)
+            )
+        });
+
+        // [date-range from="2026-05-30" to="2026-06-01" timezone="Asia/Shanghai" /]
+        manager.register("date-range", |shortcode, _ctx| {
+            let from = shortcode.attrs.get("from").map(|s| s.trim()).unwrap_or("");
+            let to = shortcode.attrs.get("to").map(|s| s.trim()).unwrap_or("");
+            if from.is_empty() || to.is_empty() {
+                return shortcode.original.clone();
+            }
+
+            let timezone = shortcode
+                .attrs
+                .get("timezone")
+                .or_else(|| shortcode.attrs.get("tz"))
+                .map(|s| s.trim())
+                .unwrap_or("");
+            let timezone_attr = if timezone.is_empty() {
+                String::new()
+            } else {
+                format!(r#" data-timezone="{}""#, html_escape(timezone))
+            };
+
+            format!(
+                r#"<span class="noteva-date-range" data-noteva-date-range data-from="{}" data-to="{}"{}><time datetime="{}">{}</time><span class="noteva-date-range-separator">-</span><time datetime="{}">{}</time></span>"#,
+                html_escape(from),
+                html_escape(to),
+                timezone_attr,
+                html_escape(from),
+                html_escape(from),
+                html_escape(to),
+                html_escape(to)
+            )
+        });
+
+        // [article slug="hello-world" /] - Article link card placeholder.
+        manager.register("article", |shortcode, _ctx| {
+            let slug = shortcode
+                .attrs
+                .get("slug")
+                .or_else(|| shortcode.attrs.get("id"))
+                .map(|s| s.trim())
+                .unwrap_or("");
+            if slug.is_empty() {
+                return shortcode.original.clone();
+            }
+
+            let title = shortcode
+                .attrs
+                .get("title")
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(slug);
+            let href = format!("/posts/{}", urlencoding::encode(slug));
+
+            format!(
+                r#"<a class="noteva-article-card" href="{}" data-noteva-article-card data-slug="{}"><span class="noteva-card-kicker">Article</span><span class="noteva-card-title">{}</span><span class="noteva-card-meta">/{}</span></a>"#,
+                html_escape(&href),
+                html_escape(slug),
+                html_escape(title),
+                html_escape(slug)
+            )
+        });
+
         // [collapse title="Click to expand"]content[/collapse] - Collapsible section
         manager.register("collapse", |shortcode, _ctx| {
             let title = shortcode
@@ -555,5 +664,32 @@ mod tests {
         let result = manager.render(content, &ctx);
 
         assert_eq!(result, "Hello WORLD!");
+    }
+
+    #[test]
+    fn test_render_builtin_spoiler() {
+        let mut manager = ShortcodeManager::new();
+        builtins::register_builtins(&mut manager);
+
+        let result = manager.render("[spoiler]secret[/spoiler]", &ShortcodeContext::default());
+
+        assert!(result.contains("noteva-spoiler"));
+        assert!(result.contains("secret"));
+        assert!(result.contains("aria-expanded=\"false\""));
+    }
+
+    #[test]
+    fn test_render_builtin_article_card() {
+        let mut manager = ShortcodeManager::new();
+        builtins::register_builtins(&mut manager);
+
+        let result = manager.render(
+            r#"[article slug="hello-world" title="Hello World" /]"#,
+            &ShortcodeContext::default(),
+        );
+
+        assert!(result.contains("noteva-article-card"));
+        assert!(result.contains("href=\"/posts/hello-world\""));
+        assert!(result.contains("Hello World"));
     }
 }

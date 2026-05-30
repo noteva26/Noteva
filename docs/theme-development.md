@@ -40,7 +40,7 @@ themes/my-theme/
   "author": "Your Name",
   "repository": "https://github.com/user/my-theme",
   "requires": {
-    "noteva": ">=0.2.6"
+    "noteva": ">=0.3.2"
   }
 }
 ```
@@ -273,7 +273,7 @@ const site = await Noteva.site.getInfo();
 
 ```ts
 {
-  version: "0.2.6",
+  version: "0.3.2",
   name: "Noteva",
   description: "",
   subtitle: "",
@@ -285,7 +285,10 @@ const site = await Noteva.site.getInfo();
   demoMode: false,
   customCss: "",
   customJs: "",
-  fontFamily: "",
+  showToc: true,
+  showPostNav: true,
+  showRelatedPosts: true,
+  showComments: true,
   stats: {
     totalArticles: 12,
     totalCategories: 3,
@@ -323,6 +326,32 @@ const nav = await Noteva.site.getNav();
 ```ts
 await Noteva.site.refresh();
 ```
+
+### 文章页显示开关
+
+从 Noteva 0.3.1 开始，站点设置会公开文章页模块开关：
+
+```ts
+const site = await Noteva.site.getInfo();
+
+if (site.showToc) {
+  // render table of contents
+}
+
+if (site.showPostNav) {
+  // render previous/next navigation
+}
+
+if (site.showRelatedPosts) {
+  // render related posts
+}
+
+if (site.showComments) {
+  // render comments section
+}
+```
+
+这些开关默认开启。主题如果实现目录、上一篇/下一篇、相关文章或评论区，应优先遵守这些站点级开关；如果关闭目录，建议布局自动回到单栏或不预留目录侧栏空位。
 
 ## 主题信息与设置
 
@@ -787,12 +816,68 @@ Noteva.i18n.addMessages("zh-CN", {
 const text = Noteva.i18n.t("theme.readMore");
 ```
 
-自定义语言包：
+主题可以通过 `Noteva.i18n.addMessages()` 注册自己的运行时消息。Noteva 0.3.2 起不再提供后台自定义语言文件加载链路，主题不应依赖 `window.__CUSTOM_LOCALES__`、自定义 locale JSON 注入或 SDK 的自定义语言文件读取；需要的主题文案应随主题资源打包，或在运行时通过 `addMessages()` 注册。
+
+主题也不应实现独立的自定义字体设置。Noteva 0.3.2 已移除站点级自定义字体与 Google Fonts 自动注入能力；主题如需字体，应使用主题自身 CSS 中的普通字体栈，并避免要求后台站点设置提供字体字段。
+
+## 文章内容渲染
+
+主题展示文章或自定义页面时，应直接渲染后端返回的 `article.html` / `page.html`，并保留内容容器类名，方便 SDK 和插件识别：
+
+```html
+<article class="article-content"></article>
+```
 
 ```ts
-const locales = Noteva.i18n.getLocales();
-const customLocales = Noteva.i18n.getCustomLocales();
+container.innerHTML = article.html;
+Noteva.hooks.trigger("content_render", {
+  path: Noteva.router.getPath(),
+  query: Noteva.router.getQueryAll()
+});
 ```
+
+如果主题使用 React、Vue 等框架，仍应在内容 DOM 挂载后触发或允许 SDK 自动触发 `content_render`。默认 SDK 会监听常见内容容器（如 `article`、`.article-content`、`.post-content`、`.page-content`、`.prose` 等）的 DOM 变化，并自动执行内容增强；主题在复杂异步渲染、虚拟列表或延迟挂载场景下，手动触发一次更稳。
+
+### 平台内容组件
+
+Noteva 0.3.2 起，Markdown 渲染支持这些平台级内容组件：
+
+```markdown
+[spoiler]隐藏内容[/spoiler]
+
+[date=2026-05-30 time=20:00 timezone=Asia/Shanghai]
+[date value="2026-05-30" time="20:00" timezone="Asia/Shanghai" /]
+[date]2026-05-30[/date]
+
+[date-range from=2026-05-30 to=2026-06-02 timezone=Asia/Shanghai]
+[date-range from="2026-05-30" to="2026-06-02" timezone="Asia/Shanghai" /]
+
+@[hello-world]
+[article slug="hello-world" title="Hello World" /]
+
+https://example.com/some-page
+```
+
+渲染结果会包含稳定类名：
+
+- `.noteva-spoiler`
+- `.noteva-date`
+- `.noteva-date-range`
+- `.noteva-article-card`
+- `.noteva-link-card`
+- `.noteva-card-kicker`
+- `.noteva-card-title`
+- `.noteva-card-meta`
+
+主题应把这些类名当作平台约定处理。默认 SDK 会在 `content_render` 后：
+
+- 给 `.noteva-spoiler` 绑定点击和键盘揭示行为。
+- 按当前 `Noteva.i18n` locale 格式化 `.noteva-date` 和 `.noteva-date-range`。
+- 保持文章卡片和链接卡片为普通可访问链接。
+
+主题可以覆盖这些类名的视觉样式，但不建议修改 DOM 结构或重新实现交互逻辑。裸 URL 卡片是静态链接卡片，不会抓取 Open Graph 标题、描述或封面图；主题不要假设这些字段存在。
+
+代码块和行内代码中的平台语法会保持原样，不会被 shortcode 或内容组件提前渲染。主题不需要额外处理教程示例中的 `[date]`、`[spoiler]`、`@[slug]` 等文本。
 
 ## 错误处理
 
@@ -866,7 +951,11 @@ Noteva.errors.isValidation(error);
 - 主题代码使用 SDK v1 的 `camelCase` 字段。
 - 文章链接使用 `Noteva.urls.article()`，不要手写 `/posts/${slug}`。
 - 公开主题设置通过 `Noteva.theme.getSettings()` 或 `Noteva.theme.getSetting()` 读取。
+- 文章页目录、上一篇/下一篇、相关文章和评论区遵守 `site.showToc`、`site.showPostNav`、`site.showRelatedPosts`、`site.showComments`。
+- 文章正文使用后端返回的 `article.html` / `page.html`，保留 `.article-content`、`.page-content` 或类似内容容器，并确保内容渲染后触发 `content_render`。
+- 平台内容组件使用 `.noteva-*` 约定类名，主题只覆盖样式，不重新改写结构或交互。
 - 深色模式使用 `.dark` 类选择器。
 - 插件扩展位置使用 `data-noteva-slot` 或 `Noteva.slots.render()`。
 - 插件前端只读取公开 settings/data；写入插件设置或状态走后台或插件自有 API。
+- 不依赖自定义字体字段、Google Fonts 自动注入、自定义语言文件注入或 `window.__CUSTOM_LOCALES__`。
 - 不要依赖 v0 阶段的兼容别名和字段兜底。

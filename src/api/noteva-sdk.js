@@ -518,7 +518,6 @@
     demoMode: asBoolean(firstValue(data.demoMode, data.demo_mode), false),
     customCss: firstValue(data.customCss, data.custom_css, ''),
     customJs: firstValue(data.customJs, data.custom_js, ''),
-    fontFamily: firstValue(data.fontFamily, data.font_family, ''),
     showToc: asBoolean(firstValue(data.showToc, data.show_toc), true),
     showPostNav: asBoolean(firstValue(data.showPostNav, data.show_post_nav), true),
     showRelatedPosts: asBoolean(firstValue(data.showRelatedPosts, data.show_related_posts), true),
@@ -1792,8 +1791,6 @@
   const i18n = {
     _locale: 'zh-CN',
     _messages: {},
-    _customLocales: [],  // Parsed from window.__CUSTOM_LOCALES__
-    _customLoaded: false,
 
     getLocale() {
       return this._locale;
@@ -1821,56 +1818,13 @@
     },
 
     /**
-     * 从 window.__CUSTOM_LOCALES__ 加载自定义语言包
-     * 服务端在每个主题页面注入此全局变量，包含所有自定义语言包数据
-     * 主题可在初始化时调用，也可直接使用 getCustomLocales() 自动加载
-     */
-    loadCustomLocales() {
-      if (this._customLoaded) return this._customLocales;
-      try {
-        const data = window.__CUSTOM_LOCALES__;
-        if (Array.isArray(data) && data.length > 0) {
-          this._customLocales = data.map(item => ({
-            code: item.code,
-            name: item.name,
-            translations: item.translations || {},
-          }));
-          // 同时注册到 _messages 方便 t() 使用
-          for (const item of this._customLocales) {
-            this.addMessages(item.code, item.translations);
-          }
-        }
-      } catch (e) {
-        console.warn('[Noteva] Failed to load custom locales:', e);
-      }
-      this._customLoaded = true;
-      return this._customLocales;
-    },
-
-    /**
-     * 获取所有自定义语言包（自动加载）
-     * @returns {Array<{code: string, name: string, translations: object}>}
-     */
-    getCustomLocales() {
-      if (!this._customLoaded) this.loadCustomLocales();
-      return this._customLocales;
-    },
-
-    /**
-     * 获取所有可用语言列表（内置 + 自定义）
+     * 获取所有可用语言列表
      * 主题可用此方法填充语言切换器
      * @param {Array<{code: string, name: string}>} builtinLocales - 主题内置语言列表
-     * @returns {Array<{code: string, name: string, isCustom?: boolean}>}
+     * @returns {Array<{code: string, name: string}>}
      */
     getLocales(builtinLocales = []) {
-      const custom = this.getCustomLocales();
-      const customItems = custom.map(c => ({
-        code: c.code,
-        name: c.name,
-        nativeName: c.name,
-        isCustom: true,
-      }));
-      return [...builtinLocales, ...customItems];
+      return Array.isArray(builtinLocales) ? builtinLocales : [];
     },
   };
 
@@ -2317,6 +2271,60 @@
     }
   }
 
+  function _enhanceContentPrimitives() {
+    const revealSpoiler = (el) => {
+      el.classList.add('is-revealed');
+      el.setAttribute('aria-expanded', 'true');
+    };
+
+    document.querySelectorAll('.noteva-spoiler:not([data-noteva-bound])').forEach(el => {
+      el.dataset.notevaBound = '1';
+      el.addEventListener('click', () => revealSpoiler(el));
+      el.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          revealSpoiler(el);
+        }
+      });
+    });
+
+    const locale = i18n.getLocale ? i18n.getLocale() : undefined;
+    const formatDate = (value, timezone) => {
+      if (!value) return '';
+      const date = new Date(value.length === 10 ? `${value}T00:00:00` : value);
+      if (Number.isNaN(date.getTime())) return value;
+      try {
+        return new Intl.DateTimeFormat(locale || undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          ...(value.includes('T') ? { hour: '2-digit', minute: '2-digit' } : {}),
+          ...(timezone ? { timeZone: timezone } : {}),
+        }).format(date);
+      } catch {
+        return value;
+      }
+    };
+
+    document.querySelectorAll('.noteva-date[data-noteva-date]:not([data-noteva-formatted])').forEach(el => {
+      const value = el.getAttribute('datetime') || el.textContent || '';
+      el.textContent = formatDate(value, el.dataset.timezone);
+      el.dataset.notevaFormatted = '1';
+    });
+
+    document.querySelectorAll('.noteva-date-range[data-noteva-date-range]:not([data-noteva-formatted])').forEach(el => {
+      const from = el.dataset.from || '';
+      const to = el.dataset.to || '';
+      const timezone = el.dataset.timezone;
+      const formattedFrom = formatDate(from, timezone);
+      const formattedTo = formatDate(to, timezone);
+      if (formattedFrom && formattedTo) {
+        el.textContent = `${formattedFrom} - ${formattedTo}`;
+        el.dataset.notevaFormatted = '1';
+      }
+    });
+  }
+
   // ============================================
   // Emoji / Twemoji
   // ============================================
@@ -2587,22 +2595,6 @@
         }
       }
 
-      // 注入自定义字体（Google Fonts）
-      if (siteInfo && siteInfo.fontFamily && !document.getElementById('noteva-custom-font')) {
-        const fontName = siteInfo.fontFamily;
-        // Load from Google Fonts (China mirror)
-        const link = document.createElement('link');
-        link.id = 'noteva-custom-font';
-        link.rel = 'stylesheet';
-        link.href = `https://fonts.loli.net/css2?family=${encodeURIComponent(fontName)}:wght@300;400;500;600;700&display=swap`;
-        document.head.appendChild(link);
-        // Set --noteva-font CSS variable (Tailwind font-sans references this)
-        const style = document.createElement('style');
-        style.id = 'noteva-custom-font-style';
-        style.textContent = `:root { --noteva-font: "${fontName}"; }`;
-        document.head.appendChild(style);
-      }
-
       // 加载主题配置
       await theme.getConfig();
 
@@ -2615,7 +2607,8 @@
       // 触发 body_end 钩子（页面加载完成）
       hooks.trigger('body_end');
 
-      // 自动渲染数学公式和 Mermaid 图表
+      // 自动增强平台内容组件，并渲染数学公式和 Mermaid 图表
+      hooks.on('content_render', _enhanceContentPrimitives, 10);
       hooks.on('content_render', _renderMathAndDiagrams, 20);
 
       page.clear();
@@ -2752,7 +2745,7 @@
   // ============================================
   window.Noteva = {
     // 版本
-    version: '0.3.1',
+    version: '0.3.2',
     sdkVersion: SDK_VERSION,
 
     // 核心系统
