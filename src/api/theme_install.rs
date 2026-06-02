@@ -186,9 +186,6 @@ pub async fn install_github_theme(
 #[derive(Debug, Deserialize)]
 pub struct ThemeInstallFromRepoRequest {
     pub repo: String,
-    /// Store slug for download count tracking (optional)
-    #[serde(default)]
-    pub slug: Option<String>,
     #[serde(default)]
     expected_short: Option<String>,
 }
@@ -236,9 +233,6 @@ pub async fn install_from_repo(
             body.expected_short.as_deref(),
         )
         .await?;
-        if let Some(slug) = &body.slug {
-            notify_store_download(&state, slug);
-        }
         return Ok(result);
     }
 
@@ -262,9 +256,6 @@ pub async fn install_from_repo(
         body.expected_short.as_deref(),
     )
     .await?;
-    if let Some(slug) = &body.slug {
-        notify_store_download(&state, slug);
-    }
     Ok(result)
 }
 
@@ -404,7 +395,6 @@ pub async fn update_theme(
     // Use install_from_repo logic
     let body = ThemeInstallFromRepoRequest {
         repo: repository,
-        slug: None,
         expected_short: Some(name.clone()),
     };
     let _result = install_from_repo(State(state.clone()), _user, Json(body)).await?;
@@ -706,31 +696,4 @@ async fn install_theme_from_dir(
         theme_name: theme_id,
         message: format!("Theme '{}' installed successfully", manifest.name),
     }))
-}
-
-/// Notify store about a download (fire-and-forget, non-blocking)
-fn notify_store_download(state: &AppState, slug: &str) {
-    let store_url = state
-        .store_url
-        .as_deref()
-        .unwrap_or("https://store.noteva.org")
-        .to_string();
-    let slug = slug.to_string();
-    tokio::spawn(async move {
-        let client = match reqwest::Client::builder()
-            .user_agent("Noteva")
-            .no_proxy()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-        {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        let url = format!(
-            "{}/api/v1/store/download/{}",
-            store_url,
-            urlencoding::encode(&slug)
-        );
-        let _ = client.post(&url).send().await;
-    });
 }

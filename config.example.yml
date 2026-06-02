@@ -36,6 +36,3 @@ upload:
 theme:
   path: "themes"
   active: "default"
-
-# Noteva Store URL (for plugin/theme marketplace)
-# store_url: "https://store.noteva.org"

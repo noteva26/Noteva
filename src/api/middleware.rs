@@ -120,7 +120,6 @@ pub struct AppState {
     pub wasm_runtime: Arc<tokio::sync::RwLock<crate::plugin::PluginRuntime>>,
     pub wasm_registry: Arc<tokio::sync::RwLock<crate::plugin::wasm_bridge::WasmPluginRegistry>>,
     pub two_factor_challenges: TwoFactorChallengeStore,
-    pub store_url: Option<String>,
 }
 
 /// Authenticated user extracted from request

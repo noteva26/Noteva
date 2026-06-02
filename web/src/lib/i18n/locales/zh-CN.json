@@ -728,7 +728,13 @@
     "libraryTab": "文件库",
     "imageSize": "图片尺寸",
     "insertImage": "插入图片",
-    "searchFiles": "搜索文件..."
+    "searchFiles": "搜索文件...",
+    "contentPrimitives": "内容组件",
+    "spoiler": "剧透文本",
+    "date": "日期标记",
+    "dateRange": "日期范围",
+    "articleCard": "文章卡片",
+    "articleCardTitle": "文章卡片（自定义标题）"
   },
   "apiError": {
     "UNAUTHORIZED": "认证失败",

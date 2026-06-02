@@ -159,8 +159,6 @@ pub struct InstallFromRepoRequest {
     pub repo: String,
     #[serde(default)]
     pub plugin_id: Option<String>,
-    #[serde(default)]
-    pub store_slug: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -221,9 +219,6 @@ pub async fn install_from_repo(
             Some(&repo),
         )
         .await?;
-        if let Some(slug) = body.store_slug.as_deref().or(body.plugin_id.as_deref()) {
-            notify_store_download(&state, slug);
-        }
         return Ok(result);
     }
 
@@ -276,9 +271,6 @@ pub async fn install_from_repo(
         .map_err(|e| ApiError::internal_error(format!("Install error: {}", e)))?;
 
     let result = reload_and_register_plugin(&actual_id, &state, Some(&repo)).await?;
-    if let Some(slug) = body.store_slug.as_deref().or(body.plugin_id.as_deref()) {
-        notify_store_download(&state, slug);
-    }
     Ok(result)
 }
 
@@ -528,7 +520,6 @@ pub async fn update_plugin(
     let install_request = InstallFromRepoRequest {
         repo: repository,
         plugin_id: Some(id.clone()),
-        store_slug: None,
     };
     let _result = install_from_repo(State(state.clone()), _user, Json(install_request)).await?;
 
@@ -862,31 +853,4 @@ async fn reload_and_register_plugin(
         plugin_name: plugin_id.to_string(),
         message: format!("Plugin '{}' installed", plugin_id),
     }))
-}
-
-/// Notify store about a download (fire-and-forget, non-blocking)
-fn notify_store_download(state: &AppState, slug: &str) {
-    let store_url = state
-        .store_url
-        .as_deref()
-        .unwrap_or("https://store.noteva.org")
-        .to_string();
-    let slug = slug.to_string();
-    tokio::spawn(async move {
-        let client = match reqwest::Client::builder()
-            .user_agent("Noteva")
-            .no_proxy()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-        {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        let url = format!(
-            "{}/api/v1/store/download/{}",
-            store_url,
-            urlencoding::encode(&slug)
-        );
-        let _ = client.post(&url).send().await;
-    });
 }

@@ -1,13 +1,12 @@
 ﻿
 import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from "react";
-import { pluginsApi, Plugin, PluginSettingsSchema, StorePluginInfo } from "@/lib/api";
+import { pluginsApi, Plugin, PluginSettingsSchema } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SettingsRenderer, parseSettingsValues } from "@/components/settings-renderer";
@@ -22,7 +21,6 @@ import {
   RefreshCw,
   Save,
   Settings,
-  Store,
   Trash2,
   Upload,
   CheckCircle2,
@@ -32,8 +30,6 @@ import { useTranslation } from "@/lib/i18n";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { parseGitHubRepo } from "@/lib/github";
-
-const STORE_CACHE_TTL = 5 * 60 * 1000;
 
 type PluginOptimisticAction =
   | { type: "toggle"; id: string; enabled: boolean }
@@ -73,12 +69,6 @@ export default function PluginsPage() {
   const [installOpen, setInstallOpen] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
   const [isInstallingRepo, startInstallRepoTransition] = useTransition();
-
-  const [storePlugins, setStorePlugins] = useState<StorePluginInfo[]>([]);
-  const [isLoadingStore, startLoadStoreTransition] = useTransition();
-  const [pendingStorePluginSlug, setPendingStorePluginSlug] = useState<string | null>(null);
-  const [isInstallingFromStore, startInstallFromStoreTransition] = useTransition();
-  const storeCacheRef = useRef<{ data: StorePluginInfo[]; ts: number } | null>(null);
 
   const [updates, setUpdates] = useState<Record<string, { current: string; latest: string }>>({});
   const [isCheckingUpdates, startCheckUpdatesTransition] = useTransition();
@@ -136,26 +126,6 @@ export default function PluginsPage() {
     [markRefreshDone, t]
   );
 
-  const loadStore = useCallback(
-    async (force = false) => {
-      if (!force && storeCacheRef.current && Date.now() - storeCacheRef.current.ts < STORE_CACHE_TTL) {
-        setStorePlugins(storeCacheRef.current.data);
-        return;
-      }
-
-      try {
-        const { data } = await pluginsApi.getStore();
-        const plugins = data?.plugins || [];
-        setStorePlugins(plugins);
-        storeCacheRef.current = { data: plugins, ts: Date.now() };
-      } catch (error) {
-        toast.error(getApiErrorMessage(error, t("error.loadFailed")));
-        setStorePlugins([]);
-      }
-    },
-    [t]
-  );
-
   useEffect(() => {
     let active = true;
     void loadPlugins({ isActive: () => active });
@@ -175,12 +145,6 @@ export default function PluginsPage() {
   const refreshPlugins = () => {
     startRefreshTransition(async () => {
       await loadPlugins({ isRefresh: true });
-    });
-  };
-
-  const fetchStore = (force = false) => {
-    startLoadStoreTransition(async () => {
-      await loadStore(force);
     });
   };
 
@@ -219,8 +183,6 @@ export default function PluginsPage() {
           return next;
         });
         await loadPlugins({ isRefresh: true });
-        storeCacheRef.current = null;
-        if (storePlugins.length > 0) await loadStore(true);
       } catch (error) {
         toast.error(getApiErrorMessage(error, t("plugin.updateFailed")));
       } finally {
@@ -266,8 +228,6 @@ export default function PluginsPage() {
         toast.success(data.message);
         setInstallOpen(false);
         await loadPlugins({ isRefresh: true });
-        storeCacheRef.current = null;
-        if (storePlugins.length > 0) await loadStore(true);
       } catch (error) {
         toast.error(getApiErrorMessage(error, t("error.loadFailed")));
       } finally {
@@ -292,35 +252,8 @@ export default function PluginsPage() {
         setInstallOpen(false);
         setRepoUrl("");
         await loadPlugins({ isRefresh: true });
-        storeCacheRef.current = null;
-        if (storePlugins.length > 0) await loadStore(true);
       } catch (error) {
         toast.error(getApiErrorMessage(error, t("error.loadFailed")));
-      }
-    });
-  };
-
-  const handleInstallFromStore = (plugin: StorePluginInfo) => {
-    if (!plugin.github_url) {
-      toast.error(t("plugin.noGitHubUrl") || "No GitHub URL available");
-      return;
-    }
-
-    setPendingStorePluginSlug(plugin.slug);
-    startInstallFromStoreTransition(async () => {
-      try {
-        const { data } = await pluginsApi.installFromRepo({
-          repo: plugin.github_url || "",
-          pluginId: plugin.plugin_id || undefined,
-          storeSlug: plugin.slug,
-        });
-        toast.success(data.message);
-        await loadPlugins({ isRefresh: true });
-        await loadStore(true);
-      } catch (error) {
-        toast.error(getApiErrorMessage(error, t("error.loadFailed")));
-      } finally {
-        setPendingStorePluginSlug(null);
       }
     });
   };
@@ -345,8 +278,6 @@ export default function PluginsPage() {
           delete next[pluginId];
           return next;
         });
-        storeCacheRef.current = null;
-        if (storePlugins.length > 0) await loadStore(true);
         toast.success(t("plugin.uninstallSuccess") || "Plugin uninstalled");
       } catch (error) {
         toast.error(getApiErrorMessage(error, t("error.loadFailed")));
@@ -400,7 +331,6 @@ export default function PluginsPage() {
   };
 
   const showInitialLoading = loading && !hasLoaded;
-  const showStoreLoading = isLoadingStore && storePlugins.length === 0;
 
   return (
     <div className="space-y-6">
@@ -449,19 +379,6 @@ export default function PluginsPage() {
       </div>
 
       <div>
-        <Tabs defaultValue="installed" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="installed" className="gap-2">
-              <Puzzle className="h-4 w-4" />
-              {t("plugin.installed") || "Installed"}
-            </TabsTrigger>
-            <TabsTrigger value="store" className="gap-2" onClick={() => fetchStore()}>
-              <Store className="h-4 w-4" />
-              {t("plugin.store") || "Store"}
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="installed">
             {showInitialLoading ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {Array.from({ length: 3 }).map((_, i) => (
@@ -600,112 +517,6 @@ export default function PluginsPage() {
                 })}
               </div>
             )}
-          </TabsContent>
-
-          <TabsContent value="store">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Store className="h-5 w-5" />
-                  {t("plugin.officialStore") || "Official Plugin Store"}
-                </CardTitle>
-                <CardDescription>
-                  {t("plugin.storeDesc") || "Browse and install official plugins"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {showStoreLoading ? (
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {Array.from({ length: 6 }).map((_, i) => (
-                      <Card key={i}>
-                        <CardHeader>
-                          <Skeleton className="h-5 w-32" />
-                          <Skeleton className="h-4 w-48" />
-                        </CardHeader>
-                        <CardContent>
-                          <Skeleton className="h-4 w-full" />
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                ) : storePlugins.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <Store className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>{t("plugin.noStorePlugins") || "No plugins available"}</p>
-                  </div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {storePlugins.map((plugin) => {
-                      const isInstallingPlugin = isInstallingFromStore && pendingStorePluginSlug === plugin.slug;
-
-                      return (
-                        <Card key={plugin.slug}>
-                          <StorePluginCover plugin={plugin} />
-                          <CardHeader className="pb-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0 space-y-1">
-                                <CardTitle className="flex items-center gap-2 text-lg">
-                                  <Puzzle className="h-4 w-4 shrink-0" />
-                                  <span className="truncate">{plugin.name}</span>
-                                </CardTitle>
-                                <CardDescription className="text-xs">
-                                  v{plugin.version}
-                                  {plugin.author && ` - ${plugin.author}`}
-                                  {plugin.download_count > 0 && ` - ${plugin.download_count}`}
-                                </CardDescription>
-                              </div>
-                              {plugin.github_url && (
-                                <a
-                                  href={plugin.github_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-muted-foreground hover:text-foreground"
-                                >
-                                  <Github className="h-4 w-4" />
-                                </a>
-                              )}
-                            </div>
-                          </CardHeader>
-                          <CardContent className="space-y-4">
-                            <p className="line-clamp-3 text-sm text-muted-foreground">
-                              {plugin.description || "No description"}
-                            </p>
-                            {plugin.tags.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {plugin.tags.map((tag) => (
-                                  <Badge key={tag} variant="outline" className="text-xs">
-                                    {tag}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                            <Button
-                              onClick={() => handleInstallFromStore(plugin)}
-                              disabled={isInstallingPlugin || plugin.installed}
-                              size="sm"
-                              className="w-full"
-                            >
-                              {isInstallingPlugin ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : plugin.installed ? (
-                                t("plugin.installed") || "Installed"
-                              ) : (
-                                <>
-                                  <Download className="h-4 w-4 mr-2" />
-                                  {t("plugin.install") || "Install"}
-                                </>
-                              )}
-                            </Button>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
       </div>
 
       <Dialog open={installOpen} onOpenChange={setInstallOpen}>
@@ -819,31 +630,4 @@ export default function PluginsPage() {
 function toGitHubHref(repository: string) {
   if (repository.startsWith("http")) return repository;
   return `https://github.com/${repository}`;
-}
-
-function StorePluginCover({ plugin }: { plugin: StorePluginInfo }) {
-  const [failed, setFailed] = useState(false);
-  const showImage = Boolean(plugin.cover_image) && !failed;
-
-  return (
-    <div className="relative h-32 overflow-hidden bg-muted/60">
-      {showImage ? (
-        <img
-          src={plugin.cover_image || ""}
-          alt={plugin.name}
-          className="h-full w-full object-cover"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <div className="flex h-full items-center justify-center">
-          <Puzzle className="h-10 w-10 text-muted-foreground/30" />
-        </div>
-      )}
-      {plugin.installed ? (
-        <Badge className="absolute right-2 top-2" variant="secondary">
-          Installed
-        </Badge>
-      ) : null}
-    </div>
-  );
 }

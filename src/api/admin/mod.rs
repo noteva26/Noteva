@@ -55,7 +55,6 @@ pub fn router() -> Router<AppState> {
         // Theme management
         .route("/themes", get(themes::list_themes))
         .route("/themes/switch", post(themes::switch_theme))
-        .route("/themes/store", get(themes::get_theme_store))
         .route("/themes/updates", get(themes::check_theme_updates))
         .route("/themes/reload", post(reload::reload_themes))
         // Plugin management

@@ -728,7 +728,13 @@
     "libraryTab": "Library",
     "imageSize": "Image Size",
     "insertImage": "Insert Image",
-    "searchFiles": "Search files..."
+    "searchFiles": "Search files...",
+    "contentPrimitives": "Content Primitives",
+    "spoiler": "Spoiler Text",
+    "date": "Date",
+    "dateRange": "Date Range",
+    "articleCard": "Article Card",
+    "articleCardTitle": "Article Card (custom title)"
   },
   "apiError": {
     "UNAUTHORIZED": "Authentication failed",

@@ -141,7 +141,6 @@ fn valid_config_strategy() -> impl Strategy<Value = Config> {
             cache,
             theme,
             upload: UploadConfig::default(),
-            store_url: None,
         })
 }
 
@@ -568,7 +567,6 @@ proptest! {
             cache: CacheConfig { driver: cache_driver, redis_url: None, ttl_seconds: ttl },
             theme: ThemeConfig { active: theme_name.clone(), path: PathBuf::from("themes") },
             upload: UploadConfig::default(),
-            store_url: None,
         };
 
         // Serialize and deserialize

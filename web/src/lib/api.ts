@@ -303,9 +303,6 @@ export const adminApi = {
   deleteTheme: (name: string) =>
     api.delete(`/admin/themes/${encodeURIComponent(name)}`),
 
-  // Theme store
-  getThemeStore: () => api.get<ThemeStoreResponse>("/admin/themes/store"),
-
   // Check for theme updates
   checkThemeUpdates: () => api.get<ThemeUpdatesResponse>("/admin/themes/updates"),
 
@@ -388,18 +385,14 @@ export const pluginsApi = {
   uninstall: (id: string) =>
     api.delete(`/admin/plugins/${encodeURIComponent(id)}/uninstall`),
 
-  // Plugin store
-  getStore: () => api.get<PluginStoreResponse>("/admin/plugins/store"),
-
   // Check for plugin updates
   checkUpdates: () => api.get<PluginUpdatesResponse>("/admin/plugins/updates"),
 
   // Install plugin from repo
-  installFromRepo: (data: { repo: string; pluginId?: string; storeSlug?: string }) =>
+  installFromRepo: (data: { repo: string; pluginId?: string }) =>
     api.post<PluginInstallResponse>("/admin/plugins/install-from-repo", {
       repo: data.repo,
       plugin_id: data.pluginId,
-      store_slug: data.storeSlug,
     }),
 
   // Update plugin
@@ -574,29 +567,6 @@ export interface ThemeListResponse {
   current: string;
 }
 
-export interface StoreThemeInfo {
-  slug: string;
-  name: string;
-  version: string;
-  description: string | null;
-  author: string | null;
-  cover_image: string | null;
-  github_url: string | null;
-  external_url: string | null;
-  license_type: string;
-  price_info: string | null;
-  download_source: string;
-  download_count: number;
-  avg_rating: number | null;
-  rating_count: number | null;
-  tags: string[];
-  installed: boolean;
-}
-
-export interface ThemeStoreResponse {
-  themes: StoreThemeInfo[];
-}
-
 export interface ThemeUpdateInfo {
   name: string;
   current_version: string;
@@ -661,30 +631,6 @@ export interface Plugin {
 
 export interface PluginListResponse {
   plugins: Plugin[];
-}
-
-export interface StorePluginInfo {
-  slug: string;
-  plugin_id: string;
-  name: string;
-  version: string;
-  description: string;
-  author: string;
-  cover_image: string | null;
-  github_url: string | null;
-  external_url: string | null;
-  license_type: string;
-  price_info: string | null;
-  download_source: string;
-  download_count: number;
-  avg_rating: number | null;
-  rating_count: number | null;
-  tags: string[];
-  installed: boolean;
-}
-
-export interface PluginStoreResponse {
-  plugins: StorePluginInfo[];
 }
 
 export interface PluginUpdateInfo {

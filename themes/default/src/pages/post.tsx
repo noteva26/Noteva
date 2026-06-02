@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type MouseEvent } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
@@ -13,10 +13,12 @@ import {
   BookOpen,
   Calendar,
   Clock,
+  X,
   Eye,
   Folder,
   Heart,
   MessageSquare,
+  Sparkles,
   Tag,
 } from "lucide-react";
 import { useTranslation, useI18nStore } from "@/lib/i18n";
@@ -68,6 +70,7 @@ export default function PostPage() {
   const [notFound, setNotFound] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
+  const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null);
   const { t } = useTranslation();
   const locale = useI18nStore((s) => s.locale);
 
@@ -186,6 +189,42 @@ export default function PostPage() {
     } catch { toast.error(t("comment.likeFailed")); }
   };
 
+  const handleArticleContentClick = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof HTMLImageElement)) return;
+    if (target.classList.contains("twemoji") || target.classList.contains("emoji")) return;
+
+    const src = target.currentSrc || target.src;
+    if (!src) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    setPreviewImage({
+      src,
+      alt: target.alt || article?.title || "",
+    });
+  };
+
+  useEffect(() => {
+    if (!previewImage) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPreviewImage(null);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [previewImage]);
+
   const getDateLocale = () => {
     const candidate = locale === "en" ? "en-US" : locale;
     try {
@@ -234,7 +273,6 @@ export default function PostPage() {
     comments: article.commentCount || 0,
   };
   const articleHtml = sanitizeHtml(article.html);
-  const thumbnail = article.thumbnail;
   const publishedAt = article.publishedAt || "";
   const hasReadableToc =
     siteInfo.showToc &&
@@ -246,18 +284,18 @@ export default function PostPage() {
       <main className="flex-1">
         <div
           className={cn(
-            "container mx-auto grid gap-10 py-8",
+            "container mx-auto py-8",
             hasReadableToc
-              ? "max-w-7xl xl:grid-cols-[minmax(0,900px)_17rem] xl:gap-14"
+              ? "default-post-layout max-w-7xl"
               : "max-w-[900px]"
           )}
         >
           <article
-            className={cn("min-w-0", hasReadableToc && "xl:justify-self-end")}
+            className={cn("min-w-0", hasReadableToc && "default-post-main")}
             data-article-id={article.id}
           >
-            <header className="mb-6">
-              <h1 className="mb-4 text-4xl font-semibold leading-tight md:text-[2.75rem]">
+            <header className="post-hero mb-7">
+              <h1 className="mb-4 text-4xl font-semibold leading-tight tracking-normal md:text-[2.8rem]">
                 {article.title}
               </h1>
               <div className="article-meta flex flex-wrap items-center gap-x-3.5 gap-y-1.5 text-sm text-muted-foreground">
@@ -283,33 +321,22 @@ export default function PostPage() {
               </div>
             </header>
 
-            {thumbnail ? (
-              <div className="mb-6 overflow-hidden rounded-lg border bg-muted">
-                <img
-                  src={thumbnail}
-                  alt={article.title}
-                  className="max-h-[460px] w-full object-cover"
-                />
-              </div>
-            ) : null}
-
-            <Card className="article-card overflow-hidden">
-              <CardContent className="prose dark:prose-invert max-w-none p-5 md:p-7 [&_img.twemoji]:!w-[1.2em] [&_img.twemoji]:!h-[1.2em] [&_img.twemoji]:!inline-block [&_img.twemoji]:!m-0 [&_img.twemoji]:!align-[-0.1em] [&_img.emoji]:!w-[1.2em] [&_img.emoji]:!h-[1.2em] [&_img.emoji]:!inline-block [&_img.emoji]:!m-0 [&_img.emoji]:!align-[-0.1em]">
+            <section className="article-reading-surface">
+              <div className="prose dark:prose-invert max-w-none [&_img.twemoji]:!w-[1.2em] [&_img.twemoji]:!h-[1.2em] [&_img.twemoji]:!inline-block [&_img.twemoji]:!m-0 [&_img.twemoji]:!align-[-0.1em] [&_img.emoji]:!w-[1.2em] [&_img.emoji]:!h-[1.2em] [&_img.emoji]:!inline-block [&_img.emoji]:!m-0 [&_img.emoji]:!align-[-0.1em]">
                 <PluginSlot name="article_content_top" />
-                <div className="article-content" dangerouslySetInnerHTML={{ __html: articleHtml }} />
+                <div
+                  className="article-content"
+                  onClick={handleArticleContentClick}
+                  dangerouslySetInnerHTML={{ __html: articleHtml }}
+                />
                 <PluginSlot name="article_content_bottom" />
-              </CardContent>
-            </Card>
+              </div>
+            </section>
 
             <PluginSlot name="article_after_content" className="my-4" />
 
             <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-2">
-                {article.category && (
-                  <Link to={getCategoryUrl(article.category)}>
-                    <Badge variant="outline" className="hover:bg-secondary"><Folder className="h-3 w-3 mr-1" />{article.category.name}</Badge>
-                  </Link>
-                )}
                 {article.tags && article.tags.map((tag) => (
                   <Link key={tag.id} to={getTagUrl(tag)}>
                     <Badge variant="secondary" className="hover:bg-secondary/80"><Tag className="h-3 w-3 mr-1" />{tag.name}</Badge>
@@ -345,12 +372,18 @@ export default function PostPage() {
             )}
 
             {siteInfo.showRelatedPosts && article.related && article.related.length > 0 && (
-              <div className="mt-7">
-                <h3 className="text-lg font-semibold mb-3">{t("article.related")}</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="mt-9">
+                <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  {t("article.related")}
+                </h3>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {article.related.map((item) => (
-                    <Link key={item.id} to={getArticleUrl(item)} className="block rounded-lg border bg-card p-3 transition-colors hover:border-primary/60 hover:bg-muted/40">
-                      <span className="text-sm font-medium line-clamp-2">{item.title}</span>
+                    <Link key={item.id} to={getArticleUrl(item)} className="related-post-card">
+                      {item.thumbnail ? (
+                        <img src={item.thumbnail} alt="" className="related-post-thumb" />
+                      ) : null}
+                      <span className="line-clamp-2 text-sm font-medium">{item.title}</span>
                     </Link>
                   ))}
                 </div>
@@ -368,6 +401,29 @@ export default function PostPage() {
           )}
         </div>
       </main>
+      {previewImage ? (
+        <div
+          className="article-image-preview"
+          role="dialog"
+          aria-modal="true"
+          aria-label={previewImage.alt || article.title}
+          onClick={() => setPreviewImage(null)}
+        >
+          <button
+            type="button"
+            className="article-image-preview-close"
+            aria-label="Close image preview"
+            onClick={() => setPreviewImage(null)}
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={previewImage.src}
+            alt={previewImage.alt}
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
+      ) : null}
       <SiteFooter />
     </div>
   );

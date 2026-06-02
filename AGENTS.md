@@ -8,7 +8,7 @@ Noteva is a lightweight, modern blog system built with Rust. It features a WASM-
 
 - Repository: https://github.com/noteva26/Noteva
 - License: GPL-3.0
-- Version: v0.3.2
+- Version: v0.3.3
 
 ## Tech Stack
 
@@ -161,7 +161,6 @@ themes/my-theme/
 - Single-binary deployment: static assets embedded via `rust-embed`
 - Config: `config.yml` (env vars override); see `config.example.yml`
 - Upload limits: 10MB images, 50MB plugin packages
-- Store: `https://store.noteva.org`
 - Detailed API reference: `docs/plugin-development.md`, `docs/theme-development.md`
 
 ## Skills

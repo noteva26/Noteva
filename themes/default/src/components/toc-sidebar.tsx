@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { List } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getNoteva } from "@/hooks/useNoteva";
 import { useTranslation } from "@/lib/i18n";
@@ -71,24 +70,21 @@ export function TocSidebar({ toc }: TocSidebarProps) {
     if (visibleToc.length < 2) return null;
 
     return (
-        <aside className="hidden min-w-0 xl:block">
-            <nav className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto rounded-lg border bg-card/70 p-4 shadow-sm shadow-black/[0.02] backdrop-blur">
-                <h4 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                    <List className="h-4 w-4" />
-                    {t("article.toc")}
-                </h4>
-                <ul className="space-y-0.5 border-l text-sm">
+        <aside className="default-toc-sidebar hidden min-w-0 xl:block">
+            <nav className="default-toc-nav">
+                <h4 className="default-toc-title">{t("article.toc")}</h4>
+                <ul className="default-toc-list">
                     {visibleToc.map((item) => (
                         <li key={item.id}>
                             <button
                                 onClick={() => handleClick(item.id)}
                                 title={item.text}
                                 className={cn(
-                                    "block w-full -ml-px truncate border-l-2 py-1.5 text-left transition-colors",
-                                    item.level === 3 ? "pl-6 pr-2" : "pl-3 pr-2",
+                                    "default-toc-button",
+                                    item.level === 3 ? "default-toc-button-child" : "default-toc-button-root",
                                     activeId === item.id
-                                        ? "border-primary text-primary font-medium"
-                                        : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/50"
+                                        ? "is-active"
+                                        : ""
                                 )}
                             >
                                 {item.text}

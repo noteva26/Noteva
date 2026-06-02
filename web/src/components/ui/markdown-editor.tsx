@@ -149,7 +149,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         const showPreviewRef = useRef(false);
         const mobileTabRef = useRef<"edit" | "preview">("edit");
         const fetchPreviewRef = useRef<(content: string) => void>(() => { });
-        const handleFileUploadRef = useRef<(file: File) => Promise<void>>(async () => { });
+        const handleFileUploadRef = useRef<(file: File, options?: { directInsertImage?: boolean }) => Promise<void>>(async () => { });
         const locale = useI18nStore((s) => s.locale);
 
         const [showPreview, setShowPreview] = useState(false);
@@ -169,7 +169,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         });
         const emojiButtonRef = useRef<HTMLButtonElement>(null);
         const [pluginMenuOpen, setPluginMenuOpen] = useState(false);
+        const [contentMenuOpen, setContentMenuOpen] = useState(false);
         const pluginMenuRef = useRef<HTMLDivElement>(null);
+        const contentMenuRef = useRef<HTMLDivElement>(null);
         const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         const previewAbortRef = useRef<AbortController | null>(null);
         const previewRequestIdRef = useRef(0);
@@ -316,7 +318,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                     if (item.kind === "file") {
                         e.preventDefault();
                         const file = item.getAsFile();
-                        if (file) await handleFileUploadRef.current(file);
+                        if (file) await handleFileUploadRef.current(file, { directInsertImage: true });
                         break;
                     }
                 }
@@ -327,7 +329,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 if (!files || files.length === 0) return;
                 e.preventDefault();
                 for (const file of Array.from(files)) {
-                    await handleFileUploadRef.current(file);
+                    await handleFileUploadRef.current(file, { directInsertImage: true });
                 }
             };
 
@@ -394,6 +396,17 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
             return () => document.removeEventListener("mousedown", handleClick);
         }, [pluginMenuOpen]);
 
+        useEffect(() => {
+            if (!contentMenuOpen) return;
+            const handleClick = (e: MouseEvent) => {
+                if (contentMenuRef.current && !contentMenuRef.current.contains(e.target as Node)) {
+                    setContentMenuOpen(false);
+                }
+            };
+            document.addEventListener("mousedown", handleClick);
+            return () => document.removeEventListener("mousedown", handleClick);
+        }, [contentMenuOpen]);
+
         // ── Fullscreen escape ───────────────────────────────────
         useEffect(() => {
             if (!isFullscreen) return;
@@ -407,7 +420,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
         const BLOCKED_EXTENSIONS = [".exe", ".bat", ".sh", ".cmd", ".msi", ".dll", ".com", ".scr"];
 
-        const handleFileUpload = async (file: File) => {
+        const handleFileUpload = async (file: File, options: { directInsertImage?: boolean } = {}) => {
             const view = viewRef.current;
             if (!view) return;
 
@@ -433,8 +446,14 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 const isImage = file.type.startsWith("image/");
                 const { data } = isImage ? await uploadApi.image(file) : await uploadApi.file(file);
                 if (isImage) {
-                    setPendingImage({ name: file.name, url: data.url });
-                    setImageSize("100%");
+                    if (options.directInsertImage) {
+                        insertText(view, `![${file.name}](${data.url})`);
+                        setPendingImage(null);
+                        setUploadPanelOpen(false);
+                    } else {
+                        setPendingImage({ name: file.name, url: data.url });
+                        setImageSize("100%");
+                    }
                 } else {
                     const sizeStr = data.size < 1024 * 1024
                         ? `${(data.size / 1024).toFixed(1)} KB`
@@ -525,6 +544,11 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 link: () => v() && wrapSelection(v()!, "[", "](url)"),
                 table: () => v() && insertText(v()!, "\n| Header | Header |\n| ------ | ------ |\n| Cell   | Cell   |\n"),
                 imageGrid: () => v() && wrapSelection(v()!, "\n[grid]\n", "\n[/grid]\n"),
+                spoiler: () => v() && wrapSelection(v()!, "[spoiler]", "[/spoiler]"),
+                date: () => v() && insertText(v()!, "[date=2026-05-30 time=20:00 timezone=Asia/Shanghai]"),
+                dateRange: () => v() && insertText(v()!, "[date-range from=2026-05-30 to=2026-06-02 timezone=Asia/Shanghai]"),
+                articleCard: () => v() && insertText(v()!, "@[your-post-slug]"),
+                articleCardTitle: () => v() && insertText(v()!, '[article slug="your-post-slug" title="Related article" /]'),
                 hr: () => v() && insertText(v()!, "\n---\n"),
                 upload: () => { },  // handled by panel toggle
                 undo: () => v() && undo(v()!),
@@ -680,6 +704,36 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                     <ToolbarBtn icon={icons.table} title={i18nT("editor.table")} onClick={tb.table} />
                     <Sep />
                     <ToolbarBtn icon={<LayoutGrid className="h-4 w-4" />} title={i18nT("editor.imageGrid")} onClick={tb.imageGrid} />
+                    <div className="relative" ref={contentMenuRef}>
+                        <ToolbarBtn
+                            icon={icons.plugin}
+                            title={i18nT("editor.contentPrimitives")}
+                            onClick={() => setContentMenuOpen(!contentMenuOpen)}
+                            active={contentMenuOpen}
+                        />
+                        {contentMenuOpen && (
+                            <div className="absolute top-full left-0 mt-1 z-50 bg-popover border rounded-md shadow-md py-1 min-w-[190px]">
+                                {[
+                                    { label: i18nT("editor.spoiler"), action: tb.spoiler },
+                                    { label: i18nT("editor.date"), action: tb.date },
+                                    { label: i18nT("editor.dateRange"), action: tb.dateRange },
+                                    { label: i18nT("editor.articleCard"), action: tb.articleCard },
+                                    { label: i18nT("editor.articleCardTitle"), action: tb.articleCardTitle },
+                                ].map((item) => (
+                                    <button
+                                        key={item.label}
+                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                                        onClick={() => {
+                                            item.action();
+                                            setContentMenuOpen(false);
+                                        }}
+                                    >
+                                        {item.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                     <div className="relative">
                         <Button
                             ref={uploadButtonRef}

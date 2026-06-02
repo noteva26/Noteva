@@ -4,6 +4,25 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.3.3] - 2026-06-02
+
+### Default Theme
+- **Post reading experience refined** - The default theme post page no longer renders the automatic excerpt below the title or the large cover image before the body, reducing duplicated text and visual weight before the article starts. The category pill above the title was removed; category remains in the title metadata, while the post footer now keeps only tags to avoid repeated category/tag information.
+- **TOC and article layout fixed** - Post pages with a table of contents now keep the article column centered and place the TOC in the right-side helper area. This fixes the TOC pushing the article off center and prevents article separators from extending into the TOC area, while preserving desktop sticky TOC behavior for long posts.
+- **Click-to-zoom article images** - Default-theme article images now open in a lightweight preview overlay when clicked. The overlay closes via backdrop click, close button, or Esc, locks background scrolling while open, and ignores emoji / twemoji images.
+
+### Admin Dashboard
+- **Paste-to-upload images in the Markdown editor** - The article editor now supports pasting or dragging images directly into the Markdown editor, uploading them and inserting Markdown image syntax automatically. Toolbar uploads still keep the existing size-selection flow.
+- **Content primitive insertion shortcuts** - The Markdown editor toolbar now includes quick insertion helpers for `[spoiler]`, `[date]`, `[date-range]`, `@[slug]`, and `[article]` examples, making platform rendering primitives easier to use while writing.
+
+### Plugins and Themes
+- **Plugin and theme marketplaces removed** - Removed the plugin marketplace and theme marketplace tabs and install flows from the admin UI. Backend marketplace list endpoints, external Store fetching, Store download notifications after install, and the `store_url` configuration were removed. Local plugin/theme management, ZIP upload installs, GitHub repository installs, update checks, updates, deletion, and settings remain available.
+
+### Build & Version
+- **Version unified to 0.3.3** - Updated the Rust crate, Cargo.lock, frontend packages, default theme, README version badges, and development metadata.
+
+---
+
 ## [v0.3.2] - 2026-05-30
 
 ### Admin Dashboard

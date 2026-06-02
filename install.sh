@@ -235,8 +235,6 @@ upload:
     - "image/gif"
     - "image/webp"
     - "image/svg+xml"
-
-store_url: "https://store.noteva.org"
 EOF
 
     success "config.yml generated."

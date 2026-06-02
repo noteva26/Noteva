@@ -1,4 +1,4 @@
-//! Theme management endpoints (list, switch, store, updates, reload)
+//! Theme management endpoints (list, switch, updates, reload)
 
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
@@ -51,64 +51,6 @@ pub struct ThemeUpdateInfo {
 #[derive(Debug, Serialize)]
 pub struct ThemeUpdatesResponse {
     pub updates: Vec<ThemeUpdateInfo>,
-}
-
-/// Store theme info
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StoreThemeInfo {
-    pub slug: String,
-    pub name: String,
-    pub version: String,
-    pub description: Option<String>,
-    pub author: Option<String>,
-    pub github_url: Option<String>,
-    pub external_url: Option<String>,
-    pub license_type: String,
-    pub price_info: Option<String>,
-    pub download_source: String,
-    pub download_count: i64,
-    pub avg_rating: Option<f64>,
-    pub rating_count: Option<i64>,
-    pub tags: Vec<String>,
-    pub installed: bool,
-}
-
-/// Theme store response
-#[derive(Debug, Serialize)]
-pub struct ThemeStoreResponse {
-    pub themes: Vec<StoreThemeInfo>,
-}
-
-/// Store API item (matches store external API response)
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct StoreApiItem {
-    slug: String,
-    name: String,
-    description: String,
-    #[serde(default)]
-    cover_image: String,
-    author: String,
-    version: String,
-    github_url: Option<String>,
-    external_url: Option<String>,
-    license_type: String,
-    price_info: Option<String>,
-    download_source: String,
-    download_count: i64,
-    #[serde(default)]
-    tags: Vec<String>,
-    #[serde(default)]
-    updated_at: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct StoreApiListResponse {
-    items: Vec<StoreApiItem>,
-    total: i64,
-    page: i64,
-    per_page: i64,
 }
 
 /// GET /api/v1/admin/themes - List available themes
@@ -306,78 +248,6 @@ pub async fn switch_theme(
         i18n: theme_info.as_ref().and_then(|i| i.i18n.clone()),
         has_settings: theme_info.as_ref().map(|i| i.has_settings).unwrap_or(false),
     }))
-}
-
-/// GET /api/v1/admin/themes/store - Get theme store from Noteva Store API
-#[axum::debug_handler]
-pub async fn get_theme_store(
-    State(state): State<AppState>,
-    _user: AuthenticatedUser,
-) -> Result<Json<ThemeStoreResponse>, ApiError> {
-    let store_url = state
-        .store_url
-        .as_deref()
-        .unwrap_or("https://store.noteva.org");
-
-    let client = reqwest::Client::builder()
-        .user_agent("Noteva")
-        .timeout(std::time::Duration::from_secs(15))
-        .no_proxy()
-        .build()
-        .map_err(|e| ApiError::internal_error(format!("HTTP client error: {}", e)))?;
-
-    let url = format!("{}/api/v1/store/themes?per_page=100", store_url);
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to fetch store: {}", e)))?;
-
-    if !response.status().is_success() {
-        return Ok(Json(ThemeStoreResponse { themes: vec![] }));
-    }
-
-    let store_data: StoreApiListResponse = response
-        .json()
-        .await
-        .map_err(|e| ApiError::internal_error(format!("Failed to parse store response: {}", e)))?;
-
-    // Get installed themes
-    let installed_names: std::collections::HashSet<String> = {
-        let theme_engine = state
-            .theme_engine
-            .read()
-            .map_err(|e| ApiError::internal_error(format!("Lock error: {}", e)))?;
-        theme_engine
-            .list_themes()
-            .iter()
-            .map(|t| t.name.clone())
-            .collect()
-    };
-
-    let themes: Vec<StoreThemeInfo> = store_data
-        .items
-        .into_iter()
-        .map(|item| StoreThemeInfo {
-            installed: installed_names.contains(&item.slug),
-            slug: item.slug,
-            name: item.name,
-            version: item.version,
-            description: Some(item.description),
-            author: Some(item.author),
-            github_url: item.github_url,
-            external_url: item.external_url,
-            license_type: item.license_type,
-            price_info: item.price_info,
-            download_source: item.download_source,
-            download_count: item.download_count,
-            avg_rating: None,
-            rating_count: None,
-            tags: item.tags,
-        })
-        .collect();
-
-    Ok(Json(ThemeStoreResponse { themes }))
 }
 
 /// GET /api/v1/admin/themes/updates - Check for theme updates from each theme repository

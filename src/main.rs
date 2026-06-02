@@ -212,7 +212,6 @@ async fn main() -> Result<()> {
         wasm_runtime: wasm_runtime.clone(),
         wasm_registry: wasm_registry.clone(),
         two_factor_challenges,
-        store_url: config.store_url.clone(),
     };
 
     // Start rate limiter cleanup task (runs every 5 minutes)
