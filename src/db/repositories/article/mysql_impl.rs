@@ -76,7 +76,7 @@ pub(super) async fn create_article_mysql(
 pub(super) async fn get_article_by_id_mysql(pool: &MySqlPool, id: i64) -> Result<Option<Article>> {
     let row = sqlx::query(
         r#"
-        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at
+        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at
         FROM articles
         WHERE id = ?
         "#,
@@ -98,7 +98,7 @@ pub(super) async fn get_article_by_slug_mysql(
 ) -> Result<Option<Article>> {
     let row = sqlx::query(
         r#"
-        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at
+        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at
         FROM articles
         WHERE slug = ?
         "#,
@@ -121,7 +121,7 @@ pub(super) async fn list_articles_mysql(
     sort_by: ArticleSortBy,
 ) -> Result<Vec<Article>> {
     let query = format!(
-        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at \
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at \
          FROM articles ORDER BY {} LIMIT ? OFFSET ?",
         sort_by.order_by_sql()
     );
@@ -211,7 +211,7 @@ pub(super) async fn list_articles_by_category_mysql(
     sort_by: ArticleSortBy,
 ) -> Result<Vec<Article>> {
     let query = format!(
-        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at \
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at \
          FROM articles WHERE category_id = ? ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?",
         sort_by.order_by_sql()
     );
@@ -234,7 +234,7 @@ pub(super) async fn list_articles_by_tag_mysql(
     sort_by: ArticleSortBy,
 ) -> Result<Vec<Article>> {
     let query = format!(
-        "SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order, a.scheduled_at \
+        "SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order, a.meta, a.scheduled_at \
          FROM articles a INNER JOIN article_tags at ON a.id = at.article_id \
          WHERE at.tag_id = ? ORDER BY a.is_pinned DESC, a.pin_order ASC, {} LIMIT ? OFFSET ?",
         sort_by.order_by_sql()
@@ -257,7 +257,7 @@ pub(super) async fn list_published_articles_mysql(
     sort_by: ArticleSortBy,
 ) -> Result<Vec<Article>> {
     let query = format!(
-        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at \
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at \
          FROM articles WHERE status = 'published' ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?",
         sort_by.order_by_sql()
     );
@@ -287,7 +287,7 @@ pub(super) async fn list_published_articles_by_category_ids_mysql(
         .collect::<Vec<_>>()
         .join(", ");
     let query = format!(
-        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at \
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at \
          FROM articles WHERE status = 'published' AND category_id IN ({}) ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?",
         placeholders,
         sort_by.order_by_sql()
@@ -314,7 +314,7 @@ pub(super) async fn list_published_articles_by_tag_mysql(
     sort_by: ArticleSortBy,
 ) -> Result<Vec<Article>> {
     let query = format!(
-        "SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order, a.scheduled_at \
+        "SELECT a.id, a.slug, a.title, a.content, a.content_html, a.author_id, a.category_id, a.status, a.published_at, a.created_at, a.updated_at, a.view_count, a.like_count, a.comment_count, a.thumbnail, a.is_pinned, a.pin_order, a.meta, a.scheduled_at \
          FROM articles a INNER JOIN article_tags at ON a.id = at.article_id \
          WHERE at.tag_id = ? AND a.status = 'published' ORDER BY a.is_pinned DESC, a.pin_order ASC, {} LIMIT ? OFFSET ?",
         sort_by.order_by_sql()
@@ -343,7 +343,7 @@ pub(super) async fn list_articles_by_status_mysql(
         ""
     };
     let query = format!(
-        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at \
+        "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at \
          FROM articles WHERE status = ? ORDER BY {}{} LIMIT ? OFFSET ?",
         order_prefix,
         sort_by.order_by_sql()
@@ -373,13 +373,13 @@ pub(super) async fn search_articles_mysql(
     let rows = if use_ft {
         let query = if published_only {
             format!(
-                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at \
+                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at \
                  FROM articles WHERE status = 'published' AND MATCH(title, content) AGAINST(? IN BOOLEAN MODE) \
                  ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?", order
             )
         } else {
             format!(
-                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at \
+                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at \
                  FROM articles WHERE MATCH(title, content) AGAINST(? IN BOOLEAN MODE) \
                  ORDER BY {} LIMIT ? OFFSET ?", order
             )
@@ -395,13 +395,13 @@ pub(super) async fn search_articles_mysql(
         let search_pattern = format!("%{}%", keyword);
         let query = if published_only {
             format!(
-                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at \
+                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at \
                  FROM articles WHERE status = 'published' AND (title LIKE ? OR content LIKE ?) \
                  ORDER BY is_pinned DESC, pin_order ASC, {} LIMIT ? OFFSET ?", order
             )
         } else {
             format!(
-                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at \
+                "SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at \
                  FROM articles WHERE title LIKE ? OR content LIKE ? \
                  ORDER BY {} LIMIT ? OFFSET ?", order
             )
@@ -463,7 +463,7 @@ pub(super) async fn list_scheduled_due_articles_mysql(
 ) -> Result<Vec<Article>> {
     let rows = sqlx::query(
         r#"
-        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, scheduled_at
+        SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta, scheduled_at
         FROM articles
         WHERE status = 'draft' AND scheduled_at IS NOT NULL AND scheduled_at <= ?
         "#,

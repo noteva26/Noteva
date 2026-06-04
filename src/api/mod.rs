@@ -20,6 +20,7 @@ mod archive;
 pub mod articles;
 pub mod auth;
 pub mod cache;
+pub mod captcha;
 pub mod categories;
 pub mod comments;
 pub mod common;
@@ -200,6 +201,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .nest("/auth", auth::public_router())
         .nest("/auth/2fa", two_factor::public_router())
         .nest("/site", site::router())
+        .route("/captcha/config", axum::routing::get(captcha::get_config))
         .nest(
             "/theme",
             Router::new()

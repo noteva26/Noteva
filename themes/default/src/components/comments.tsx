@@ -46,6 +46,12 @@ interface CommentFormState {
   content: string;
 }
 
+interface CaptchaState {
+  provider: "none" | "turnstile" | "hcaptcha";
+  siteKey: string;
+  enabled: boolean;
+}
+
 interface OptimisticCommentAction {
   parentId?: number;
   comment: Comment;
@@ -128,11 +134,16 @@ function getSubmitErrorMessage(error: unknown, fallback: string) {
 export function Comments({ articleId, authorId }: CommentsProps) {
   const { t } = useTranslation();
   const mountedRef = useRef(false);
+  const captchaContainerRef = useRef<HTMLDivElement>(null);
   const [user, setUser] = useState<CurrentUser>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyTo, setReplyTo] = useState<number | null>(null);
+  const [captcha, setCaptcha] = useState<CaptchaState | null>(null);
+  const [captchaReady, setCaptchaReady] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaRenderKey, setCaptchaRenderKey] = useState(0);
   const [isSubmitting, startSubmitTransition] = useTransition();
   const [optimisticComments, addOptimisticComment] = useOptimistic(
     comments,
@@ -182,6 +193,110 @@ export function Comments({ articleId, authorId }: CommentsProps) {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadCaptcha = async () => {
+      const Noteva = await waitForNoteva();
+      if (!active || !mountedRef.current || !Noteva?.captcha) return;
+
+      try {
+        const config = await Noteva.captcha.getConfig();
+        if (!active || !mountedRef.current) return;
+
+        setCaptcha({
+          provider: config.provider,
+          siteKey: config.siteKey,
+          enabled: Boolean(config.enabled && config.siteKey),
+        });
+      } catch {
+        if (active && mountedRef.current) {
+          setCaptcha(null);
+        }
+      }
+    };
+
+    void loadCaptcha();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !captcha?.enabled ||
+      captcha.provider === "none" ||
+      !captchaContainerRef.current
+    ) {
+      setCaptchaReady(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const provider =
+      captcha.provider === "turnstile" || captcha.provider === "hcaptcha"
+        ? captcha.provider
+        : undefined;
+
+    if (!provider) {
+      setCaptchaReady(false);
+      return undefined;
+    }
+
+    const renderCaptcha = async () => {
+      const Noteva = await waitForNoteva();
+      if (cancelled || !Noteva?.captcha || !captchaContainerRef.current) return;
+
+      try {
+        await Noteva.captcha.render(captchaContainerRef.current, {
+          siteKey: captcha.siteKey,
+          provider,
+          callback: (token: string) => {
+            setCaptchaToken(token);
+            setCaptchaReady(true);
+          },
+          expiredCallback: () => {
+            setCaptchaToken("");
+            setCaptchaReady(false);
+          },
+          errorCallback: () => {
+            setCaptchaToken("");
+            setCaptchaReady(false);
+          },
+        });
+        if (!cancelled && mountedRef.current) setCaptchaReady(true);
+      } catch {
+        if (!cancelled && mountedRef.current) {
+          setCaptchaReady(false);
+          toast.error(t("comment.captchaLoadFailed"));
+        }
+      }
+    };
+
+    void renderCaptcha();
+
+    return () => {
+      cancelled = true;
+      void waitForNoteva().then((Noteva) => {
+        if (Noteva?.captcha && captchaContainerRef.current) {
+          Noteva.captcha.destroy(captchaContainerRef.current);
+        }
+      });
+    };
+  }, [captcha?.enabled, captcha?.provider, captcha?.siteKey, captchaRenderKey, t]);
+
+  const resetCaptcha = useCallback(async () => {
+    if (!captcha?.enabled) return;
+
+    const Noteva = await waitForNoteva();
+    if (!Noteva?.captcha || !captchaContainerRef.current) return;
+
+    Noteva.captcha.reset(captchaContainerRef.current);
+    setCaptchaToken("");
+    setCaptchaRenderKey((current) => current + 1);
+  }, [captcha?.enabled]);
 
   const loadComments = useCallback(async () => {
     const Noteva = await waitForNoteva();
@@ -237,6 +352,18 @@ export function Comments({ articleId, authorId }: CommentsProps) {
     const Noteva = await waitForNoteva();
     if (!Noteva) return;
 
+    let submittedCaptchaToken: string | undefined;
+    if (captcha?.enabled) {
+      submittedCaptchaToken =
+        captchaToken ||
+        Noteva.captcha?.getToken(captchaContainerRef.current || undefined) ||
+        undefined;
+      if (!submittedCaptchaToken) {
+        toast.error(t("comment.captchaRequired"));
+        return;
+      }
+    }
+
     startSubmitTransition(async () => {
       addOptimisticComment({
         parentId,
@@ -264,14 +391,17 @@ export function Comments({ articleId, authorId }: CommentsProps) {
           parentId,
           nickname: !isAdmin ? submitted.nickname : undefined,
           email: !isAdmin ? submitted.email || undefined : undefined,
+          captchaToken: submittedCaptchaToken,
         });
         toast.success(t("comment.submitSuccess"));
         setForm(EMPTY_FORM);
         setReplyTo(null);
+        await resetCaptcha();
         await loadComments();
 
       } catch (error) {
         setComments((current) => [...current]);
+        await resetCaptcha();
         toast.error(getSubmitErrorMessage(error, t("comment.submitFailed")));
       }
     });
@@ -495,7 +625,20 @@ export function Comments({ articleId, authorId }: CommentsProps) {
               })}
             </p>
           )}
-          <Button onClick={() => handleSubmit()} disabled={isSubmitting}>
+          {captcha?.enabled ? (
+            <div className="min-h-16">
+              <div ref={captchaContainerRef} />
+              {!captchaReady ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {t("comment.captchaLoading")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          <Button
+            onClick={() => handleSubmit()}
+            disabled={isSubmitting || (Boolean(captcha?.enabled) && !captchaReady)}
+          >
             {isSubmitting ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (

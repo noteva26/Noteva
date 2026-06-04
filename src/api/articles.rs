@@ -61,6 +61,8 @@ pub struct CreateArticleRequest {
     pub title: String,
     pub content: String,
     #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
     pub slug: String,
     pub category_id: Option<i64>,
     #[serde(default)]
@@ -76,6 +78,8 @@ pub struct CreateArticleRequest {
 pub struct UpdateArticleRequest {
     pub title: Option<String>,
     pub content: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
     pub slug: Option<String>,
     pub category_id: Option<i64>,
     pub status: Option<String>,
@@ -711,6 +715,21 @@ pub async fn create_article(
             _ => ApiError::internal_error(e.to_string()),
         })?;
 
+    if let Some(summary) = body.summary {
+        state
+            .article_service
+            .set_summary(article.id, Some(summary))
+            .await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    }
+
+    let article = state
+        .article_service
+        .get_by_id(article.id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?
+        .unwrap_or(article);
+
     Ok((StatusCode::CREATED, Json(article.into())))
 }
 
@@ -780,6 +799,21 @@ pub async fn update_article(
             }
             _ => ApiError::internal_error(e.to_string()),
         })?;
+
+    if let Some(summary) = body.summary {
+        state
+            .article_service
+            .set_summary(id, Some(summary))
+            .await
+            .map_err(|e| ApiError::internal_error(e.to_string()))?;
+    }
+
+    let article = state
+        .article_service
+        .get_by_id(id)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?
+        .unwrap_or(article);
 
     Ok(Json(article.into()))
 }

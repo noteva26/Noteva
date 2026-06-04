@@ -52,6 +52,7 @@ pub struct CreateCommentRequest {
     pub nickname: Option<String>,
     pub email: Option<String>,
     pub content: String,
+    pub captcha_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,7 +171,15 @@ pub async fn create_comment(
     ensure_published_article(&state, req.article_id).await?;
     ensure_parent_comment(&state, req.article_id, req.parent_id).await?;
 
-    let ip = Some(extract_client_ip(&headers, addr));
+    let client_ip = extract_client_ip(&headers, addr);
+    crate::api::captcha::verify_comment_token(
+        &state,
+        req.captcha_token.as_deref(),
+        Some(&client_ip),
+    )
+    .await?;
+
+    let ip = Some(client_ip);
     let ua = headers
         .get("user-agent")
         .and_then(|v| v.to_str().ok())

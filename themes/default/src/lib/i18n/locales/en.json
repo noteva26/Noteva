@@ -118,7 +118,10 @@
     "unliked": "Unliked",
     "likeFailed": "Failed to like",
     "authorTag": "Author",
-    "postingAsAdmin": "Posting as {name}"
+    "postingAsAdmin": "Posting as {name}",
+    "captchaLoading": "Loading verification...",
+    "captchaRequired": "Please complete the verification first",
+    "captchaLoadFailed": "Failed to load verification"
   },
   "theme": {
     "light": "Light",

@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "sections": [
+    {
+      "id": "music",
+      "title": {
+        "zh-CN": "音乐播放器",
+        "en": "Music Player"
+      },
+      "description": {
+        "zh-CN": "在默认主题首页显示一个简洁的音乐播放器。",
+        "en": "Show a compact music player on the default theme home page."
+      },
+      "fields": [
+        {
+          "id": "music_enabled",
+          "type": "switch",
+          "label": {
+            "zh-CN": "启用播放器",
+            "en": "Enable player"
+          },
+          "default": false
+        },
+        {
+          "id": "music_label",
+          "type": "text",
+          "label": {
+            "zh-CN": "标签",
+            "en": "Label"
+          },
+          "default": "Now Playing"
+        },
+        {
+          "id": "music_title",
+          "type": "text",
+          "label": {
+            "zh-CN": "标题",
+            "en": "Title"
+          },
+          "default": ""
+        },
+        {
+          "id": "music_artist",
+          "type": "text",
+          "label": {
+            "zh-CN": "作者 / 专辑",
+            "en": "Artist / Album"
+          },
+          "default": ""
+        },
+        {
+          "id": "music_cover",
+          "type": "text",
+          "label": {
+            "zh-CN": "封面 URL",
+            "en": "Cover URL"
+          },
+          "default": ""
+        },
+        {
+          "id": "music_src",
+          "type": "text",
+          "label": {
+            "zh-CN": "音频 URL",
+            "en": "Audio URL"
+          },
+          "default": ""
+        }
+      ]
+    }
+  ]
+}

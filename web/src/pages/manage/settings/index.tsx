@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useSearchParams } from "react-router-dom";
 import { adminApi, authApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
@@ -27,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Settings, User, MessageSquare, Loader2, Download, AlertCircle, Link, Code, Database, Upload, FileText, Shield, ShieldCheck, ShieldOff, Eye } from "lucide-react";
+import { Settings, User, Loader2, Download, AlertCircle, Link, Code, Database, Upload, FileText, Shield, ShieldCheck, ShieldOff, Eye, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import { getApiErrorMessage } from "@/lib/api-error";
@@ -36,6 +37,36 @@ import { getApiErrorMessage } from "@/lib/api-error";
 const PERMALINK_OPTIONS = [
   { value: "/posts/{slug}", label: "/posts/{slug}", example: "/posts/hello-world" },
   { value: "/posts/{id}", label: "/posts/{id}", example: "/posts/42" },
+];
+
+const DEFAULT_AI_PROMPTS = {
+  system:
+    "You are a concise blog writing assistant. Return only the requested result, without explanations.",
+  title:
+    "Generate one clear blog post title for this Markdown content:\n\n{{content}}",
+  slug:
+    "Generate one lowercase URL slug using only letters, numbers and hyphens. Title: {{title}}\nCurrent slug: {{slug}}",
+  summary:
+    "Write a concise article summary in the same language as the article. Keep it under 120 Chinese characters or 80 English words.\n\nTitle: {{title}}\n\nContent:\n{{content}}",
+  formatMarkdown:
+    "Clean up only Markdown formatting and structure. Do not change, rewrite, add, remove, or translate any wording. Return the full Markdown only.\n\n{{content}}",
+  improveWriting:
+    "Improve the expression and readability of this article while preserving meaning and Markdown structure. Return the full Markdown only.\n\nTitle: {{title}}\nSummary: {{summary}}\n\nContent:\n{{content}}",
+};
+
+type AiPromptField =
+  | "titlePrompt"
+  | "slugPrompt"
+  | "summaryPrompt"
+  | "formatMarkdownPrompt"
+  | "improveWritingPrompt";
+
+const AI_PROMPT_FIELDS: Array<[AiPromptField, string]> = [
+  ["titlePrompt", "aiPromptTitle"],
+  ["slugPrompt", "aiPromptSlug"],
+  ["summaryPrompt", "aiPromptSummary"],
+  ["formatMarkdownPrompt", "aiPromptFormatMarkdown"],
+  ["improveWritingPrompt", "aiPromptImproveWriting"],
 ];
 
 
@@ -279,12 +310,13 @@ export default function SettingsPage() {
   const { user, setUser } = useAuthStore();
   const { updateSettings } = useSiteStore();
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [savingSite, startSavingSiteTransition] = useTransition();
-  const [savingComment, startSavingCommentTransition] = useTransition();
   const [savingDisplay, startSavingDisplayTransition] = useTransition();
   const [savingProfile, startSavingProfileTransition] = useTransition();
   const [savingCustomCode, startSavingCustomCodeTransition] = useTransition();
+  const [savingAi, startSavingAiTransition] = useTransition();
 
   const [siteForm, setSiteForm] = useState({
     siteName: "",
@@ -298,9 +330,17 @@ export default function SettingsPage() {
 
 
 
-  const [commentForm, setCommentForm] = useState({
-    commentModeration: false,
-    moderationKeywords: "",
+  const [aiForm, setAiForm] = useState({
+    provider: "openai_chat",
+    apiBase: "",
+    apiKey: "",
+    model: "",
+    systemPrompt: DEFAULT_AI_PROMPTS.system,
+    titlePrompt: DEFAULT_AI_PROMPTS.title,
+    slugPrompt: DEFAULT_AI_PROMPTS.slug,
+    summaryPrompt: DEFAULT_AI_PROMPTS.summary,
+    formatMarkdownPrompt: DEFAULT_AI_PROMPTS.formatMarkdown,
+    improveWritingPrompt: DEFAULT_AI_PROMPTS.improveWriting,
   });
 
   const [displayForm, setDisplayForm] = useState({
@@ -352,9 +392,17 @@ export default function SettingsPage() {
           permalinkStructure: data.permalink_structure || "/posts/{slug}",
         });
 
-        setCommentForm({
-          commentModeration: data.comment_moderation === "true",
-          moderationKeywords: data.moderation_keywords || "",
+        setAiForm({
+          provider: String(data.ai_provider || "openai_chat"),
+          apiBase: String(data.ai_api_base || ""),
+          apiKey: String(data.ai_api_key || ""),
+          model: String(data.ai_model || ""),
+          systemPrompt: String(data.ai_system_prompt || DEFAULT_AI_PROMPTS.system),
+          titlePrompt: String(data.ai_prompt_title || DEFAULT_AI_PROMPTS.title),
+          slugPrompt: String(data.ai_prompt_slug || DEFAULT_AI_PROMPTS.slug),
+          summaryPrompt: String(data.ai_prompt_summary || DEFAULT_AI_PROMPTS.summary),
+          formatMarkdownPrompt: String(data.ai_prompt_format_markdown || DEFAULT_AI_PROMPTS.formatMarkdown),
+          improveWritingPrompt: String(data.ai_prompt_improve_writing || DEFAULT_AI_PROMPTS.improveWriting),
         });
         setDisplayForm({
           showToc: data.show_toc !== "false",
@@ -449,20 +497,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSaveCommentSettings = () => {
-    startSavingCommentTransition(async () => {
-      try {
-        await adminApi.updateSettings({
-          comment_moderation: commentForm.commentModeration ? "true" : "false",
-          moderation_keywords: commentForm.moderationKeywords,
-        });
-        toast.success(t("settings.saveSuccess"));
-      } catch {
-        toast.error(t("settings.saveFailed"));
-      }
-    });
-  };
-
   const handleSaveDisplaySettings = () => {
     startSavingDisplayTransition(async () => {
       try {
@@ -485,6 +519,28 @@ export default function SettingsPage() {
         await adminApi.updateSettings({
           custom_css: customCodeForm.customCss,
           custom_js: customCodeForm.customJs,
+        });
+        toast.success(t("settings.saveSuccess"));
+      } catch {
+        toast.error(t("settings.saveFailed"));
+      }
+    });
+  };
+
+  const handleSaveAiSettings = () => {
+    startSavingAiTransition(async () => {
+      try {
+        await adminApi.updateSettings({
+          ai_provider: aiForm.provider,
+          ai_api_base: aiForm.apiBase,
+          ai_api_key: aiForm.apiKey,
+          ai_model: aiForm.model,
+          ai_system_prompt: aiForm.systemPrompt,
+          ai_prompt_title: aiForm.titlePrompt,
+          ai_prompt_slug: aiForm.slugPrompt,
+          ai_prompt_summary: aiForm.summaryPrompt,
+          ai_prompt_format_markdown: aiForm.formatMarkdownPrompt,
+          ai_prompt_improve_writing: aiForm.improveWritingPrompt,
         });
         toast.success(t("settings.saveSuccess"));
       } catch {
@@ -572,19 +628,29 @@ export default function SettingsPage() {
       </div>
 
       <div>
-        <Tabs defaultValue="general" className="space-y-6">
+        <Tabs
+          defaultValue={searchParams.get("tab") || "general"}
+          onValueChange={(value) => {
+            if (value === "general") {
+              setSearchParams({});
+            } else {
+              setSearchParams({ tab: value });
+            }
+          }}
+          className="space-y-6"
+        >
           <TabsList>
             <TabsTrigger value="general" className="gap-2">
               <Settings className="h-4 w-4" />
               {t("settings.general")}
             </TabsTrigger>
-            <TabsTrigger value="comments" className="gap-2">
-              <MessageSquare className="h-4 w-4" />
-              {t("settings.comments")}
-            </TabsTrigger>
             <TabsTrigger value="account" className="gap-2">
               <User className="h-4 w-4" />
               {t("settings.account")}
+            </TabsTrigger>
+            <TabsTrigger value="ai" className="gap-2">
+              <Sparkles className="h-4 w-4" />
+              {t("settings.aiAssistant")}
             </TabsTrigger>
             <TabsTrigger value="customCode" className="gap-2">
               <Code className="h-4 w-4" />
@@ -758,58 +824,6 @@ export default function SettingsPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="comments" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>{t("settings.commentSettings")}</CardTitle>
-                <CardDescription>{t("settings.commentSettingsDesc")}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {loading ? (
-                  <div className="space-y-4">
-                    <Skeleton className="h-10 w-full" />
-                    <Skeleton className="h-10 w-full" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>{t("settings.commentModeration")}</Label>
-                        <p className="text-sm text-muted-foreground">
-                          {t("settings.commentModerationDesc")}
-                        </p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={commentForm.commentModeration}
-                          onChange={(e) => setCommentForm((f) => ({ ...f, commentModeration: e.target.checked }))}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t("settings.moderationKeywords")}</Label>
-                      <p className="text-sm text-muted-foreground">
-                        {t("settings.moderationKeywordsDesc")}
-                      </p>
-                      <Input
-                        value={commentForm.moderationKeywords}
-                        onChange={(e) => setCommentForm((f) => ({ ...f, moderationKeywords: e.target.value }))}
-                        placeholder={t("settings.moderationKeywordsPlaceholder")}
-                      />
-                    </div>
-                    <Button onClick={handleSaveCommentSettings} disabled={savingComment}>
-                      {savingComment && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                      {t("settings.saveSettings")}
-                    </Button>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           <TabsContent value="account" className="space-y-4">
             <Card>
               <CardHeader>
@@ -908,6 +922,120 @@ export default function SettingsPage() {
 
             {/* Two-Factor Authentication Card */}
             <TwoFactorCard />
+          </TabsContent>
+
+          <TabsContent value="ai" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>{t("settings.aiAssistant")}</CardTitle>
+                <CardDescription>{t("settings.aiAssistantDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {loading ? (
+                  <div className="space-y-4">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full" />
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>{t("settings.aiProvider")}</Label>
+                        <Select
+                          value={aiForm.provider}
+                          onValueChange={(value) =>
+                            setAiForm((form) => ({ ...form, provider: value }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="openai_chat">OpenAI Chat Completions</SelectItem>
+                            <SelectItem value="openai_responses">OpenAI Responses</SelectItem>
+                            <SelectItem value="gemini">Gemini</SelectItem>
+                            <SelectItem value="claude">Claude</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="aiModel">{t("settings.aiModel")}</Label>
+                        <Input
+                          id="aiModel"
+                          value={aiForm.model}
+                          onChange={(event) =>
+                            setAiForm((form) => ({ ...form, model: event.target.value }))
+                          }
+                          placeholder="gpt-4o-mini / gemini-1.5-flash / claude-3-5-sonnet-latest"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="aiApiBase">{t("settings.aiApiBase")}</Label>
+                        <Input
+                          id="aiApiBase"
+                          value={aiForm.apiBase}
+                          onChange={(event) =>
+                            setAiForm((form) => ({ ...form, apiBase: event.target.value }))
+                          }
+                          placeholder="https://api.openai.com/v1"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="aiApiKey">{t("settings.aiApiKey")}</Label>
+                        <Input
+                          id="aiApiKey"
+                          value={aiForm.apiKey}
+                          onChange={(event) =>
+                            setAiForm((form) => ({ ...form, apiKey: event.target.value }))
+                          }
+                          placeholder="API key"
+                          type="password"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="aiSystemPrompt">{t("settings.aiSystemPrompt")}</Label>
+                      <textarea
+                        id="aiSystemPrompt"
+                        className="w-full min-h-[90px] p-3 rounded-md border bg-muted/50 font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                        value={aiForm.systemPrompt}
+                        onChange={(event) =>
+                          setAiForm((form) => ({ ...form, systemPrompt: event.target.value }))
+                        }
+                      />
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {AI_PROMPT_FIELDS.map(([field, labelKey]) => (
+                        <div className="space-y-2" key={field}>
+                          <Label>{t(`settings.${labelKey}`)}</Label>
+                          <textarea
+                            className="w-full min-h-[120px] p-3 rounded-md border bg-muted/50 font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                            value={aiForm[field]}
+                            onChange={(event) =>
+                              setAiForm((form) => ({
+                                ...form,
+                                [field]: event.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    <Button onClick={handleSaveAiSettings} disabled={savingAi}>
+                      {savingAi && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                      {t("settings.saveSettings")}
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="customCode" className="space-y-4">

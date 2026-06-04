@@ -386,13 +386,15 @@
       article.cover_image,
       extractThumbnail(html || content)
     );
-    const excerpt = firstValue(article.excerpt, stripMarkup(content || html).slice(0, 200));
+    const metaSummary = article.meta && typeof article.meta === 'object' ? article.meta.summary : undefined;
+    const excerpt = firstValue(article.summary, article.excerpt, metaSummary, stripMarkup(content || html).slice(0, 200));
     return {
       id: asNumber(article.id),
       slug: article.slug || String(article.id || ''),
       title: article.title || '',
       content,
       html,
+      summary: firstValue(article.summary, excerpt),
       excerpt,
       thumbnail: thumbnail || null,
       coverImage: firstValue(article.coverImage, article.cover_image, thumbnail, null),
@@ -869,6 +871,7 @@
         parent_id: processedData.parentId,
         nickname: processedData.nickname,
         email: processedData.email,
+        captcha_token: processedData.captchaToken,
       });
 
       // 触发评论创建后钩子
@@ -885,6 +888,96 @@
     async recent(limit = 10) {
       const result = await api.get(`/comments/recent`, { limit });
       return asArray(result.comments || result).map(normalizeComment).filter(Boolean);
+    },
+  };
+
+  const captcha = {
+    _config: null,
+    _scriptPromises: {},
+    _widgets: new Map(),
+
+    async getConfig() {
+      if (!this._config) {
+        const config = await api.get('/captcha/config');
+        this._config = {
+          ...config,
+          siteKey: config.siteKey || config.site_key || '',
+          site_key: config.site_key || config.siteKey || '',
+        };
+      }
+      return this._config;
+    },
+
+    async loadScript(provider) {
+      if (this._scriptPromises[provider]) return this._scriptPromises[provider];
+      const src = provider === 'turnstile'
+        ? 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+        : 'https://js.hcaptcha.com/1/api.js?render=explicit';
+      this._scriptPromises[provider] = new Promise((resolve, reject) => {
+        if ((provider === 'turnstile' && window.turnstile) || (provider === 'hcaptcha' && window.hcaptcha)) {
+          resolve();
+          return;
+        }
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.defer = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`Failed to load ${provider} captcha script`));
+        document.head.appendChild(script);
+      });
+      return this._scriptPromises[provider];
+    },
+
+    async render(container, options = {}) {
+      const element = typeof container === 'string' ? document.querySelector(container) : container;
+      if (!element) return null;
+      const config = await this.getConfig();
+      if (!config.enabled) {
+        element.innerHTML = '';
+        return null;
+      }
+      const provider = options.provider || config.provider;
+      const siteKey = options.siteKey || config.siteKey || config.site_key;
+      if (!provider || provider === 'none' || !siteKey) return null;
+      await this.loadScript(provider);
+      const widgetOptions = {
+        sitekey: siteKey,
+        callback: options.callback,
+        'expired-callback': options.expiredCallback,
+        'error-callback': options.errorCallback,
+      };
+      const id = provider === 'turnstile'
+        ? window.turnstile.render(element, widgetOptions)
+        : window.hcaptcha.render(element, widgetOptions);
+      this._widgets.set(element, { provider, id });
+      return id;
+    },
+
+    getToken(container) {
+      const element = typeof container === 'string' ? document.querySelector(container) : container;
+      const widget = element ? this._widgets.get(element) : null;
+      if (!widget) return '';
+      if (widget.provider === 'turnstile' && window.turnstile) return window.turnstile.getResponse(widget.id) || '';
+      if (widget.provider === 'hcaptcha' && window.hcaptcha) return window.hcaptcha.getResponse(widget.id) || '';
+      return '';
+    },
+
+    reset(container) {
+      const element = typeof container === 'string' ? document.querySelector(container) : container;
+      const widget = element ? this._widgets.get(element) : null;
+      if (!widget) return;
+      if (widget.provider === 'turnstile' && window.turnstile) window.turnstile.reset(widget.id);
+      if (widget.provider === 'hcaptcha' && window.hcaptcha) window.hcaptcha.reset(widget.id);
+    },
+
+    destroy(container) {
+      const element = typeof container === 'string' ? document.querySelector(container) : container;
+      const widget = element ? this._widgets.get(element) : null;
+      if (!widget) return;
+      if (widget.provider === 'turnstile' && window.turnstile?.remove) window.turnstile.remove(widget.id);
+      if (widget.provider === 'hcaptcha' && window.hcaptcha?.remove) window.hcaptcha.remove(widget.id);
+      this._widgets.delete(element);
     },
   };
 
@@ -2761,6 +2854,7 @@
     categories,
     tags,
     comments,
+    captcha,
     user: publicUser,
     interactions,
     search,

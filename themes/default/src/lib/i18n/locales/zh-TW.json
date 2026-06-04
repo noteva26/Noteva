@@ -98,7 +98,10 @@
     "unliked": "已取消按讚",
     "likeFailed": "按讚失敗",
     "authorTag": "作者",
-    "postingAsAdmin": "以 {name} 身份發表評論"
+    "postingAsAdmin": "以 {name} 身份發表評論",
+    "captchaLoading": "正在載入驗證...",
+    "captchaRequired": "請先完成驗證",
+    "captchaLoadFailed": "驗證元件載入失敗"
   },
   "theme": {
     "light": "淺色",

@@ -322,6 +322,14 @@ export const adminApi = {
   updateSettings: (data: SiteSettingsInput) =>
     api.put<SiteSettings>("/admin/settings", data),
 
+  aiAssist: (data: {
+    task: "title" | "slug" | "summary" | "format_markdown" | "improve_writing";
+    title?: string;
+    slug?: string;
+    summary?: string;
+    content?: string;
+  }) => api.post<{ result: string }>("/admin/ai/assist", data),
+
   checkUpdate: () =>
     api.get<UpdateCheckResponse>("/admin/update-check", {
       headers: { "Cache-Control": "no-cache" },
@@ -441,6 +449,9 @@ export interface Article {
   title: string;
   content: string;
   content_html: string;
+  summary?: string | null;
+  excerpt?: string | null;
+  meta?: Record<string, unknown> | null;
   status: "draft" | "published" | "archived";
   author_id: number;
   category_id: number;
@@ -465,6 +476,7 @@ export interface CreateArticleInput {
   title: string;
   slug?: string;
   content: string;
+  summary?: string;
   status?: "draft" | "published";
   category_id: number;
   tag_ids?: number[];
@@ -475,6 +487,7 @@ export interface UpdateArticleInput {
   title?: string;
   slug?: string;
   content?: string;
+  summary?: string;
   status?: "draft" | "published" | "archived";
   category_id?: number;
   tag_ids?: number[];

@@ -273,6 +273,7 @@ export default function PostPage() {
     comments: article.commentCount || 0,
   };
   const articleHtml = sanitizeHtml(article.html);
+  const articleSummary = String(article.summary || "").trim();
   const publishedAt = article.publishedAt || "";
   const hasReadableToc =
     siteInfo.showToc &&
@@ -319,6 +320,11 @@ export default function PostPage() {
                 <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{stats.views + 1}</span>
                 <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{stats.comments}</span>
               </div>
+              {articleSummary ? (
+                <div className="article-summary-box mt-6">
+                  {articleSummary}
+                </div>
+              ) : null}
             </header>
 
             <section className="article-reading-surface">

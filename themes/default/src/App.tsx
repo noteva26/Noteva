@@ -3,6 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import PluginSlot from "@/components/plugin-slot";
+import { MusicPlayer } from "@/components/music-player";
 
 import HomePage from "@/pages/home";
 
@@ -44,6 +45,8 @@ export default function App() {
           <Route path="/:slug" element={<CustomPage />} />
         </Routes>
       </Suspense>
+
+      <MusicPlayer />
 
       <Toaster position="top-center" />
 

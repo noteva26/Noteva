@@ -1080,6 +1080,40 @@ impl ArticleService {
         Ok(())
     }
 
+    /// Store the article summary in the built-in meta namespace.
+    pub async fn set_summary(
+        &self,
+        id: i64,
+        summary: Option<String>,
+    ) -> Result<(), ArticleServiceError> {
+        let article = self
+            .get_by_id(id)
+            .await?
+            .ok_or_else(|| ArticleServiceError::NotFound(id.to_string()))?;
+        let mut meta = article.meta.clone();
+        if !meta.is_object() {
+            meta = serde_json::json!({});
+        }
+
+        if let Some(value) = summary
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        {
+            meta.as_object_mut()
+                .expect("article meta should be an object")
+                .insert("summary".to_string(), serde_json::Value::String(value));
+        } else if let Some(object) = meta.as_object_mut() {
+            object.remove("summary");
+        }
+
+        self.repo
+            .replace_meta(id, &meta)
+            .await
+            .context("Failed to update article summary")?;
+        self.invalidate_article_cache(id, &article.slug).await?;
+        Ok(())
+    }
+
     /// Invalidate all article list caches
     ///
     /// Satisfies requirement 1.5: WHEN 文章被创建或更新 THEN Article_Manager SHALL 使相关缓存失�?

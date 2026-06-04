@@ -40,7 +40,7 @@ themes/my-theme/
   "author": "Your Name",
   "repository": "https://github.com/user/my-theme",
   "requires": {
-    "noteva": ">=0.3.2"
+    "noteva": ">=0.3.4"
   }
 }
 ```
@@ -175,6 +175,7 @@ Noteva = {
   categories,
   tags,
   comments,
+  captcha,
   interactions,
   user,
 
@@ -218,6 +219,7 @@ Noteva.pages
 Noteva.categories
 Noteva.tags
 Noteva.comments
+Noteva.captcha
 Noteva.interactions
 Noteva.user
 Noteva.urls
@@ -273,7 +275,7 @@ const site = await Noteva.site.getInfo();
 
 ```ts
 {
-  version: "0.3.2",
+  version: "0.3.4",
   name: "Noteva",
   description: "",
   subtitle: "",
@@ -393,6 +395,8 @@ settings.show_toc === true || settings.show_toc === "true"
 
 公开设置来自 `settings.json` 的默认值叠加数据库保存值。`secret: true` 的字段不会出现在公开接口中。
 
+默认主题的音乐播放器也是通过主题设置读取曲目、封面和显示开关。第三方主题如果要提供音乐播放器，建议同样放在自己的 `settings.json` 中声明公开字段，再通过 `Noteva.theme.getSettings()` 读取；播放器本身属于主题 UI 能力，不应依赖插件集市、后台管理接口或硬编码系统设置。
+
 ## 文章
 
 列表：
@@ -436,6 +440,7 @@ const article = await Noteva.articles.get("hello-world");
   title: "Hello World",
   content: "# Hello",
   html: "<h1>Hello</h1>",
+  summary: "Manual article summary",
   excerpt: "Hello",
   thumbnail: "/uploads/cover.jpg",
   coverImage: "/uploads/cover.jpg",
@@ -458,6 +463,8 @@ const article = await Noteva.articles.get("hello-world");
   toc: []
 }
 ```
+
+文章对象中的 `html` 是已经由后端 Markdown 渲染、shortcode 和平台内容组件处理后的 HTML。`summary` 是后台文章编辑器中的手动摘要；如果作者填写了摘要，主题的文章卡片和文章详情页应优先展示 `summary`，没有摘要时再回退到 `excerpt` 或由 `content` 截取。`excerpt` 当前会优先使用摘要内容，适合作为列表卡片的兜底短文本。
 
 相关文章：
 
@@ -539,9 +546,58 @@ const comment = await Noteva.comments.create({
   articleId: article.id,
   content: "Nice post!",
   nickname: "Alice",
-  email: "alice@example.com"
+  email: "alice@example.com",
+  captchaToken
 });
 ```
+
+### 评论验证码
+
+Noteva 0.3.4 起，评论验证码是 Theme Runtime SDK 的稳定能力。后台评论设置如果启用了 Turnstile 或 hCaptcha，公开评论表单必须渲染验证码，并把 token 传给 `Noteva.comments.create()` 的 `captchaToken` 字段：
+
+```ts
+const config = await Noteva.captcha.getConfig();
+
+if (config.enabled) {
+  let captchaToken = "";
+  const container = document.querySelector("#comment-captcha");
+
+  await Noteva.captcha.render(container, {
+    provider: config.provider,
+    siteKey: config.siteKey,
+    theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
+    callback(token) {
+      captchaToken = token;
+    },
+    expiredCallback() {
+      captchaToken = "";
+    },
+    errorCallback() {
+      captchaToken = "";
+    }
+  });
+
+  await Noteva.comments.create({
+    articleId: article.id,
+    content,
+    nickname,
+    email,
+    captchaToken
+  });
+
+  Noteva.captcha.reset(container);
+}
+```
+
+相关方法：
+
+- `Noteva.captcha.getConfig()`：读取公开验证码配置，只返回 `enabled`、`provider` 和 `siteKey`，不会暴露 secret。
+- `Noteva.captcha.render(container, options)`：按配置加载并渲染 Turnstile / hCaptcha。
+- `Noteva.captcha.getToken(container)`：从已渲染组件读取当前 token，可作为 callback 状态的兜底。
+- `Noteva.captcha.reset(container)`：提交成功、提交失败或 token 过期后重置组件。
+- `Noteva.captcha.destroy(container)`：组件卸载时销毁第三方验证码实例。
+
+主题不要根据“当前用户已登录”“Demo 模式”或“管理员身份”跳过验证码显示。只要 `config.enabled` 为 `true`，后端评论接口就会校验 `captchaToken`。
 
 回复评论：
 
@@ -856,6 +912,12 @@ Noteva 0.3.2 起，Markdown 渲染支持这些平台级内容组件：
 [article slug="hello-world" title="Hello World" /]
 
 https://example.com/some-page
+
+[grid]
+![Mountains 1](/uploads/mountains-1.jpg)
+![Mountains 2](/uploads/mountains-2.jpg)
+![Mountains 3](/uploads/mountains-3.jpg)
+[/grid]
 ```
 
 渲染结果会包含稳定类名：
@@ -868,14 +930,18 @@ https://example.com/some-page
 - `.noteva-card-kicker`
 - `.noteva-card-title`
 - `.noteva-card-meta`
+- `.noteva-image-grid`
+- `.noteva-image-grid-item`
+- `.noteva-image-grid-link`
 
 主题应把这些类名当作平台约定处理。默认 SDK 会在 `content_render` 后：
 
 - 给 `.noteva-spoiler` 绑定点击和键盘揭示行为。
 - 按当前 `Noteva.i18n` locale 格式化 `.noteva-date` 和 `.noteva-date-range`。
 - 保持文章卡片和链接卡片为普通可访问链接。
+- 保持 `.noteva-image-grid` 为普通图片/图片链接结构，主题负责响应式网格视觉样式。
 
-主题可以覆盖这些类名的视觉样式，但不建议修改 DOM 结构或重新实现交互逻辑。裸 URL 卡片是静态链接卡片，不会抓取 Open Graph 标题、描述或封面图；主题不要假设这些字段存在。
+主题可以覆盖这些类名的视觉样式，但不建议修改 DOM 结构或重新实现交互逻辑。裸 URL 卡片是静态链接卡片，不会抓取 Open Graph 标题、描述或封面图；主题不要假设这些字段存在。图片网格会带 `data-count`，默认主题使用移动端两列、桌面端三列，并对 1、2、4 张图做更合适的列数处理；第三方主题可以按自己的设计重写 CSS，但应保留图片可点击、alt/title 等基础语义。
 
 代码块和行内代码中的平台语法会保持原样，不会被 shortcode 或内容组件提前渲染。主题不需要额外处理教程示例中的 `[date]`、`[spoiler]`、`@[slug]` 等文本。
 

@@ -17,6 +17,7 @@ const TaxonomyPage = lazy(managePageLoaders.taxonomy);
 const PagesPage = lazy(managePageLoaders.pages);
 const NavPage = lazy(managePageLoaders.nav);
 const CommentsPage = lazy(managePageLoaders.comments);
+const CommentSettingsPage = lazy(managePageLoaders.commentSettings);
 const PluginsPage = lazy(managePageLoaders.plugins);
 const ThemesPage = lazy(managePageLoaders.themes);
 const SecurityPage = lazy(managePageLoaders.security);
@@ -55,6 +56,7 @@ export default function App() {
             <Route path="pages" element={<PagesPage />} />
             <Route path="nav" element={<NavPage />} />
             <Route path="comments" element={<CommentsPage />} />
+            <Route path="comments/settings" element={<CommentSettingsPage />} />
             <Route path="plugins" element={<PluginsPage />} />
             <Route path="themes" element={<ThemesPage />} />
             <Route path="security" element={<SecurityPage />} />

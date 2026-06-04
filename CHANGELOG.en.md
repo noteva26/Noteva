@@ -4,6 +4,25 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.3.4] - 2026-06-04
+
+### Default Theme
+- **Music player moved to a floating collapsed control** - The default theme music player was removed from the homepage content flow and is now a global bottom-right floating control. It defaults to a compact pill, expands on click, reduces visual obstruction while reading, and keeps playback alive when collapsed.
+- **Post summary display restored** - Post pages now render the manual summary below the title metadata and before the body in a subtle bordered lead-in block, so summaries entered in the admin are visible both on article cards and on the detail page.
+- **Comment captcha visibility fixed** - When Turnstile or hCaptcha is enabled, the default theme now always renders the captcha widget in the comment form and waits for it to be ready before submission. This fixes logged-in or demo sessions hiding the captcha while the backend still required a token.
+
+### Admin Dashboard
+- **Comment settings moved into comment moderation** - The comment moderation sidebar now keeps only "All Comments" and "Comment Settings". Comment settings now live at `/manage/comments/settings` as a standalone page instead of inside the general settings tabs.
+- **AI Assistant split into its own settings tab** - AI writing settings were moved out of Custom Code into a dedicated tab. The assistant now supports OpenAI Chat Completions, OpenAI Responses, Gemini, and Claude endpoints, plus configurable system, title, slug, summary, Markdown-formatting, and writing-improvement prompts.
+- **New settings translations completed** - New AI Assistant, captcha, and comment-settings strings were added to every built-in admin locale: Simplified Chinese, Traditional Chinese, English, Japanese, Korean, French, German, Spanish, Brazilian Portuguese, Russian, and Italian.
+
+### Content and Comments
+- **Comment captcha SDK flow completed** - Themes now render captcha through the SDK, store callback tokens, handle expiration and error states, and reset captcha after successful or failed submissions, keeping frontend behavior aligned with backend validation.
+- **AI summary and writing assistance expanded** - The backend AI assist endpoint now builds provider-specific request payloads and reads custom prompts from settings, allowing title, slug, summary, and content-improvement actions to work with more model providers.
+
+### Build & Version
+- **Version unified to 0.3.4** - Updated the Rust crate, Cargo.lock, frontend packages, default theme, README version badge, and development metadata.
+
 ## [v0.3.3] - 2026-06-02
 
 ### Default Theme

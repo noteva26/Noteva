@@ -1,6 +1,6 @@
 {
   "name": "noteva",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "description": "A lightweight modern blog system",
   "scripts": {

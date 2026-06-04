@@ -4,6 +4,7 @@ import {
   articlesApi,
   categoriesApi,
   tagsApi,
+  adminApi,
   Category,
   Tag,
   CreateArticleInput,
@@ -20,10 +21,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Save, X, Loader2, Check, Clock, RotateCcw } from "lucide-react";
+import { ArrowLeft, Save, X, Loader2, Check, Clock, RotateCcw, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import type { MarkdownEditorRef } from "@/components/ui/markdown-editor";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 const MarkdownEditor = lazy(() => import("@/components/ui/markdown-editor"));
 
@@ -54,6 +56,7 @@ type ArticleSubmitStatus = "draft" | "published";
 interface ArticleFormState {
   title: string;
   slug: string;
+  summary: string;
   content: string;
   status: ArticleSubmitStatus;
   category_id: number | null;
@@ -72,6 +75,10 @@ type SaveState =
   | { type: "error"; message: string; submittedAt: number };
 
 const INITIAL_SAVE_STATE: SaveState = { type: "idle" };
+
+function getAiErrorMessage(error: unknown) {
+  return getApiErrorMessage(error, "AI assistant is not configured or request failed");
+}
 
 function createDraftFingerprint(form: ArticleFormState, selectedTags: number[]) {
   return JSON.stringify({
@@ -95,6 +102,7 @@ export default function NewArticlePage() {
   const [form, setForm] = useState<ArticleFormState>({
     title: "",
     slug: "",
+    summary: "",
     content: "",
     status: "draft",
     category_id: null as number | null,
@@ -160,7 +168,7 @@ export default function NewArticlePage() {
       try {
         const editorContent = editorRef.current?.getValue() || form.content;
         localStorage.setItem(DRAFT_KEY, JSON.stringify({
-          title: form.title, slug: form.slug, content: editorContent,
+          title: form.title, slug: form.slug, summary: form.summary, content: editorContent,
           category_id: form.category_id, scheduled_at: form.scheduled_at,
           selectedTags,
         }));
@@ -190,6 +198,7 @@ export default function NewArticlePage() {
           title: currentForm.title,
           slug: currentForm.slug || generateSlug(currentForm.title),
           content: currentForm.content,
+          summary: currentForm.summary,
           status: submitStatus,
           category_id: currentForm.category_id,
           tag_ids: selectedTags,
@@ -288,6 +297,30 @@ export default function NewArticlePage() {
     setForm((f) => ({ ...f, title, slug: generateSlug(title) }));
   };
 
+  const runAi = async (task: "title" | "slug" | "summary" | "format_markdown" | "improve_writing") => {
+    const content = editorRef.current?.getValue() ?? form.content;
+    try {
+      const { data } = await adminApi.aiAssist({
+        task,
+        title: form.title,
+        slug: form.slug,
+        summary: form.summary,
+        content,
+      });
+      const result = data.result.trim();
+      if (!result) return;
+      if (task === "title") setForm((f) => ({ ...f, title: result, slug: f.slug || generateSlug(result) }));
+      if (task === "slug") setForm((f) => ({ ...f, slug: result }));
+      if (task === "summary") setForm((f) => ({ ...f, summary: result }));
+      if (task === "format_markdown" || task === "improve_writing") {
+        editorRef.current?.setValue(result);
+        setForm((f) => ({ ...f, content: result }));
+      }
+    } catch (error) {
+      toast.error(getAiErrorMessage(error));
+    }
+  };
+
   const toggleTag = (tagId: number) => {
     setSelectedTags((prev) =>
       prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
@@ -344,14 +377,51 @@ export default function NewArticlePage() {
         <div className="lg:col-span-2 space-y-4">
           <div className="space-y-2">
             <Label htmlFor="title">{t("article.title")}</Label>
-            <Input id="title" placeholder={t("article.title")} value={form.title} onChange={(e) => handleTitleChange(e.target.value)} />
+            <div className="flex gap-2">
+              <Input id="title" placeholder={t("article.title")} value={form.title} onChange={(e) => handleTitleChange(e.target.value)} />
+              <Button type="button" variant="outline" size="icon" onClick={() => runAi("title")} title="AI">
+                <Wand2 className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="slug">{t("common.slug")}</Label>
-            <Input id="slug" placeholder="url-friendly-slug" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))} />
+            <div className="flex gap-2">
+              <Input id="slug" placeholder="url-friendly-slug" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))} />
+              <Button type="button" variant="outline" size="icon" onClick={() => runAi("slug")} title="AI">
+                <Wand2 className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           <div className="space-y-2">
-            <Label>{t("article.content")}</Label>
+            <Label htmlFor="summary">摘要</Label>
+            <div className="flex gap-2">
+              <textarea
+                id="summary"
+                className="min-h-24 flex-1 rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={form.summary}
+                onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
+                placeholder="可选，填写后首页文章卡片优先显示摘要"
+              />
+              <Button type="button" variant="outline" size="icon" onClick={() => runAi("summary")} title="AI">
+                <Wand2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label>{t("article.content")}</Label>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => runAi("format_markdown")}>
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  Markdown
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => runAi("improve_writing")}>
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  优化表述
+                </Button>
+              </div>
+            </div>
             {dataReady ? (
               <Suspense fallback={<EditorFallback />}>
                 <MarkdownEditor

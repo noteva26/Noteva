@@ -681,7 +681,7 @@ impl MarkdownRenderer {
 
             if in_grid {
                 grid_original.push_str(line);
-                if trimmed == "[/grid]" {
+                if Self::is_image_grid_close_marker(trimmed) {
                     if let Some(grid_html) = Self::render_image_grid_block(&grid_content) {
                         let index = grids.len();
                         let placeholder = Self::image_grid_placeholder(index);
@@ -715,7 +715,7 @@ impl MarkdownRenderer {
                 continue;
             }
 
-            if trimmed == "[grid]" {
+            if Self::is_image_grid_open_marker(trimmed) {
                 in_grid = true;
                 grid_original.push_str(line);
                 continue;
@@ -729,6 +729,16 @@ impl MarkdownRenderer {
         }
 
         (output, grids)
+    }
+
+    fn is_image_grid_open_marker(trimmed: &str) -> bool {
+        trimmed == "[grid]"
+            || (trimmed.starts_with("[image-grid")
+                && (trimmed.ends_with(']') || trimmed.ends_with("/]")))
+    }
+
+    fn is_image_grid_close_marker(trimmed: &str) -> bool {
+        trimmed == "[/grid]" || trimmed == "[/image-grid]"
     }
 
     fn markdown_fence_start(trimmed_line: &str) -> Option<(char, usize)> {

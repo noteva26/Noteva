@@ -543,7 +543,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 inlineCode: () => v() && wrapSelection(v()!, "`", "`"),
                 link: () => v() && wrapSelection(v()!, "[", "](url)"),
                 table: () => v() && insertText(v()!, "\n| Header | Header |\n| ------ | ------ |\n| Cell   | Cell   |\n"),
-                imageGrid: () => v() && wrapSelection(v()!, "\n[grid]\n", "\n[/grid]\n"),
+                imageGrid: () => v() && wrapSelection(v()!, "\n[image-grid layout=\"auto\"]\n", "\n[/image-grid]\n"),
                 spoiler: () => v() && wrapSelection(v()!, "[spoiler]", "[/spoiler]"),
                 date: () => v() && insertText(v()!, "[date=2026-05-30 time=20:00 timezone=Asia/Shanghai]"),
                 dateRange: () => v() && insertText(v()!, "[date-range from=2026-05-30 to=2026-06-02 timezone=Asia/Shanghai]"),
@@ -714,6 +714,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                         {contentMenuOpen && (
                             <div className="absolute top-full left-0 mt-1 z-50 bg-popover border rounded-md shadow-md py-1 min-w-[190px]">
                                 {[
+                                    { label: i18nT("editor.imageGrid"), action: tb.imageGrid },
                                     { label: i18nT("editor.spoiler"), action: tb.spoiler },
                                     { label: i18nT("editor.date"), action: tb.date },
                                     { label: i18nT("editor.dateRange"), action: tb.dateRange },

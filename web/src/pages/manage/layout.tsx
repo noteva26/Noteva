@@ -28,6 +28,7 @@ import {
   MessageSquare,
   Shield,
   HardDrive,
+  ChevronDown,
 } from "lucide-react";
 
 export default function ManageLayout() {
@@ -45,7 +46,15 @@ export default function ManageLayout() {
     { href: "/manage/taxonomy", label: `${t("manage.categories")} / ${t("manage.tags")}`, icon: FolderTree },
     { href: "/manage/pages", label: t("manage.pages"), icon: FileCode },
     { href: "/manage/nav", label: t("manage.nav"), icon: Navigation },
-    { href: "/manage/comments", label: t("manage.comments"), icon: MessageSquare },
+    {
+      href: "/manage/comments",
+      label: t("manage.comments"),
+      icon: MessageSquare,
+      children: [
+        { href: "/manage/comments", label: t("comment.allComments") },
+        { href: "/manage/comments/settings", label: t("settings.commentSettings") },
+      ],
+    },
     { href: "/manage/files", label: t("manage.files"), icon: HardDrive },
     { href: "/manage/plugins", label: t("manage.plugins"), icon: Puzzle },
     { href: "/manage/themes", label: t("manage.themes"), icon: Palette },
@@ -199,8 +208,23 @@ export default function ManageLayout() {
                     aria-current={isActive ? "page" : undefined}
                   >
                     <item.icon className="h-4 w-4" />
-                    {item.label}
+                    <span className="flex-1">{item.label}</span>
+                    {"children" in item && item.children ? <ChevronDown className="h-3.5 w-3.5 opacity-70" /> : null}
                   </Link>
+                  {"children" in item && item.children && isActive ? (
+                    <div className="mt-1 space-y-1 pl-7">
+                      {item.children.map((child) => (
+                        <Link
+                          key={child.href}
+                          to={child.href}
+                          className="block rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                          onClick={() => setSidebarOpen(false)}
+                        >
+                          {child.label}
+                        </Link>
+                      ))}
+                    </div>
+                  ) : null}
                 </motion.div>
               );
             })}

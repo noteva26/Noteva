@@ -11,6 +11,7 @@
 //! - 5.3: System configuration
 //! - 6.1: Theme switching
 
+mod ai;
 mod backup;
 mod comments;
 mod dashboard;
@@ -62,6 +63,8 @@ pub fn router() -> Router<AppState> {
         // Site settings
         .route("/settings", get(settings::get_settings))
         .route("/settings", put(settings::update_settings))
+        // AI assistant
+        .route("/ai/assist", post(ai::assist))
         // Comment management
         .route("/comments", get(list_comments))
         .route("/comments/pending", get(list_pending_comments))

@@ -4,6 +4,7 @@ import {
   articlesApi,
   categoriesApi,
   tagsApi,
+  adminApi,
   Category,
   Tag,
   UpdateArticleInput,
@@ -21,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Save, X, Trash2, Pin, Loader2, Check, Clock } from "lucide-react";
+import { ArrowLeft, Save, X, Trash2, Pin, Loader2, Check, Clock, Wand2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,6 +37,7 @@ import {
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import type { MarkdownEditorRef } from "@/components/ui/markdown-editor";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 const MarkdownEditor = lazy(() => import("@/components/ui/markdown-editor"));
 
@@ -65,6 +67,7 @@ type ArticleSubmitStatus = "draft" | "published";
 interface ArticleFormState {
   title: string;
   slug: string;
+  summary: string;
   content: string;
   status: ArticleStatus;
   category_id: number;
@@ -85,6 +88,10 @@ type SaveState =
   | { type: "error"; message: string; submittedAt: number };
 
 const INITIAL_SAVE_STATE: SaveState = { type: "idle" };
+
+function getAiErrorMessage(error: unknown) {
+  return getApiErrorMessage(error, "AI assistant is not configured or request failed");
+}
 
 function createArticleFingerprint(form: ArticleFormState, selectedTags: number[]) {
   return JSON.stringify({
@@ -123,6 +130,7 @@ export default function EditArticlePage() {
   const [form, setForm] = useState<ArticleFormState>({
     title: "",
     slug: "",
+    summary: "",
     content: "",
     status: "draft",
     category_id: 0,
@@ -158,6 +166,7 @@ export default function EditArticlePage() {
         try {
           const data: UpdateArticleInput = {
             title: currentForm.title, slug: currentForm.slug, content: currentForm.content,
+            summary: currentForm.summary,
             status: currentForm.status, category_id: currentForm.category_id,
             tag_ids: selectedTags, thumbnail: currentForm.thumbnail,
             is_pinned: currentForm.is_pinned, pin_order: currentForm.pin_order,
@@ -203,6 +212,7 @@ export default function EditArticlePage() {
         const article = articleRes.data;
         const formData: ArticleFormState = {
           title: article.title, slug: article.slug, content: article.content,
+          summary: article.summary || article.excerpt || (article.meta?.summary as string | undefined) || "",
           status: article.status, category_id: article.category_id,
           thumbnail: article.thumbnail || null,
           is_pinned: article.is_pinned || false, pin_order: article.pin_order || 0,
@@ -240,6 +250,7 @@ export default function EditArticlePage() {
       try {
         const data: UpdateArticleInput = {
           title: currentForm.title, slug: currentForm.slug, content: currentForm.content,
+          summary: currentForm.summary,
           status: submitStatus, category_id: currentForm.category_id,
           tag_ids: selectedTags, thumbnail: currentForm.thumbnail,
           is_pinned: currentForm.is_pinned, pin_order: currentForm.pin_order,
@@ -274,6 +285,30 @@ export default function EditArticlePage() {
 
   const toggleTag = (tagId: number) => {
     setSelectedTags((prev) => prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]);
+  };
+
+  const runAi = async (task: "title" | "slug" | "summary" | "format_markdown" | "improve_writing") => {
+    const content = editorRef.current?.getValue() ?? form.content;
+    try {
+      const { data } = await adminApi.aiAssist({
+        task,
+        title: form.title,
+        slug: form.slug,
+        summary: form.summary,
+        content,
+      });
+      const result = data.result.trim();
+      if (!result) return;
+      if (task === "title") setForm((f) => ({ ...f, title: result }));
+      if (task === "slug") setForm((f) => ({ ...f, slug: result }));
+      if (task === "summary") setForm((f) => ({ ...f, summary: result }));
+      if (task === "format_markdown" || task === "improve_writing") {
+        editorRef.current?.setValue(result);
+        setForm((f) => ({ ...f, content: result }));
+      }
+    } catch (error) {
+      toast.error(getAiErrorMessage(error));
+    }
   };
 
   const handleSubmit = (status: ArticleSubmitStatus) => {
@@ -360,14 +395,51 @@ export default function EditArticlePage() {
         <div className="lg:col-span-2 space-y-4">
           <div className="space-y-2">
             <Label htmlFor="title">{t("article.title")}</Label>
-            <Input id="title" placeholder={t("article.title")} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
+            <div className="flex gap-2">
+              <Input id="title" placeholder={t("article.title")} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
+              <Button type="button" variant="outline" size="icon" onClick={() => runAi("title")} title="AI">
+                <Wand2 className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="slug">{t("article.slug")}</Label>
-            <Input id="slug" placeholder="url-friendly-slug" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))} />
+            <div className="flex gap-2">
+              <Input id="slug" placeholder="url-friendly-slug" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))} />
+              <Button type="button" variant="outline" size="icon" onClick={() => runAi("slug")} title="AI">
+                <Wand2 className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           <div className="space-y-2">
-            <Label>{t("article.content")}</Label>
+            <Label htmlFor="summary">摘要</Label>
+            <div className="flex gap-2">
+              <textarea
+                id="summary"
+                className="min-h-24 flex-1 rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={form.summary}
+                onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
+                placeholder="可选，填写后首页文章卡片优先显示摘要"
+              />
+              <Button type="button" variant="outline" size="icon" onClick={() => runAi("summary")} title="AI">
+                <Wand2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label>{t("article.content")}</Label>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => runAi("format_markdown")}>
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  Markdown
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => runAi("improve_writing")}>
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  优化表述
+                </Button>
+              </div>
+            </div>
             <Suspense fallback={<EditorFallback />}>
               <MarkdownEditor
                 ref={editorRef}

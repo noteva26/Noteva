@@ -32,6 +32,10 @@ pub struct ArticleResponse {
     pub word_count: u64,
     pub reading_time: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,
     pub is_pinned: bool,
     pub pin_order: i32,
@@ -148,6 +152,13 @@ impl From<crate::models::Article> for ArticleResponse {
     fn from(article: crate::models::Article) -> Self {
         let wc = count_words(&article.content);
         let reading_min = (wc as f64 / 275.0).ceil() as u32; // ~275 wpm avg
+        let summary = article
+            .meta
+            .get("summary")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
         Self {
             id: article.id,
             slug: article.slug,
@@ -165,6 +176,8 @@ impl From<crate::models::Article> for ArticleResponse {
             comment_count: article.comment_count,
             word_count: wc,
             reading_time: reading_min.max(1),
+            summary: summary.clone(),
+            excerpt: summary,
             thumbnail: article.thumbnail,
             is_pinned: article.is_pinned,
             pin_order: article.pin_order,

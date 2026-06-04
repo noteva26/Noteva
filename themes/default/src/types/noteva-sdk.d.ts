@@ -40,6 +40,7 @@ interface NotevaArticle {
   title: string;
   content: string;
   html: string;
+  summary?: string | null;
   excerpt: string;
   thumbnail: string | null;
   coverImage: string | null;
@@ -235,6 +236,12 @@ interface NotevaPageContext {
   customPage: NotevaPage | null;
 }
 
+interface NotevaCaptchaConfig {
+  provider: "none" | "turnstile" | "hcaptcha";
+  siteKey: string;
+  enabled: boolean;
+}
+
 interface NotevaSDK {
   version: string;
   sdkVersion: string;
@@ -314,8 +321,29 @@ interface NotevaSDK {
       parentId?: number;
       nickname?: string;
       email?: string;
+      captchaToken?: string;
     }): Promise<NotevaComment>;
     recent(limit?: number): Promise<NotevaComment[]>;
+  };
+
+  captcha: {
+    getConfig(): Promise<NotevaCaptchaConfig>;
+    loadScript(provider: "turnstile" | "hcaptcha"): Promise<void>;
+    render(
+      container: string | HTMLElement,
+      options?: {
+        provider?: "turnstile" | "hcaptcha";
+        siteKey?: string;
+        theme?: "light" | "dark" | "auto";
+        size?: "normal" | "compact";
+        callback?: (token: string) => void;
+        expiredCallback?: () => void;
+        errorCallback?: () => void;
+      }
+    ): Promise<unknown>;
+    getToken(container?: string | HTMLElement): string;
+    reset(container?: string | HTMLElement): void;
+    destroy(container?: string | HTMLElement): void;
   };
 
   interactions: {

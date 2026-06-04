@@ -7,9 +7,7 @@
 //! - `SqlxArticleRepository` implementing the trait for SQLite and MySQL
 //!
 //! Satisfies requirements:
-//! - 1.1: WHEN 用户提交新文章 THEN Article_Manager SHALL 创建文章记录并生成唯一标识符
-//! - 1.2: WHEN 用户请求文章列表 THEN Article_Manager SHALL 返回分页的文章列表，支持按时间排序
-
+//! - 1.1: WHEN 鐢ㄦ埛鎻愪氦鏂版枃绔?THEN Article_Manager SHALL 鍒涘缓鏂囩珷璁板綍骞剁敓鎴愬敮涓€鏍囪瘑绗?//! - 1.2: WHEN 鐢ㄦ埛璇锋眰鏂囩珷鍒楄〃 THEN Article_Manager SHALL 杩斿洖鍒嗛〉鐨勬枃绔犲垪琛紝鏀寔鎸夋椂闂存帓搴?
 use crate::db::DynDatabasePool;
 use crate::models::{
     Article, ArticleSortBy, ArticleStatus, CreateArticleInput, UpdateArticleInput,
@@ -150,6 +148,9 @@ pub trait ArticleRepository: Send + Sync {
         plugin_id: &str,
         data: &serde_json::Value,
     ) -> Result<()>;
+
+    /// Replace article meta JSON with a complete object.
+    async fn replace_meta(&self, article_id: i64, meta: &serde_json::Value) -> Result<()>;
 
     /// List draft articles whose scheduled_at has passed (for auto-publishing)
     async fn list_scheduled_due(&self) -> Result<Vec<Article>>;
@@ -389,6 +390,10 @@ impl ArticleRepository for SqlxArticleRepository {
         dispatch!(self, update_article_meta, article_id, &meta.to_string())
     }
 
+    async fn replace_meta(&self, article_id: i64, meta: &serde_json::Value) -> Result<()> {
+        dispatch!(self, update_article_meta, article_id, &meta.to_string())
+    }
+
     async fn list_scheduled_due(&self) -> Result<Vec<Article>> {
         let now = Utc::now();
         dispatch!(self, list_scheduled_due_articles, &now)
@@ -601,7 +606,7 @@ impl_dual_fn! {
 
 /// SQL for prev/next queries (same for both DBs)
 const PREV_ARTICLE_SQL: &str = r#"
-    SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+    SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta
     FROM articles
     WHERE status = 'published' AND published_at > ? AND id != ?
     ORDER BY published_at ASC
@@ -609,7 +614,7 @@ const PREV_ARTICLE_SQL: &str = r#"
 "#;
 
 const NEXT_ARTICLE_SQL: &str = r#"
-    SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+    SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta
     FROM articles
     WHERE status = 'published' AND published_at < ? AND id != ?
     ORDER BY published_at DESC
@@ -617,7 +622,7 @@ const NEXT_ARTICLE_SQL: &str = r#"
 "#;
 
 const RELATED_ARTICLES_SQL: &str = r#"
-    SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order
+    SELECT id, slug, title, content, content_html, author_id, category_id, status, published_at, created_at, updated_at, view_count, like_count, comment_count, thumbnail, is_pinned, pin_order, meta
     FROM articles
     WHERE status = 'published' AND category_id = ? AND id != ?
     ORDER BY published_at DESC
