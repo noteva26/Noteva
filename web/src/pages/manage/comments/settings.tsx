@@ -16,6 +16,10 @@ import { Loader2, MessageSquare, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 
+const DEFAULT_CAP_BASE_URL = "https://captcha.noteva.org";
+const DEFAULT_CAP_SITE_KEY = "4d0a333fd4";
+const DEFAULT_CAP_SECRET_KEY = "sk-P4HovV1v4cRlLpQiKvQC3bZv5i74UTHaIA0dWKWrLc";
+
 export default function CommentSettingsPage() {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
@@ -23,9 +27,14 @@ export default function CommentSettingsPage() {
   const [form, setForm] = useState({
     commentModeration: false,
     moderationKeywords: "",
-    captchaProvider: "none",
-    captchaSiteKey: "",
-    captchaSecretKey: "",
+    captchaProvider: "cap",
+    captchaSiteKey: DEFAULT_CAP_SITE_KEY,
+    captchaSecretKey: DEFAULT_CAP_SECRET_KEY,
+    captchaCapBaseUrl: DEFAULT_CAP_BASE_URL,
+    captchaPowDifficulty: "normal",
+    captchaChallengeTtlSeconds: "120",
+    captchaTokenTtlSeconds: "300",
+    captchaPowAutoSolve: true,
   });
 
   useEffect(() => {
@@ -35,13 +44,28 @@ export default function CommentSettingsPage() {
       try {
         const { data } = await adminApi.getSettings();
         if (!active) return;
+        const rawCaptchaProvider = String(data.captcha_provider || "cap");
+        const captchaProvider = rawCaptchaProvider === "noteva_pow" ? "cap" : rawCaptchaProvider;
+        const captchaSiteKey = String(data.captcha_site_key || "");
+        const captchaSecretKey = String(data.captcha_secret_key || "");
 
         setForm({
           commentModeration: data.comment_moderation === "true",
           moderationKeywords: String(data.moderation_keywords || ""),
-          captchaProvider: String(data.captcha_provider || "none"),
-          captchaSiteKey: String(data.captcha_site_key || ""),
-          captchaSecretKey: String(data.captcha_secret_key || ""),
+          captchaProvider,
+          captchaSiteKey:
+            captchaProvider === "cap" && !captchaSiteKey.trim()
+              ? DEFAULT_CAP_SITE_KEY
+              : captchaSiteKey,
+          captchaSecretKey:
+            captchaProvider === "cap" && !captchaSecretKey.trim()
+              ? DEFAULT_CAP_SECRET_KEY
+              : captchaSecretKey,
+          captchaCapBaseUrl: String(data.captcha_cap_base_url || DEFAULT_CAP_BASE_URL),
+          captchaPowDifficulty: String(data.captcha_pow_difficulty || "normal"),
+          captchaChallengeTtlSeconds: String(data.captcha_challenge_ttl_seconds || "120"),
+          captchaTokenTtlSeconds: String(data.captcha_token_ttl_seconds || "300"),
+          captchaPowAutoSolve: data.captcha_pow_auto_solve !== "false",
         });
       } catch {
         if (active) toast.error(t("error.loadFailed"));
@@ -66,6 +90,11 @@ export default function CommentSettingsPage() {
           captcha_provider: form.captchaProvider,
           captcha_site_key: form.captchaSiteKey,
           captcha_secret_key: form.captchaSecretKey,
+          captcha_cap_base_url: form.captchaCapBaseUrl,
+          captcha_pow_difficulty: form.captchaPowDifficulty,
+          captcha_challenge_ttl_seconds: form.captchaChallengeTtlSeconds,
+          captcha_token_ttl_seconds: form.captchaTokenTtlSeconds,
+          captcha_pow_auto_solve: form.captchaPowAutoSolve ? "true" : "false",
         });
         toast.success(t("settings.saveSuccess"));
       } catch {
@@ -164,7 +193,22 @@ export default function CommentSettingsPage() {
                 <Select
                   value={form.captchaProvider}
                   onValueChange={(value) =>
-                    setForm((current) => ({ ...current, captchaProvider: value }))
+                    setForm((current) => ({
+                      ...current,
+                      captchaProvider: value,
+                      captchaCapBaseUrl:
+                        value === "cap" && !current.captchaCapBaseUrl.trim()
+                          ? DEFAULT_CAP_BASE_URL
+                          : current.captchaCapBaseUrl,
+                      captchaSiteKey:
+                        value === "cap" && !current.captchaSiteKey.trim()
+                          ? DEFAULT_CAP_SITE_KEY
+                          : current.captchaSiteKey,
+                      captchaSecretKey:
+                        value === "cap" && !current.captchaSecretKey.trim()
+                          ? DEFAULT_CAP_SECRET_KEY
+                          : current.captchaSecretKey,
+                    }))
                   }
                 >
                   <SelectTrigger>
@@ -174,34 +218,92 @@ export default function CommentSettingsPage() {
                     <SelectItem value="none">{t("settings.none")}</SelectItem>
                     <SelectItem value="turnstile">Cloudflare Turnstile</SelectItem>
                     <SelectItem value="hcaptcha">hCaptcha</SelectItem>
+                    <SelectItem value="cap">Cap</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="captchaSiteKey">{t("settings.captchaSiteKey")}</Label>
-                  <Input
-                    id="captchaSiteKey"
-                    value={form.captchaSiteKey}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, captchaSiteKey: event.target.value }))
-                    }
-                    placeholder="Site key"
-                  />
+
+              {form.captchaProvider === "cap" ? (
+                <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+                  <div className="space-y-1">
+                    <Label>{t("settings.captchaProviderCap")}</Label>
+                    <p className="text-sm text-muted-foreground">
+                      {t("settings.captchaCapDesc")}
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="captchaCapBaseUrl">{t("settings.captchaCapBaseUrl")}</Label>
+                      <Input
+                        id="captchaCapBaseUrl"
+                        value={form.captchaCapBaseUrl}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            captchaCapBaseUrl: event.target.value,
+                          }))
+                        }
+                        placeholder={DEFAULT_CAP_BASE_URL}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {t("settings.captchaCapBaseUrlDesc")}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="captchaSiteKey">{t("settings.captchaSiteKey")}</Label>
+                      <Input
+                        id="captchaSiteKey"
+                        value={form.captchaSiteKey}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, captchaSiteKey: event.target.value }))
+                        }
+                        placeholder={DEFAULT_CAP_SITE_KEY}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="captchaSecretKey">{t("settings.captchaSecretKey")}</Label>
+                      <Input
+                        id="captchaSecretKey"
+                        value={form.captchaSecretKey}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, captchaSecretKey: event.target.value }))
+                        }
+                        placeholder="sk-..."
+                        type="password"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t("settings.captchaCapSecretDesc")}
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="captchaSecretKey">{t("settings.captchaSecretKey")}</Label>
-                  <Input
-                    id="captchaSecretKey"
-                    value={form.captchaSecretKey}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, captchaSecretKey: event.target.value }))
-                    }
-                    placeholder="Secret key"
-                    type="password"
-                  />
+              ) : form.captchaProvider !== "none" ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="captchaSiteKey">{t("settings.captchaSiteKey")}</Label>
+                    <Input
+                      id="captchaSiteKey"
+                      value={form.captchaSiteKey}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, captchaSiteKey: event.target.value }))
+                      }
+                      placeholder="Site key"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="captchaSecretKey">{t("settings.captchaSecretKey")}</Label>
+                    <Input
+                      id="captchaSecretKey"
+                      value={form.captchaSecretKey}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, captchaSecretKey: event.target.value }))
+                      }
+                      placeholder="Secret key"
+                      type="password"
+                    />
+                  </div>
                 </div>
-              </div>
+              ) : null}
             </>
           )}
 

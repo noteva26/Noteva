@@ -27,7 +27,8 @@
     "register": "Registrieren",
     "logout": "Abmelden",
     "manage": "Dashboard",
-    "profile": "Profil"
+    "profile": "Profil",
+    "friendLinks": "Freundeslinks"
   },
   "auth": {
     "login": "Anmelden",
@@ -118,7 +119,21 @@
     "unliked": "Gefällt mir entfernt",
     "likeFailed": "Aktion fehlgeschlagen",
     "authorTag": "Autor",
-    "postingAsAdmin": "Kommentieren als {name}"
+    "postingAsAdmin": "Kommentieren als {name}",
+    "captchaLoading": "Verifizierung wird geladen...",
+    "captchaRequired": "Bitte zuerst die Verifizierung abschliessen",
+    "captchaSolving": "Wird verifiziert...",
+    "captchaLoadFailed": "Verifizierung konnte nicht geladen werden",
+    "captchaAuto": "Automatische Verifizierung beim Senden",
+    "captchaPowRequired": "Bestaetigen, dass Sie ein Mensch sind",
+    "captchaPowVerified": "Verifizierung abgeschlossen",
+    "captchaPowRetry": "Verifizierung fehlgeschlagen, zum Wiederholen klicken",
+    "captchaPowExpired": "Verifizierung abgelaufen, zum Wiederholen klicken",
+    "replyingTo": "Antwort an {name}",
+    "captchaExpired": "Verifizierung abgelaufen. Bitte erneut verifizieren.",
+    "anonymous": "Anonym",
+    "admin": "Admin",
+    "emoji": "Emoji"
   },
   "theme": {
     "light": "Hell",
@@ -144,5 +159,17 @@
   },
   "user": {
     "userBanned": "Dieses Konto wurde gesperrt und kann sich nicht anmelden"
+  },
+  "friendLinks": {
+    "title": "Freundeslinks",
+    "description": "Eine kleine Sammlung von Sites und Menschen, die mit diesem Blog verbunden sind.",
+    "count": "{count} Links",
+    "empty": "Noch keine Freundeslinks.",
+    "uncategorized": "Ohne Kategorie"
+  },
+  "about": {
+    "title": "Über",
+    "bioTitle": "Profil",
+    "timeline": "Timeline"
   }
 }

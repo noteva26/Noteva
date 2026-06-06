@@ -27,7 +27,8 @@
     "register": "Cadastrar",
     "logout": "Sair",
     "manage": "Painel",
-    "profile": "Perfil"
+    "profile": "Perfil",
+    "friendLinks": "Links amigos"
   },
   "auth": {
     "login": "Entrar",
@@ -118,7 +119,21 @@
     "unliked": "Curtida removida",
     "likeFailed": "Falha ao curtir",
     "authorTag": "Autor",
-    "postingAsAdmin": "Comentando como {name}"
+    "postingAsAdmin": "Comentando como {name}",
+    "captchaLoading": "Carregando verificacao...",
+    "captchaRequired": "Conclua a verificacao primeiro",
+    "captchaSolving": "Verificando...",
+    "captchaLoadFailed": "Nao foi possivel carregar a verificacao",
+    "captchaAuto": "Verificacao automatica ao enviar",
+    "captchaPowRequired": "Verifique que voce e humano",
+    "captchaPowVerified": "Verificacao concluida",
+    "captchaPowRetry": "Verificacao falhou, clique para tentar novamente",
+    "captchaPowExpired": "Verificacao expirada, clique para tentar novamente",
+    "replyingTo": "Respondendo a {name}",
+    "captchaExpired": "A verificação expirou. Verifique novamente.",
+    "anonymous": "Anônimo",
+    "admin": "Admin",
+    "emoji": "Emoji"
   },
   "theme": {
     "light": "Claro",
@@ -144,5 +159,17 @@
   },
   "user": {
     "userBanned": "Esta conta foi banida e não pode entrar"
+  },
+  "friendLinks": {
+    "title": "Links amigos",
+    "description": "Uma pequena colecao de sites e pessoas conectadas a este blog.",
+    "count": "{count} links",
+    "empty": "Nenhum link amigo ainda.",
+    "uncategorized": "Sem categoria"
+  },
+  "about": {
+    "title": "Sobre",
+    "bioTitle": "Perfil",
+    "timeline": "Linha do tempo"
   }
 }

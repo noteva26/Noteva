@@ -32,27 +32,13 @@ import { Settings, User, Loader2, Download, AlertCircle, Link, Code, Database, U
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import { getApiErrorMessage } from "@/lib/api-error";
+import { DEFAULT_ARTICLE_AI_PROMPTS } from "@/lib/ai-prompts";
 
 // Permalink format options
 const PERMALINK_OPTIONS = [
   { value: "/posts/{slug}", label: "/posts/{slug}", example: "/posts/hello-world" },
   { value: "/posts/{id}", label: "/posts/{id}", example: "/posts/42" },
 ];
-
-const DEFAULT_AI_PROMPTS = {
-  system:
-    "You are a concise blog writing assistant. Return only the requested result, without explanations.",
-  title:
-    "Generate one clear blog post title for this Markdown content:\n\n{{content}}",
-  slug:
-    "Generate one lowercase URL slug using only letters, numbers and hyphens. Title: {{title}}\nCurrent slug: {{slug}}",
-  summary:
-    "Write a concise article summary in the same language as the article. Keep it under 120 Chinese characters or 80 English words.\n\nTitle: {{title}}\n\nContent:\n{{content}}",
-  formatMarkdown:
-    "Clean up only Markdown formatting and structure. Do not change, rewrite, add, remove, or translate any wording. Return the full Markdown only.\n\n{{content}}",
-  improveWriting:
-    "Improve the expression and readability of this article while preserving meaning and Markdown structure. Return the full Markdown only.\n\nTitle: {{title}}\nSummary: {{summary}}\n\nContent:\n{{content}}",
-};
 
 type AiPromptField =
   | "titlePrompt"
@@ -335,12 +321,12 @@ export default function SettingsPage() {
     apiBase: "",
     apiKey: "",
     model: "",
-    systemPrompt: DEFAULT_AI_PROMPTS.system,
-    titlePrompt: DEFAULT_AI_PROMPTS.title,
-    slugPrompt: DEFAULT_AI_PROMPTS.slug,
-    summaryPrompt: DEFAULT_AI_PROMPTS.summary,
-    formatMarkdownPrompt: DEFAULT_AI_PROMPTS.formatMarkdown,
-    improveWritingPrompt: DEFAULT_AI_PROMPTS.improveWriting,
+    systemPrompt: DEFAULT_ARTICLE_AI_PROMPTS.system,
+    titlePrompt: DEFAULT_ARTICLE_AI_PROMPTS.title,
+    slugPrompt: DEFAULT_ARTICLE_AI_PROMPTS.slug,
+    summaryPrompt: DEFAULT_ARTICLE_AI_PROMPTS.summary,
+    formatMarkdownPrompt: DEFAULT_ARTICLE_AI_PROMPTS.formatMarkdown,
+    improveWritingPrompt: DEFAULT_ARTICLE_AI_PROMPTS.improveWriting,
   });
 
   const [displayForm, setDisplayForm] = useState({
@@ -397,12 +383,12 @@ export default function SettingsPage() {
           apiBase: String(data.ai_api_base || ""),
           apiKey: String(data.ai_api_key || ""),
           model: String(data.ai_model || ""),
-          systemPrompt: String(data.ai_system_prompt || DEFAULT_AI_PROMPTS.system),
-          titlePrompt: String(data.ai_prompt_title || DEFAULT_AI_PROMPTS.title),
-          slugPrompt: String(data.ai_prompt_slug || DEFAULT_AI_PROMPTS.slug),
-          summaryPrompt: String(data.ai_prompt_summary || DEFAULT_AI_PROMPTS.summary),
-          formatMarkdownPrompt: String(data.ai_prompt_format_markdown || DEFAULT_AI_PROMPTS.formatMarkdown),
-          improveWritingPrompt: String(data.ai_prompt_improve_writing || DEFAULT_AI_PROMPTS.improveWriting),
+          systemPrompt: String(data.ai_system_prompt || DEFAULT_ARTICLE_AI_PROMPTS.system),
+          titlePrompt: String(data.ai_prompt_title || DEFAULT_ARTICLE_AI_PROMPTS.title),
+          slugPrompt: String(data.ai_prompt_slug || DEFAULT_ARTICLE_AI_PROMPTS.slug),
+          summaryPrompt: String(data.ai_prompt_summary || DEFAULT_ARTICLE_AI_PROMPTS.summary),
+          formatMarkdownPrompt: String(data.ai_prompt_format_markdown || DEFAULT_ARTICLE_AI_PROMPTS.formatMarkdown),
+          improveWritingPrompt: String(data.ai_prompt_improve_writing || DEFAULT_ARTICLE_AI_PROMPTS.improveWriting),
         });
         setDisplayForm({
           showToc: data.show_toc !== "false",

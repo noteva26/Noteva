@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useCallback } from "react";
 
 // Import locale files
 import zhCN from "./locales/zh-CN.json";
@@ -22,16 +23,16 @@ export interface LocaleInfo {
 }
 // Built-in locales
 export const builtinLocales: LocaleInfo[] = [
-  { code: "zh-CN", name: "Simplified Chinese", nativeName: "简体中文" },
-  { code: "zh-TW", name: "Traditional Chinese", nativeName: "繁體中文" },
+  { code: "zh-CN", name: "Simplified Chinese", nativeName: "\u7b80\u4f53\u4e2d\u6587" },
+  { code: "zh-TW", name: "Traditional Chinese", nativeName: "\u7e41\u9ad4\u4e2d\u6587" },
   { code: "en", name: "English", nativeName: "English" },
-  { code: "ja", name: "Japanese", nativeName: "日本語" },
-  { code: "ko", name: "Korean", nativeName: "한국어" },
-  { code: "fr", name: "French", nativeName: "Français" },
+  { code: "ja", name: "Japanese", nativeName: "\u65e5\u672c\u8a9e" },
+  { code: "ko", name: "Korean", nativeName: "\ud55c\uad6d\uc5b4" },
+  { code: "fr", name: "French", nativeName: "Fran\u00e7ais" },
   { code: "de", name: "German", nativeName: "Deutsch" },
-  { code: "es", name: "Spanish", nativeName: "Español" },
-  { code: "pt-BR", name: "Brazilian Portuguese", nativeName: "Português do Brasil" },
-  { code: "ru", name: "Russian", nativeName: "Русский" },
+  { code: "es", name: "Spanish", nativeName: "Espa\u00f1ol" },
+  { code: "pt-BR", name: "Brazilian Portuguese", nativeName: "Portugu\u00eas do Brasil" },
+  { code: "ru", name: "Russian", nativeName: "\u0420\u0443\u0441\u0441\u043a\u0438\u0439" },
   { code: "it", name: "Italian", nativeName: "Italiano" },
 ];
 
@@ -183,26 +184,29 @@ export function t(key: string, params?: Record<string, string | number>): string
 export function useTranslation() {
   const { locale, setLocale, _version } = useI18nStore();
   
-  const translate = (key: string, params?: Record<string, string | number>): string => {
-    const msgs = getMessages(locale);
-    let message = getNestedValue(msgs, key);
-    
-    if (!message && locale !== "en") {
-      const enMsgs = getMessages("en");
-      message = getNestedValue(enMsgs, key);
-    }
+  const translate = useCallback(
+    (key: string, params?: Record<string, string | number>): string => {
+      const msgs = getMessages(locale);
+      let message = getNestedValue(msgs, key);
 
-    if (!message) {
-      console.warn(`Missing translation for key: ${key}`);
-      return key;
-    }
-    
-    if (!params) return message;
-    
-    return message.replace(/\{(\w+)\}/g, (_, paramKey) => {
-      return params[paramKey]?.toString() ?? `{${paramKey}}`;
-    });
-  };
+      if (!message && locale !== "en") {
+        const enMsgs = getMessages("en");
+        message = getNestedValue(enMsgs, key);
+      }
+
+      if (!message) {
+        console.warn(`Missing translation for key: ${key}`);
+        return key;
+      }
+
+      if (!params) return message;
+
+      return message.replace(/\{(\w+)\}/g, (_, paramKey) => {
+        return params[paramKey]?.toString() ?? `{${paramKey}}`;
+      });
+    },
+    [locale, _version]
+  );
   
   return {
     t: translate,

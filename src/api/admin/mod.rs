@@ -41,6 +41,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         // Dashboard
         .route("/dashboard", get(dashboard::get_dashboard))
+        // Built-in About profile
+        .nest("/about", crate::api::about::admin_router())
         // System stats
         .route("/stats", get(dashboard::get_system_stats))
         // Update check

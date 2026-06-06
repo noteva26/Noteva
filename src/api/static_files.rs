@@ -465,6 +465,8 @@ async fn inject_seo_into_html(
             "custom_js",
             "site_url",
             "permalink_structure",
+            "about_nav_enabled",
+            "friend_links_nav_enabled",
         ])
         .await
         .unwrap_or_default();
@@ -490,6 +492,24 @@ async fn inject_seo_into_html(
         .get("permalink_structure")
         .cloned()
         .unwrap_or_else(|| "/posts/{slug}".to_string());
+    let friend_links_nav_enabled = settings
+        .get("friend_links_nav_enabled")
+        .map(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "false" | "0" | "no" | "off"
+            )
+        })
+        .unwrap_or(true);
+    let about_nav_enabled = settings
+        .get("about_nav_enabled")
+        .map(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "false" | "0" | "no" | "off"
+            )
+        })
+        .unwrap_or(false);
     let is_id_mode = permalink_structure.contains("{id}");
 
     // Build config JSON
@@ -498,7 +518,9 @@ async fn inject_seo_into_html(
         "site_description": site_description,
         "site_subtitle": site_subtitle,
         "site_logo": site_logo,
-        "site_footer": site_footer
+        "site_footer": site_footer,
+        "about_nav_enabled": about_nav_enabled,
+        "friend_links_nav_enabled": friend_links_nav_enabled
     });
     let nav_items = crate::api::nav::visible_nav_tree_with_hooks(state)
         .await

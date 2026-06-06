@@ -15,6 +15,7 @@
 //! - Plugin API endpoints
 //! - Static file serving with config injection
 
+pub mod about;
 pub mod admin;
 mod archive;
 pub mod articles;
@@ -24,6 +25,7 @@ pub mod captcha;
 pub mod categories;
 pub mod comments;
 pub mod common;
+pub mod friend_links;
 mod github_update;
 pub mod middleware;
 pub mod nav;
@@ -64,6 +66,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
     // Admin routes (need admin role)
     let admin_routes = Router::new()
         .nest("/admin", admin::router())
+        .nest("/admin/friend-links", friend_links::router())
         .nest("/admin/pages", pages::router())
         .nest("/admin/nav", nav::router())
         .nest("/admin/plugins", plugins::router())
@@ -193,6 +196,10 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
             axum::routing::get(articles::resolve_article_handler),
         )
         .route(
+            "/articles/archives",
+            axum::routing::get(articles::get_archives),
+        )
+        .route(
             "/articles/{slug}",
             axum::routing::get(articles::get_article_handler),
         )
@@ -201,7 +208,13 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         .nest("/auth", auth::public_router())
         .nest("/auth/2fa", two_factor::public_router())
         .nest("/site", site::router())
+        .nest("/about", about::public_router())
         .route("/captcha/config", axum::routing::get(captcha::get_config))
+        .route(
+            "/captcha/challenge",
+            axum::routing::post(captcha::create_challenge),
+        )
+        .route("/captcha/verify", axum::routing::post(captcha::verify_pow))
         .nest(
             "/theme",
             Router::new()
@@ -218,6 +231,7 @@ pub fn build_api_router(state: AppState) -> Router<AppState> {
         )
         .nest("/pages", pages::public_router())
         .nest("/page", pages::slug_router())
+        .nest("/friend-links", friend_links::public_router())
         .nest("/nav", nav::public_router())
         // Plugin assets (public)
         .route(

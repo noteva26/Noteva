@@ -27,7 +27,8 @@
     "register": "Registrati",
     "logout": "Esci",
     "manage": "Dashboard",
-    "profile": "Profilo"
+    "profile": "Profilo",
+    "friendLinks": "Link amici"
   },
   "auth": {
     "login": "Accedi",
@@ -118,7 +119,21 @@
     "unliked": "Mi piace rimosso",
     "likeFailed": "Operazione non riuscita",
     "authorTag": "Autore",
-    "postingAsAdmin": "Commento come {name}"
+    "postingAsAdmin": "Commento come {name}",
+    "captchaLoading": "Caricamento verifica...",
+    "captchaRequired": "Completa prima la verifica",
+    "captchaSolving": "Verifica in corso...",
+    "captchaLoadFailed": "Impossibile caricare la verifica",
+    "captchaAuto": "Verifica automatica all invio",
+    "captchaPowRequired": "Verifica di essere umano",
+    "captchaPowVerified": "Verifica completata",
+    "captchaPowRetry": "Verifica non riuscita, fai clic per riprovare",
+    "captchaPowExpired": "Verifica scaduta, fai clic per riprovare",
+    "replyingTo": "Risposta a {name}",
+    "captchaExpired": "Verifica scaduta. Verifica di nuovo.",
+    "anonymous": "Anonimo",
+    "admin": "Admin",
+    "emoji": "Emoji"
   },
   "theme": {
     "light": "Chiaro",
@@ -144,5 +159,17 @@
   },
   "user": {
     "userBanned": "Questo account è stato bloccato e non può accedere"
+  },
+  "friendLinks": {
+    "title": "Link amici",
+    "description": "Una piccola raccolta di siti e persone connesse a questo blog.",
+    "count": "{count} link",
+    "empty": "Nessun link amico per ora.",
+    "uncategorized": "Senza categoria"
+  },
+  "about": {
+    "title": "Informazioni",
+    "bioTitle": "Profilo",
+    "timeline": "Timeline"
   }
 }

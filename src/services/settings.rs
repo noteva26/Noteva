@@ -26,6 +26,8 @@ pub mod keys {
     pub const POSTS_PER_PAGE: &str = "posts_per_page";
     pub const PERMALINK_STRUCTURE: &str = "permalink_structure";
     pub const SITE_URL: &str = "site_url";
+    pub const ABOUT_PROFILE: &str = "about_profile";
+    pub const ABOUT_NAV_ENABLED: &str = "about_nav_enabled";
 }
 
 /// Permalink structure presets

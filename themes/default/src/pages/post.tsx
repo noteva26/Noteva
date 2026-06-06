@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type MouseEvent } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
+import { AnimatePresence, motion } from "motion/react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import PluginSlot from "@/components/plugin-slot";
@@ -33,6 +34,14 @@ import {
 import { TocSidebar } from "@/components/toc-sidebar";
 import { cn } from "@/lib/utils";
 import { sanitizeHtml } from "@/lib/sanitize-html";
+import {
+  getThemeListItemMotion,
+  themeOverlayMotion,
+  themePageContentMotion,
+  themePageHeaderMotion,
+  themePreviewImageMotion,
+  themeSpring,
+} from "@/lib/motion";
 
 const Comments = lazy(() =>
   import("@/components/comments").then((module) => ({ default: module.Comments }))
@@ -48,6 +57,32 @@ function CommentsFallback() {
         <div className="h-20 rounded-md skeleton-shimmer" />
         <div className="h-9 w-28 rounded-md skeleton-shimmer" />
       </div>
+    </div>
+  );
+}
+
+function PostPageSkeleton() {
+  return (
+    <div className="theme-page-shell relative flex min-h-screen flex-col">
+      <SiteHeader />
+      <main className="flex-1">
+        <div className="container mx-auto max-w-[900px] py-8">
+          <div className="post-hero mb-7">
+            <Skeleton className="mb-4 h-11 w-4/5" />
+            <Skeleton className="mb-6 h-5 w-2/3" />
+            <Skeleton className="h-20 w-full rounded-xl" />
+          </div>
+          <div className="article-reading-surface">
+            <Skeleton className="mb-4 h-5 w-full" />
+            <Skeleton className="mb-4 h-5 w-11/12" />
+            <Skeleton className="mb-8 h-5 w-3/4" />
+            <Skeleton className="mb-4 h-40 w-full rounded-xl" />
+            <Skeleton className="mb-4 h-5 w-full" />
+            <Skeleton className="h-5 w-2/3" />
+          </div>
+        </div>
+      </main>
+      <SiteFooter />
     </div>
   );
 }
@@ -236,19 +271,7 @@ export default function PostPage() {
   };
 
   if (loading) {
-    return (
-      <div className="theme-page-shell relative flex min-h-screen flex-col">
-        <SiteHeader />
-        <main className="flex-1">
-          <div className="container mx-auto max-w-[900px] py-8">
-            <Skeleton className="mb-4 h-10 w-3/4" />
-            <Skeleton className="mb-6 h-6 w-1/2" />
-            <Skeleton className="h-72 w-full" />
-          </div>
-        </main>
-        <SiteFooter />
-      </div>
-    );
+    return <PostPageSkeleton />;
   }
 
   if (notFound || !article) {
@@ -291,15 +314,22 @@ export default function PostPage() {
               : "max-w-[900px]"
           )}
         >
-          <article
+          <motion.article
+            {...themePageContentMotion}
             className={cn("min-w-0", hasReadableToc && "default-post-main")}
             data-article-id={article.id}
           >
-            <header className="post-hero mb-7">
-              <h1 className="mb-4 text-4xl font-semibold leading-tight tracking-normal md:text-[2.8rem]">
+            <motion.header {...themePageHeaderMotion} className="post-hero mb-7">
+              <motion.h1
+                {...getThemeListItemMotion(0, 0.035)}
+                className="mb-4 text-4xl font-semibold leading-tight tracking-normal md:text-[2.8rem]"
+              >
                 {article.title}
-              </h1>
-              <div className="article-meta flex flex-wrap items-center gap-x-3.5 gap-y-1.5 text-sm text-muted-foreground">
+              </motion.h1>
+              <motion.div
+                {...getThemeListItemMotion(1, 0.035)}
+                className="article-meta flex flex-wrap items-center gap-x-3.5 gap-y-1.5 text-sm text-muted-foreground"
+              >
                 {publishedAt ? (
                   <span className="flex items-center gap-1">
                     <Calendar className="h-4 w-4" />
@@ -319,15 +349,21 @@ export default function PostPage() {
                 )}
                 <span className="flex items-center gap-1"><Eye className="h-4 w-4" />{stats.views + 1}</span>
                 <span className="flex items-center gap-1"><MessageSquare className="h-4 w-4" />{stats.comments}</span>
-              </div>
+              </motion.div>
               {articleSummary ? (
-                <div className="article-summary-box mt-6">
+                <motion.div
+                  {...getThemeListItemMotion(2, 0.035)}
+                  className="article-summary-box mt-6"
+                >
                   {articleSummary}
-                </div>
+                </motion.div>
               ) : null}
-            </header>
+            </motion.header>
 
-            <section className="article-reading-surface">
+            <motion.section
+              {...getThemeListItemMotion(articleSummary ? 3 : 2, 0.035)}
+              className="article-reading-surface"
+            >
               <div className="prose dark:prose-invert max-w-none [&_img.twemoji]:!w-[1.2em] [&_img.twemoji]:!h-[1.2em] [&_img.twemoji]:!inline-block [&_img.twemoji]:!m-0 [&_img.twemoji]:!align-[-0.1em] [&_img.emoji]:!w-[1.2em] [&_img.emoji]:!h-[1.2em] [&_img.emoji]:!inline-block [&_img.emoji]:!m-0 [&_img.emoji]:!align-[-0.1em]">
                 <PluginSlot name="article_content_top" />
                 <div
@@ -337,7 +373,7 @@ export default function PostPage() {
                 />
                 <PluginSlot name="article_content_bottom" />
               </div>
-            </section>
+            </motion.section>
 
             <PluginSlot name="article_after_content" className="my-4" />
 
@@ -383,14 +419,21 @@ export default function PostPage() {
                   <Sparkles className="h-4 w-4 text-primary" />
                   {t("article.related")}
                 </h3>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {article.related.map((item) => (
-                    <Link key={item.id} to={getArticleUrl(item)} className="related-post-card">
-                      {item.thumbnail ? (
-                        <img src={item.thumbnail} alt="" className="related-post-thumb" />
-                      ) : null}
-                      <span className="line-clamp-2 text-sm font-medium">{item.title}</span>
-                    </Link>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {article.related.map((item, index) => (
+                    <motion.div
+                      key={item.id}
+                      {...getThemeListItemMotion(index, 0.025)}
+                      whileHover={{ y: -1 }}
+                      transition={themeSpring}
+                    >
+                      <Link to={getArticleUrl(item)} className="related-post-card">
+                        {item.thumbnail ? (
+                          <img src={item.thumbnail} alt="" className="related-post-thumb" />
+                        ) : null}
+                        <span className="line-clamp-2 text-sm font-medium">{item.title}</span>
+                      </Link>
+                    </motion.div>
                   ))}
                 </div>
               </div>
@@ -401,35 +444,39 @@ export default function PostPage() {
                 <Comments articleId={article.id} />
               </Suspense>
             )}
-          </article>
+          </motion.article>
           {hasReadableToc && article.toc && (
             <TocSidebar toc={article.toc} />
           )}
         </div>
       </main>
-      {previewImage ? (
-        <div
-          className="article-image-preview"
-          role="dialog"
-          aria-modal="true"
-          aria-label={previewImage.alt || article.title}
-          onClick={() => setPreviewImage(null)}
-        >
-          <button
-            type="button"
-            className="article-image-preview-close"
-            aria-label="Close image preview"
+      <AnimatePresence>
+        {previewImage ? (
+          <motion.div
+            {...themeOverlayMotion}
+            className="article-image-preview"
+            role="dialog"
+            aria-modal="true"
+            aria-label={previewImage.alt || article.title}
             onClick={() => setPreviewImage(null)}
           >
-            <X className="h-5 w-5" />
-          </button>
-          <img
-            src={previewImage.src}
-            alt={previewImage.alt}
-            onClick={(event) => event.stopPropagation()}
-          />
-        </div>
-      ) : null}
+            <button
+              type="button"
+              className="article-image-preview-close"
+              aria-label="Close image preview"
+              onClick={() => setPreviewImage(null)}
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <motion.img
+              {...themePreviewImageMotion}
+              src={previewImage.src}
+              alt={previewImage.alt}
+              onClick={(event) => event.stopPropagation()}
+            />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
       <SiteFooter />
     </div>
   );

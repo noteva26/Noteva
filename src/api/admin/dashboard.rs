@@ -7,6 +7,8 @@ use sysinfo::{Pid, System};
 
 use super::update::APP_VERSION;
 use crate::api::middleware::{ApiError, AppState, AuthenticatedUser};
+use crate::api::responses::ArticleResponse;
+use crate::models::{ArticleSortBy, ListParams};
 
 /// Response for dashboard stats
 #[derive(Debug, Serialize)]
@@ -15,6 +17,11 @@ pub struct DashboardResponse {
     pub published_articles: i64,
     pub total_categories: i64,
     pub total_tags: i64,
+    pub total_comments: i64,
+    pub pending_comments: i64,
+    pub popular_articles: Vec<ArticleResponse>,
+    pub recent_published_articles: Vec<ArticleResponse>,
+    pub recent_comments: Vec<crate::models::CommentWithMeta>,
 }
 
 /// Response for system stats (CPU, memory usage)
@@ -77,11 +84,55 @@ pub async fn get_dashboard(
         .await
         .map_err(|e| ApiError::internal_error(e.to_string()))?;
 
+    let total_comments = state
+        .comment_service
+        .count_approved()
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    let pending_comments = state
+        .comment_service
+        .count_pending()
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
+    let dashboard_params = ListParams::new(1, 5);
+    let popular_articles = state
+        .article_service
+        .list_published(&dashboard_params, ArticleSortBy::Views)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?
+        .items
+        .into_iter()
+        .map(ArticleResponse::from)
+        .collect();
+
+    let recent_published_articles = state
+        .article_service
+        .list_published(&dashboard_params, ArticleSortBy::Date)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?
+        .items
+        .into_iter()
+        .map(ArticleResponse::from)
+        .collect();
+
+    let recent_comments = state
+        .comment_service
+        .list_recent(5)
+        .await
+        .map_err(|e| ApiError::internal_error(e.to_string()))?;
+
     Ok(Json(DashboardResponse {
         total_articles,
         published_articles,
         total_categories: categories.len() as i64,
         total_tags: tags.len() as i64,
+        total_comments,
+        pending_comments,
+        popular_articles,
+        recent_published_articles,
+        recent_comments,
     }))
 }
 

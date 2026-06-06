@@ -27,7 +27,8 @@
     "register": "注册",
     "logout": "退出登录",
     "manage": "管理后台",
-    "profile": "个人主页"
+    "profile": "个人主页",
+    "friendLinks": "友链"
   },
   "auth": {
     "login": "登录",
@@ -108,6 +109,7 @@
     "emailOptional": "邮箱（可选，用于显示头像）",
     "submit": "发表评论",
     "reply": "回复",
+    "replyingTo": "正在回复 {name}",
     "noComments": "暂无评论，来发表第一条评论吧",
     "loginRequired": "请登录后发表评论",
     "contentRequired": "请输入评论内容",
@@ -121,7 +123,17 @@
     "postingAsAdmin": "以 {name} 身份发表评论",
     "captchaLoading": "正在加载验证...",
     "captchaRequired": "请先完成验证",
-    "captchaLoadFailed": "验证组件加载失败"
+    "captchaSolving": "正在验证...",
+    "captchaLoadFailed": "验证组件加载失败",
+    "captchaExpired": "验证已过期，请重新验证",
+    "captchaAuto": "发表时将自动完成验证",
+    "captchaPowRequired": "点击验证你是真人",
+    "captchaPowVerified": "验证完成",
+    "captchaPowRetry": "验证失败，点击重试",
+    "captchaPowExpired": "验证已过期，点击重新验证",
+    "anonymous": "匿名",
+    "admin": "管理员",
+    "emoji": "表情"
   },
   "theme": {
     "light": "浅色",
@@ -147,5 +159,17 @@
   },
   "user": {
     "userBanned": "该账号已被封禁，无法登录"
+  },
+  "friendLinks": {
+    "title": "友链",
+    "description": "一些与这个博客相关的站点和朋友。",
+    "count": "{count} 个友链",
+    "empty": "暂无友链。",
+    "uncategorized": "未分类"
+  },
+  "about": {
+    "title": "关于",
+    "bioTitle": "简介",
+    "timeline": "时间线"
   }
 }

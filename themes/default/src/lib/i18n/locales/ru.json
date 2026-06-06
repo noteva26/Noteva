@@ -27,7 +27,8 @@
     "register": "Регистрация",
     "logout": "Выйти",
     "manage": "Панель управления",
-    "profile": "Профиль"
+    "profile": "Профиль",
+    "friendLinks": "Друзья"
   },
   "auth": {
     "login": "Войти",
@@ -118,7 +119,21 @@
     "unliked": "Отметка снята",
     "likeFailed": "Не удалось поставить отметку",
     "authorTag": "Автор",
-    "postingAsAdmin": "Комментарий от имени {name}"
+    "postingAsAdmin": "Комментарий от имени {name}",
+    "captchaLoading": "Загрузка проверки...",
+    "captchaRequired": "Сначала завершите проверку",
+    "captchaSolving": "Проверка...",
+    "captchaLoadFailed": "Не удалось загрузить проверку",
+    "captchaAuto": "Проверка выполнится автоматически при отправке",
+    "captchaPowRequired": "Нажмите, чтобы подтвердить, что вы человек",
+    "captchaPowVerified": "Проверка завершена",
+    "captchaPowRetry": "Проверка не удалась, нажмите для повтора",
+    "captchaPowExpired": "Проверка истекла, нажмите для повтора",
+    "replyingTo": "Ответ для {name}",
+    "captchaExpired": "Проверка истекла. Пройдите ее снова.",
+    "anonymous": "Аноним",
+    "admin": "Админ",
+    "emoji": "Эмодзи"
   },
   "theme": {
     "light": "Светлая",
@@ -144,5 +159,17 @@
   },
   "user": {
     "userBanned": "Этот аккаунт заблокирован и не может войти"
+  },
+  "friendLinks": {
+    "title": "Друзья",
+    "description": "Подборка блогов и сайтов, которые стоит посетить.",
+    "count": "{count} ссылок",
+    "empty": "Пока нет ссылок.",
+    "uncategorized": "Без категории"
+  },
+  "about": {
+    "title": "О сайте",
+    "bioTitle": "Профиль",
+    "timeline": "Хронология"
   }
 }

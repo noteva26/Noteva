@@ -89,6 +89,12 @@ pub trait CommentRepository: Send + Sync {
 
     /// Get recent approved comments across all articles
     async fn list_recent(&self, limit: i64) -> Result<Vec<CommentWithMeta>>;
+
+    /// Count approved comments.
+    async fn count_approved(&self) -> Result<i64>;
+
+    /// Count pending comments.
+    async fn count_pending(&self) -> Result<i64>;
 }
 
 /// Comment repository implementation
@@ -202,6 +208,14 @@ impl CommentRepository for SqlxCommentRepository {
 
     async fn list_recent(&self, limit: i64) -> Result<Vec<CommentWithMeta>> {
         dispatch!(self, list_recent, limit)
+    }
+
+    async fn count_approved(&self) -> Result<i64> {
+        dispatch!(self, count_approved)
+    }
+
+    async fn count_pending(&self) -> Result<i64> {
+        dispatch!(self, count_pending)
     }
 }
 
@@ -341,6 +355,7 @@ async fn get_by_article_sqlite(
         let comment = CommentWithMeta {
             id,
             article_id: row.get("article_id"),
+            article_slug: None,
             user_id,
             parent_id,
             nickname: display_name,
@@ -429,6 +444,7 @@ async fn list_pending_sqlite(
             CommentWithMeta {
                 id: row.get("id"),
                 article_id: row.get("article_id"),
+                article_slug: None,
                 user_id: row.get("user_id"),
                 parent_id: row.get("parent_id"),
                 nickname: display_name,
@@ -509,6 +525,7 @@ async fn list_all_sqlite(
             CommentWithMeta {
                 id: row.get("id"),
                 article_id: row.get("article_id"),
+                article_slug: None,
                 user_id: row.get("user_id"),
                 parent_id: row.get("parent_id"),
                 nickname: display_name,
@@ -553,6 +570,7 @@ async fn list_recent_sqlite(pool: &SqlitePool, limit: i64) -> Result<Vec<Comment
             CommentWithMeta {
                 id: row.get("id"),
                 article_id: row.get("article_id"),
+                article_slug: row.try_get("article_slug").ok().flatten(),
                 user_id: row.get("user_id"),
                 parent_id: row.get("parent_id"),
                 nickname: display_name,
@@ -572,6 +590,37 @@ async fn list_recent_sqlite(pool: &SqlitePool, limit: i64) -> Result<Vec<Comment
     Ok(comments)
 }
 
+async fn count_approved_sqlite(pool: &SqlitePool) -> Result<i64> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE status = 'approved'")
+        .fetch_one(pool)
+        .await
+        .map_err(Into::into)
+}
+
+async fn count_pending_sqlite(pool: &SqlitePool) -> Result<i64> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE status = 'pending'")
+        .fetch_one(pool)
+        .await
+        .map_err(Into::into)
+}
+
+async fn sync_article_comment_count_sqlite(pool: &SqlitePool, article_id: i64) -> Result<()> {
+    sqlx::query(
+        r#"UPDATE articles
+           SET comment_count = (
+               SELECT COUNT(*)
+               FROM comments
+               WHERE article_id = ? AND status = 'approved'
+           )
+           WHERE id = ?"#,
+    )
+    .bind(article_id)
+    .bind(article_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 async fn delete_sqlite(pool: &SqlitePool, id: i64) -> Result<bool> {
     // Get article_id first
     let row = sqlx::query("SELECT article_id FROM comments WHERE id = ?")
@@ -588,13 +637,7 @@ async fn delete_sqlite(pool: &SqlitePool, id: i64) -> Result<bool> {
             .await?;
 
         if result.rows_affected() > 0 {
-            // Update article comment count
-            sqlx::query(
-                "UPDATE articles SET comment_count = MAX(0, comment_count - 1) WHERE id = ?",
-            )
-            .bind(article_id)
-            .execute(pool)
-            .await?;
+            sync_article_comment_count_sqlite(pool, article_id).await?;
             return Ok(true);
         }
     }
@@ -622,21 +665,8 @@ async fn update_status_sqlite(pool: &SqlitePool, id: i64, status: CommentStatus)
             .await?;
 
         if result.rows_affected() > 0 {
-            // Update article comment count based on status change
-            if old_status != CommentStatus::Approved && status == CommentStatus::Approved {
-                // Approving a pending/rejected comment
-                sqlx::query("UPDATE articles SET comment_count = comment_count + 1 WHERE id = ?")
-                    .bind(article_id)
-                    .execute(pool)
-                    .await?;
-            } else if old_status == CommentStatus::Approved && status != CommentStatus::Approved {
-                // Rejecting an approved comment
-                sqlx::query(
-                    "UPDATE articles SET comment_count = MAX(0, comment_count - 1) WHERE id = ?",
-                )
-                .bind(article_id)
-                .execute(pool)
-                .await?;
+            if old_status != status {
+                sync_article_comment_count_sqlite(pool, article_id).await?;
             }
             return Ok(true);
         }
@@ -928,6 +958,7 @@ async fn get_by_article_mysql(
         let comment = CommentWithMeta {
             id,
             article_id: row.get("article_id"),
+            article_slug: None,
             user_id,
             parent_id,
             nickname: display_name,
@@ -990,6 +1021,7 @@ async fn list_pending_mysql(
             CommentWithMeta {
                 id: row.get("id"),
                 article_id: row.get("article_id"),
+                article_slug: None,
                 user_id: row.get("user_id"),
                 parent_id: row.get("parent_id"),
                 nickname: display_name,
@@ -1069,6 +1101,7 @@ async fn list_all_mysql(
             CommentWithMeta {
                 id: row.get("id"),
                 article_id: row.get("article_id"),
+                article_slug: None,
                 user_id: row.get("user_id"),
                 parent_id: row.get("parent_id"),
                 nickname: display_name,
@@ -1113,6 +1146,7 @@ async fn list_recent_mysql(pool: &MySqlPool, limit: i64) -> Result<Vec<CommentWi
             CommentWithMeta {
                 id: row.get("id"),
                 article_id: row.get("article_id"),
+                article_slug: row.try_get("article_slug").ok().flatten(),
                 user_id: row.get("user_id"),
                 parent_id: row.get("parent_id"),
                 nickname: display_name,
@@ -1132,6 +1166,37 @@ async fn list_recent_mysql(pool: &MySqlPool, limit: i64) -> Result<Vec<CommentWi
     Ok(comments)
 }
 
+async fn count_approved_mysql(pool: &MySqlPool) -> Result<i64> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE status = 'approved'")
+        .fetch_one(pool)
+        .await
+        .map_err(Into::into)
+}
+
+async fn count_pending_mysql(pool: &MySqlPool) -> Result<i64> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE status = 'pending'")
+        .fetch_one(pool)
+        .await
+        .map_err(Into::into)
+}
+
+async fn sync_article_comment_count_mysql(pool: &MySqlPool, article_id: i64) -> Result<()> {
+    sqlx::query(
+        r#"UPDATE articles
+           SET comment_count = (
+               SELECT COUNT(*)
+               FROM comments
+               WHERE article_id = ? AND status = 'approved'
+           )
+           WHERE id = ?"#,
+    )
+    .bind(article_id)
+    .bind(article_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 async fn delete_mysql(pool: &MySqlPool, id: i64) -> Result<bool> {
     let row = sqlx::query("SELECT article_id FROM comments WHERE id = ?")
         .bind(id)
@@ -1147,12 +1212,7 @@ async fn delete_mysql(pool: &MySqlPool, id: i64) -> Result<bool> {
             .await?;
 
         if result.rows_affected() > 0 {
-            sqlx::query(
-                "UPDATE articles SET comment_count = GREATEST(0, comment_count - 1) WHERE id = ?",
-            )
-            .bind(article_id)
-            .execute(pool)
-            .await?;
+            sync_article_comment_count_mysql(pool, article_id).await?;
             return Ok(true);
         }
     }
@@ -1180,19 +1240,8 @@ async fn update_status_mysql(pool: &MySqlPool, id: i64, status: CommentStatus) -
             .await?;
 
         if result.rows_affected() > 0 {
-            // Update article comment count based on status change
-            if old_status != CommentStatus::Approved && status == CommentStatus::Approved {
-                // Approving a pending/rejected comment
-                sqlx::query("UPDATE articles SET comment_count = comment_count + 1 WHERE id = ?")
-                    .bind(article_id)
-                    .execute(pool)
-                    .await?;
-            } else if old_status == CommentStatus::Approved && status != CommentStatus::Approved {
-                // Rejecting an approved comment
-                sqlx::query("UPDATE articles SET comment_count = GREATEST(0, comment_count - 1) WHERE id = ?")
-                    .bind(article_id)
-                    .execute(pool)
-                    .await?;
+            if old_status != status {
+                sync_article_comment_count_mysql(pool, article_id).await?;
             }
             return Ok(true);
         }

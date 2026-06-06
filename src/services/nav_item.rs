@@ -29,7 +29,11 @@ fn validate_nav_target(nav_type: &NavItemType, target: &str) -> Result<()> {
 
     match nav_type {
         NavItemType::Builtin => {
-            if trimmed.is_empty() || matches!(trimmed, "home" | "archives" | "categories" | "tags")
+            if trimmed.is_empty()
+                || matches!(
+                    trimmed,
+                    "home" | "archives" | "categories" | "tags" | "about" | "friendlinks"
+                )
             {
                 Ok(())
             } else {

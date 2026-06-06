@@ -8,7 +8,7 @@ import {
   useTransition,
 } from "react";
 import { useSearchParams } from "react-router-dom";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { ArticleSummaryCard } from "@/components/article-summary-card";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -27,6 +27,7 @@ import {
   themePageHeaderMotion,
   themeSpring,
 } from "@/lib/motion";
+import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
 const ARTICLE_SKELETON_KEYS = ["article-a", "article-b", "article-c"];
@@ -88,7 +89,9 @@ export default function HomePage() {
   );
   const currentPage = getPageParam(searchParams.get("page"));
   const dateLocale = getDateLocale(locale);
-  const pageIsLoading = loading || isPaging;
+  const pageIsBusy = loading || isPaging;
+  const showArticleSkeleton = loading && articles.length === 0;
+  const articleListPending = pageIsBusy && articles.length > 0;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -288,8 +291,26 @@ export default function HomePage() {
             </motion.div>
           ) : null}
 
-          <div className="grid gap-6 article-list">
-            {pageIsLoading ? (
+          <div
+            className={cn(
+              "article-list relative grid gap-6",
+              articleListPending && "article-list-pending"
+            )}
+            aria-busy={pageIsBusy}
+          >
+            <AnimatePresence>
+              {articleListPending ? (
+                <motion.div
+                  className="article-list-progress"
+                  initial={{ opacity: 0, scaleX: 0.45 }}
+                  animate={{ opacity: 1, scaleX: 1 }}
+                  exit={{ opacity: 0, scaleX: 0.45 }}
+                  transition={themeSpring}
+                />
+              ) : null}
+            </AnimatePresence>
+
+            {showArticleSkeleton ? (
               ARTICLE_SKELETON_KEYS.map((key) => (
                 <Card key={key} className="overflow-hidden">
                   <CardContent className="p-6">
@@ -320,6 +341,7 @@ export default function HomePage() {
               articles.map((article, index) => (
                 <motion.div
                   key={article.id}
+                  layout
                   {...getThemeListItemMotion(index)}
                   whileHover={themeHoverLift}
                 >
@@ -335,7 +357,7 @@ export default function HomePage() {
             )}
           </div>
 
-          {!pageIsLoading && totalPages > 1 ? (
+          {!showArticleSkeleton && totalPages > 1 ? (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -346,7 +368,7 @@ export default function HomePage() {
                 variant="outline"
                 size="sm"
                 onClick={() => goToPage(currentPage - 1)}
-                disabled={currentPage <= 1 || isPaging}
+                disabled={currentPage <= 1 || pageIsBusy}
               >
                 <ChevronLeft className="mr-1 h-4 w-4" />
                 {t("pagination.prev")}
@@ -360,13 +382,14 @@ export default function HomePage() {
                 variant="outline"
                 size="sm"
                 onClick={() => goToPage(currentPage + 1)}
-                disabled={currentPage >= totalPages || isPaging}
+                disabled={currentPage >= totalPages || pageIsBusy}
               >
                 {t("pagination.next")}
                 <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
             </motion.div>
           ) : null}
+
         </div>
       </main>
       <SiteFooter />

@@ -6,12 +6,15 @@
 //! - Coordinating between repositories and cache
 //! - Handling validation and error cases
 
+pub mod about;
 pub mod article;
 pub mod backup;
+pub mod captcha_pow;
 pub mod category;
 pub mod comment;
 pub mod email;
 pub mod emoji;
+pub mod friend_link;
 pub mod markdown;
 pub mod nav_item;
 pub mod page;
@@ -21,13 +24,16 @@ pub mod settings;
 pub mod tag;
 pub mod user;
 
+pub use about::AboutService;
 pub use article::{generate_slug as generate_article_slug, ArticleService, ArticleServiceError};
+pub use captcha_pow::{CaptchaPowDifficulty, CaptchaPowStore};
 pub use category::{
     generate_slug, CategoryService, CategoryServiceError, CreateCategoryInput, UpdateCategoryInput,
 };
 pub use comment::{generate_fingerprint, CommentService};
 pub use email::{generate_verification_code, EmailService};
 pub use emoji::{process_all_emoji, process_shortcodes, process_unicode_emoji};
+pub use friend_link::FriendLinkService;
 pub use markdown::{MarkdownRenderer, TocEntry};
 pub use nav_item::NavItemService;
 pub use page::PageService;

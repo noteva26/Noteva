@@ -10,6 +10,8 @@ import HomePage from "@/pages/home";
 const ArchivesPage = lazy(() => import("@/pages/archives"));
 const CategoriesPage = lazy(() => import("@/pages/categories"));
 const TagsPage = lazy(() => import("@/pages/tags"));
+const AboutPage = lazy(() => import("@/pages/about"));
+const FriendLinksPage = lazy(() => import("@/pages/friend-links"));
 const PostPage = lazy(() => import("@/pages/post"));
 const CustomPage = lazy(() => import("@/pages/custom-page"));
 
@@ -41,6 +43,9 @@ export default function App() {
           <Route path="/archives" element={<ArchivesPage />} />
           <Route path="/categories" element={<CategoriesPage />} />
           <Route path="/tags" element={<TagsPage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/friendlinks" element={<FriendLinksPage />} />
+          <Route path="/friend-links" element={<FriendLinksPage />} />
           <Route path="/posts/*" element={<PostPage />} />
           <Route path="/:slug" element={<CustomPage />} />
         </Routes>

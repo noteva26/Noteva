@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Smile } from "lucide-react";
 import { getNoteva, waitForNoteva } from "@/hooks/useNoteva";
+import { useTranslation } from "@/lib/i18n";
 
 interface ResolvedCategory {
   id: string;
@@ -17,6 +18,7 @@ interface EmojiPickerProps {
 }
 
 export function EmojiPicker({ onSelect }: EmojiPickerProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState(0);
   const [search, setSearch] = useState("");
@@ -125,7 +127,7 @@ export function EmojiPicker({ onSelect }: EmojiPickerProps) {
         variant="ghost"
         size="sm"
         onClick={() => setOpen(!open)}
-        title="Emoji"
+        title={t("comment.emoji")}
       >
         <Smile className="h-4 w-4" />
       </Button>
@@ -133,7 +135,7 @@ export function EmojiPicker({ onSelect }: EmojiPickerProps) {
       {open && (
         <div className="absolute z-50 bottom-full mb-2 right-0 flex flex-col w-[340px] h-[280px] bg-popover border rounded-lg shadow-xl overflow-hidden">
           {categories.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">Loading...</div>
+            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">{t("common.loading")}</div>
           ) : (
             <>
           {/* Search */}

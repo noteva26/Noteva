@@ -765,6 +765,47 @@ pub const MIGRATIONS: &[Migration] = &[
             DROP TABLE IF EXISTS custom_locales;
         "#,
     },
+    // Migration 30: Built-in friend links
+    Migration {
+        version: 30,
+        name: "create_friend_links",
+        up_sqlite: r#"
+            CREATE TABLE IF NOT EXISTS friend_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(120) NOT NULL,
+                url VARCHAR(500) NOT NULL,
+                logo VARCHAR(500),
+                description TEXT,
+                category VARCHAR(100),
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                status VARCHAR(20) NOT NULL DEFAULT 'approved',
+                is_recommended INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_friend_links_status ON friend_links(status);
+            CREATE INDEX IF NOT EXISTS idx_friend_links_category ON friend_links(category);
+            CREATE INDEX IF NOT EXISTS idx_friend_links_sort ON friend_links(category, sort_order);
+        "#,
+        up_mysql: r#"
+            CREATE TABLE IF NOT EXISTS friend_links (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                name VARCHAR(120) NOT NULL,
+                url VARCHAR(500) NOT NULL,
+                logo VARCHAR(500),
+                description TEXT,
+                category VARCHAR(100),
+                sort_order INT NOT NULL DEFAULT 0,
+                status VARCHAR(20) NOT NULL DEFAULT 'approved',
+                is_recommended TINYINT NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            );
+            CREATE INDEX idx_friend_links_status ON friend_links(status);
+            CREATE INDEX idx_friend_links_category ON friend_links(category);
+            CREATE INDEX idx_friend_links_sort ON friend_links(category, sort_order);
+        "#,
+    },
 ];
 
 /// Run all pending migrations

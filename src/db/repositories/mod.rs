@@ -6,6 +6,7 @@
 pub mod article;
 pub mod category;
 pub mod comment;
+pub mod friend_link;
 pub mod nav_item;
 pub mod page;
 pub mod plugin_data;
@@ -18,6 +19,7 @@ pub mod user;
 pub use article::{ArticleRepository, SqlxArticleRepository};
 pub use category::{CategoryRepository, SqlxCategoryRepository};
 pub use comment::{CommentRepository, SqlxCommentRepository};
+pub use friend_link::{FriendLinkRepository, SqlxFriendLinkRepository};
 pub use nav_item::{NavItemRepository, SqlxNavItemRepository};
 pub use page::{PageRepository, SqlxPageRepository};
 pub use plugin_data::{PluginData, PluginDataRepository, SqlxPluginDataRepository};

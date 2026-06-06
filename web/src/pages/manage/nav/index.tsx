@@ -150,6 +150,8 @@ export default function NavManagePage() {
     { value: "archives", label: t("navManage.archives") },
     { value: "categories", label: t("navManage.categories") },
     { value: "tags", label: t("navManage.tags") },
+    { value: "about", label: t("navManage.about") },
+    { value: "friendlinks", label: t("navManage.friendLinks") },
   ];
 
   useEffect(() => {

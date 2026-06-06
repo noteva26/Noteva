@@ -27,7 +27,8 @@
     "register": "가입",
     "logout": "로그아웃",
     "manage": "관리자",
-    "profile": "프로필"
+    "profile": "프로필",
+    "friendLinks": "친구 링크"
   },
   "auth": {
     "login": "로그인",
@@ -118,7 +119,21 @@
     "unliked": "좋아요 취소",
     "likeFailed": "좋아요에 실패했습니다",
     "authorTag": "작성자",
-    "postingAsAdmin": "{name} 계정으로 댓글 작성"
+    "postingAsAdmin": "{name} 계정으로 댓글 작성",
+    "captchaLoading": "인증을 불러오는 중...",
+    "captchaRequired": "먼저 인증을 완료해 주세요",
+    "captchaSolving": "인증 중...",
+    "captchaLoadFailed": "인증을 불러오지 못했습니다",
+    "captchaAuto": "제출할 때 자동으로 인증합니다",
+    "captchaPowRequired": "클릭하여 사람인지 확인",
+    "captchaPowVerified": "인증 완료",
+    "captchaPowRetry": "인증 실패, 클릭하여 다시 시도",
+    "captchaPowExpired": "인증이 만료되었습니다. 클릭하여 다시 인증",
+    "replyingTo": "{name}에게 답글 작성",
+    "captchaExpired": "인증이 만료되었습니다. 다시 인증해 주세요.",
+    "anonymous": "익명",
+    "admin": "관리자",
+    "emoji": "이모지"
   },
   "theme": {
     "light": "라이트",
@@ -144,5 +159,17 @@
   },
   "user": {
     "userBanned": "이 계정은 차단되어 로그인할 수 없습니다"
+  },
+  "friendLinks": {
+    "title": "친구 링크",
+    "description": "추천하는 블로그와 사이트를 모았습니다.",
+    "count": "{count}개 링크",
+    "empty": "아직 친구 링크가 없습니다.",
+    "uncategorized": "미분류"
+  },
+  "about": {
+    "title": "소개",
+    "bioTitle": "프로필",
+    "timeline": "타임라인"
   }
 }

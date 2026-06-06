@@ -5,6 +5,7 @@ import { useAuthStore } from "@/lib/store/auth";
 import { useSiteStore } from "@/lib/store/site";
 import { useTranslation } from "@/lib/i18n";
 import { preloadManageRoute } from "@/lib/manage-routes";
+import { manageMotion, manageMotionClassNames } from "@/lib/manage-motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -29,6 +30,8 @@ import {
   Shield,
   HardDrive,
   ChevronDown,
+  Link2,
+  UserRound,
 } from "lucide-react";
 
 export default function ManageLayout() {
@@ -45,6 +48,8 @@ export default function ManageLayout() {
     { href: "/manage/articles", label: t("manage.articles"), icon: FileText },
     { href: "/manage/taxonomy", label: `${t("manage.categories")} / ${t("manage.tags")}`, icon: FolderTree },
     { href: "/manage/pages", label: t("manage.pages"), icon: FileCode },
+    { href: "/manage/about", label: t("manage.about"), icon: UserRound },
+    { href: "/manage/friend-links", label: t("manage.friendLinks"), icon: Link2 },
     { href: "/manage/nav", label: t("manage.nav"), icon: Navigation },
     {
       href: "/manage/comments",
@@ -147,7 +152,8 @@ export default function ManageLayout() {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 bg-card border-r transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static",
+          "fixed inset-y-0 left-0 z-50 w-64 bg-card border-r transform lg:translate-x-0 lg:static",
+          manageMotionClassNames.sidebar,
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -191,8 +197,8 @@ export default function ManageLayout() {
               return (
                 <motion.div
                   key={item.href}
-                  whileHover={{ x: isActive ? 0 : 4 }}
-                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                  whileHover={isActive ? manageMotion.sidebarItem.activeHover : manageMotion.sidebarItem.hover}
+                  transition={manageMotion.sidebarItem.transition}
                 >
                   <Link
                     to={item.href}
@@ -212,7 +218,7 @@ export default function ManageLayout() {
                     {"children" in item && item.children ? <ChevronDown className="h-3.5 w-3.5 opacity-70" /> : null}
                   </Link>
                   {"children" in item && item.children && isActive ? (
-                    <div className="mt-1 space-y-1 pl-7">
+                    <div className={cn("mt-1 space-y-1 pl-7", manageMotionClassNames.sidebarChildren)}>
                       {item.children.map((child) => (
                         <Link
                           key={child.href}
@@ -295,13 +301,9 @@ export default function ManageLayout() {
           )}
           <motion.div
             key={pathname}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{
-              type: "spring",
-              stiffness: 400,
-              damping: 30,
-            }}
+            initial={manageMotion.page.initial}
+            animate={manageMotion.page.animate}
+            transition={manageMotion.page.transition}
           >
             <Outlet />
           </motion.div>

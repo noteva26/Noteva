@@ -24,8 +24,35 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Save, X, Loader2, Check, Clock, RotateCcw, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
-import type { MarkdownEditorRef } from "@/components/ui/markdown-editor";
-import { getApiErrorMessage } from "@/lib/api-error";
+import type {
+  MarkdownEditorRef,
+  PluginEditorButton,
+} from "@/components/ui/markdown-editor";
+import {
+  WritingStatusBar,
+  type WritingStatus,
+} from "./components/writing-status-bar";
+import { ArticleSummaryField } from "./components/article-summary-field";
+import { AiContentConfirmDialog } from "./components/ai-content-confirm-dialog";
+import { AiRunConfirmDialog } from "./components/ai-run-confirm-dialog";
+import { AiAssistantDialog } from "./components/ai-assistant-dialog";
+import {
+  collectPluginEditorButtons,
+  createWritingFingerprint,
+  generateArticleSlug,
+  getAiAssistantActions,
+  getArticleAiErrorMessage,
+  getArticleSummaryLabels,
+  getWritingStatusLabel,
+  isArticleContentAiTask,
+  type ArticleSubmitStatus,
+  type PendingAiContentChange,
+} from "./components/writing-utils";
+import {
+  getArticleAiPromptSettings,
+  type ArticleAiPromptSettings,
+  type ArticleAiTask,
+} from "@/lib/ai-prompts";
 
 const MarkdownEditor = lazy(() => import("@/components/ui/markdown-editor"));
 
@@ -33,25 +60,9 @@ function EditorFallback() {
   return <div className="h-[400px] rounded-md border border-input bg-muted/30 animate-pulse" />;
 }
 
-interface PluginEditorButton {
-  id: string;
-  label: string | Record<string, string>;
-  icon?: string;
-  insertBefore: string;
-  insertAfter: string;
-}
-
-interface EnabledPluginInfo {
-  id: string;
-  settings: Record<string, unknown>;
-  editor_config?: {
-    toolbar?: PluginEditorButton[];
-  };
-}
-
 const DRAFT_KEY = "noteva_new_article_draft";
 
-type ArticleSubmitStatus = "draft" | "published";
+type AiTask = ArticleAiTask;
 
 interface ArticleFormState {
   title: string;
@@ -76,17 +87,6 @@ type SaveState =
 
 const INITIAL_SAVE_STATE: SaveState = { type: "idle" };
 
-function getAiErrorMessage(error: unknown) {
-  return getApiErrorMessage(error, "AI assistant is not configured or request failed");
-}
-
-function createDraftFingerprint(form: ArticleFormState, selectedTags: number[]) {
-  return JSON.stringify({
-    ...form,
-    selectedTags,
-  });
-}
-
 export default function NewArticlePage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -98,6 +98,16 @@ export default function NewArticlePage() {
   const [dataReady, setDataReady] = useState(false);
   const [savedFingerprint, setSavedFingerprint] = useState("");
   const [hasDraftRecovery, setHasDraftRecovery] = useState(false);
+  const [localDraftSavedAt, setLocalDraftSavedAt] = useState<number | null>(null);
+  const [contentRevision, setContentRevision] = useState(0);
+  const contentRevisionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [aiPendingTask, setAiPendingTask] = useState<AiTask | null>(null);
+  const [pendingAiRunTask, setPendingAiRunTask] = useState<AiTask | null>(null);
+  const [pendingAiContentChange, setPendingAiContentChange] =
+    useState<PendingAiContentChange | null>(null);
+  const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
+  const [aiPromptSettings, setAiPromptSettings] =
+    useState<ArticleAiPromptSettings>(() => getArticleAiPromptSettings());
 
   const [form, setForm] = useState<ArticleFormState>({
     title: "",
@@ -109,10 +119,36 @@ export default function NewArticlePage() {
     scheduled_at: "",
   });
 
-  const draftFingerprint = useMemo(() => createDraftFingerprint(form, selectedTags), [form, selectedTags]);
-  const hasDraftContent = !!(form.title.trim() || form.content.trim());
+  const getEditorContent = () => editorRef.current?.getValue() ?? form.content;
+  const draftFingerprint = useMemo(
+    () => createWritingFingerprint({ ...form, content: getEditorContent() }, selectedTags),
+    [form, selectedTags, contentRevision]
+  );
+  const hasDraftContent = !!(form.title.trim() || getEditorContent().trim());
   const hasUnsavedChanges = hasDraftContent && draftFingerprint !== savedFingerprint;
-  const canSubmit = !!(form.title.trim() && form.content.trim() && form.category_id);
+  const canSubmit = !!(form.title.trim() && getEditorContent().trim() && form.category_id);
+  const summaryLabels = useMemo(
+    () => getArticleSummaryLabels(t, form.summary),
+    [t, form.summary]
+  );
+  const aiAssistantActions = useMemo(() => getAiAssistantActions(t), [t]);
+  const scheduleContentRevision = () => {
+    if (contentRevisionTimerRef.current) {
+      clearTimeout(contentRevisionTimerRef.current);
+    }
+    contentRevisionTimerRef.current = setTimeout(() => {
+      setContentRevision((value) => value + 1);
+      contentRevisionTimerRef.current = null;
+    }, 160);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (contentRevisionTimerRef.current) {
+        clearTimeout(contentRevisionTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -145,6 +181,7 @@ export default function NewArticlePage() {
         const draft = JSON.parse(saved) as Partial<ArticleFormState> & { selectedTags?: number[] };
         setForm((f) => ({ ...f, ...draft }));
         if (draft.selectedTags) setSelectedTags(draft.selectedTags);
+        if (draft.content !== undefined) setContentRevision((value) => value + 1);
         setSavedFingerprint("");
         // Push content into CodeMirror editor (it doesn't react to form.content changes)
         if (draft.content && editorRef.current) {
@@ -166,20 +203,21 @@ export default function NewArticlePage() {
     if (!hasUnsavedChanges) return;
     const timer = setTimeout(() => {
       try {
-        const editorContent = editorRef.current?.getValue() || form.content;
+        const editorContent = getEditorContent();
         localStorage.setItem(DRAFT_KEY, JSON.stringify({
           title: form.title, slug: form.slug, summary: form.summary, content: editorContent,
           category_id: form.category_id, scheduled_at: form.scheduled_at,
           selectedTags,
         }));
+        setLocalDraftSavedAt(Date.now());
       } catch { }
     }, 5000);
     return () => clearTimeout(timer);
-  }, [hasUnsavedChanges, form, selectedTags]);
+  }, [hasUnsavedChanges, form, selectedTags, contentRevision]);
 
   const [saveState, saveArticle, isSaving] = useActionState<SaveState, ArticleSubmitStatus>(
     async (_prevState, status) => {
-      const editorContent = editorRef.current?.getValue() ?? form.content;
+      const editorContent = getEditorContent();
       const submitStatus: ArticleSubmitStatus = form.scheduled_at ? "draft" : status;
       const currentForm: ArticleFormState = { ...form, content: editorContent, status: submitStatus };
 
@@ -196,7 +234,7 @@ export default function NewArticlePage() {
       try {
         const data: CreateArticleInput = {
           title: currentForm.title,
-          slug: currentForm.slug || generateSlug(currentForm.title),
+          slug: currentForm.slug || generateArticleSlug(currentForm.title),
           content: currentForm.content,
           summary: currentForm.summary,
           status: submitStatus,
@@ -210,7 +248,7 @@ export default function NewArticlePage() {
           type: "success",
           status: submitStatus,
           articleId: response.data.id,
-          savedFingerprint: createDraftFingerprint(currentForm, selectedTags),
+          savedFingerprint: createWritingFingerprint(currentForm, selectedTags),
           submittedAt: Date.now(),
         };
       } catch {
@@ -248,10 +286,11 @@ export default function NewArticlePage() {
 
     const loadData = async () => {
       try {
-        const [catRes, tagRes, pluginsRes] = await Promise.all([
+        const [catRes, tagRes, pluginsRes, settingsRes] = await Promise.all([
           categoriesApi.list(),
           tagsApi.list(),
           fetch("/api/v1/plugins/enabled").then(r => r.json()).catch(() => []),
+          adminApi.getSettings().catch(() => null),
         ]);
         if (!active) return;
 
@@ -263,13 +302,8 @@ export default function NewArticlePage() {
         if (defaultCat) {
           setForm((f) => ({ ...f, category_id: f.category_id || defaultCat.id }));
         }
-        const buttons: PluginEditorButton[] = [];
-        if (Array.isArray(pluginsRes)) {
-          pluginsRes.forEach((plugin: EnabledPluginInfo) => {
-            if (plugin.editor_config?.toolbar) buttons.push(...plugin.editor_config.toolbar);
-          });
-        }
-        setPluginButtons(buttons);
+        setPluginButtons(collectPluginEditorButtons(pluginsRes));
+        setAiPromptSettings(getArticleAiPromptSettings(settingsRes?.data));
         setDataReady(true);
       } catch {
         if (!active) return;
@@ -285,20 +319,13 @@ export default function NewArticlePage() {
     };
   }, [t]);
 
-  const generateSlug = (title: string) => {
-    return title
-      .toLowerCase()
-      .replace(/[^a-z0-9\u4e00-\u9fa5\-]+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
-  };
-
   const handleTitleChange = (title: string) => {
-    setForm((f) => ({ ...f, title, slug: generateSlug(title) }));
+    setForm((f) => ({ ...f, title, slug: generateArticleSlug(title) }));
   };
 
-  const runAi = async (task: "title" | "slug" | "summary" | "format_markdown" | "improve_writing") => {
-    const content = editorRef.current?.getValue() ?? form.content;
+  const runAi = async (task: AiTask) => {
+    const content = getEditorContent();
+    setAiPendingTask(task);
     try {
       const { data } = await adminApi.aiAssist({
         task,
@@ -309,16 +336,53 @@ export default function NewArticlePage() {
       });
       const result = data.result.trim();
       if (!result) return;
-      if (task === "title") setForm((f) => ({ ...f, title: result, slug: f.slug || generateSlug(result) }));
-      if (task === "slug") setForm((f) => ({ ...f, slug: result }));
-      if (task === "summary") setForm((f) => ({ ...f, summary: result }));
-      if (task === "format_markdown" || task === "improve_writing") {
-        editorRef.current?.setValue(result);
-        setForm((f) => ({ ...f, content: result }));
-      }
+      setPendingAiContentChange({
+        task,
+        original:
+          task === "title"
+            ? form.title
+            : task === "slug"
+              ? form.slug
+              : task === "summary"
+                ? form.summary
+                : content,
+        result,
+      });
     } catch (error) {
-      toast.error(getAiErrorMessage(error));
+      toast.error(getArticleAiErrorMessage(error));
+    } finally {
+      setAiPendingTask(null);
     }
+  };
+
+  const requestAiRun = (task: AiTask) => {
+    if (aiPendingTask) return;
+    setPendingAiRunTask(task);
+  };
+
+  const confirmAiRun = () => {
+    const task = pendingAiRunTask;
+    setPendingAiRunTask(null);
+    if (task) void runAi(task);
+  };
+
+  const applyAiContentChange = () => {
+    if (!pendingAiContentChange) return;
+
+    const { task, result } = pendingAiContentChange;
+    if (isArticleContentAiTask(task)) {
+      editorRef.current?.setValue(result);
+      setForm((f) => ({ ...f, content: result }));
+      setContentRevision((value) => value + 1);
+    } else if (task === "title") {
+      setForm((f) => ({ ...f, title: result, slug: f.slug || generateArticleSlug(result) }));
+    } else if (task === "slug") {
+      setForm((f) => ({ ...f, slug: result }));
+    } else if (task === "summary") {
+      setForm((f) => ({ ...f, summary: result }));
+    }
+    setPendingAiContentChange(null);
+    toast.success(t("article.aiApplied"));
   };
 
   const toggleTag = (tagId: number) => {
@@ -335,7 +399,22 @@ export default function NewArticlePage() {
   };
 
   const saveSucceeded = saveState.type === "success" && !hasUnsavedChanges;
-
+  const writingStatus: WritingStatus = isSaving
+    ? "saving"
+    : saveState.type === "error"
+      ? "error"
+      : saveSucceeded
+        ? "saved"
+        : hasUnsavedChanges
+          ? "unsaved"
+          : "idle";
+  const writingStatusLabel = getWritingStatusLabel(t, writingStatus, t("article.draft"));
+  const writingStatusDetail =
+    writingStatus === "error" && saveState.type === "error"
+      ? saveState.message
+      : localDraftSavedAt && hasUnsavedChanges
+        ? t("article.localDraftSaved")
+        : undefined;
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -352,6 +431,10 @@ export default function NewArticlePage() {
           <Button variant="outline" onClick={() => handleSubmit("draft")} disabled={isSaving || !canSubmit}>
             {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saveSucceeded ? <Check className="h-4 w-4 mr-2 text-green-500" /> : <Save className="h-4 w-4 mr-2" />}
             {t("article.saveDraft")}
+          </Button>
+          <Button variant="outline" onClick={() => setAiAssistantOpen(true)}>
+            <Wand2 className="h-4 w-4 mr-2" />
+            {t("article.aiAssistant")}
           </Button>
           <Button onClick={() => handleSubmit("published")} disabled={isSaving || !canSubmit}>
             {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : saveSucceeded ? <Check className="h-4 w-4 mr-2" /> : null}
@@ -373,13 +456,19 @@ export default function NewArticlePage() {
         </div>
       )}
 
+      <WritingStatusBar
+        status={writingStatus}
+        label={writingStatusLabel}
+        detail={writingStatusDetail}
+      />
+
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
           <div className="space-y-2">
             <Label htmlFor="title">{t("article.title")}</Label>
             <div className="flex gap-2">
               <Input id="title" placeholder={t("article.title")} value={form.title} onChange={(e) => handleTitleChange(e.target.value)} />
-              <Button type="button" variant="outline" size="icon" onClick={() => runAi("title")} title="AI">
+              <Button type="button" variant="outline" size="icon" onClick={() => requestAiRun("title")} title="AI">
                 <Wand2 className="h-4 w-4" />
               </Button>
             </div>
@@ -388,37 +477,51 @@ export default function NewArticlePage() {
             <Label htmlFor="slug">{t("common.slug")}</Label>
             <div className="flex gap-2">
               <Input id="slug" placeholder="url-friendly-slug" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))} />
-              <Button type="button" variant="outline" size="icon" onClick={() => runAi("slug")} title="AI">
+              <Button type="button" variant="outline" size="icon" onClick={() => requestAiRun("slug")} title="AI">
                 <Wand2 className="h-4 w-4" />
               </Button>
             </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="summary">摘要</Label>
-            <div className="flex gap-2">
-              <textarea
-                id="summary"
-                className="min-h-24 flex-1 rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={form.summary}
-                onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
-                placeholder="可选，填写后首页文章卡片优先显示摘要"
-              />
-              <Button type="button" variant="outline" size="icon" onClick={() => runAi("summary")} title="AI">
-                <Wand2 className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
+          <ArticleSummaryField
+            id="summary"
+            value={form.summary}
+            onChange={(summary) => setForm((f) => ({ ...f, summary }))}
+            onGenerate={() => requestAiRun("summary")}
+            onClear={() => setForm((f) => ({ ...f, summary: "" }))}
+            disabled={aiPendingTask === "summary"}
+            labels={summaryLabels}
+          />
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <Label>{t("article.content")}</Label>
               <div className="flex gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => runAi("format_markdown")}>
-                  <Wand2 className="h-4 w-4 mr-2" />
-                  Markdown
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => requestAiRun("format_markdown")}
+                  disabled={aiPendingTask === "format_markdown"}
+                >
+                  {aiPendingTask === "format_markdown" ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-4 w-4 mr-2" />
+                  )}
+                  {t("article.formatMarkdown")}
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => runAi("improve_writing")}>
-                  <Wand2 className="h-4 w-4 mr-2" />
-                  优化表述
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => requestAiRun("improve_writing")}
+                  disabled={aiPendingTask === "improve_writing"}
+                >
+                  {aiPendingTask === "improve_writing" ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-4 w-4 mr-2" />
+                  )}
+                  {t("article.improveWriting")}
                 </Button>
               </div>
             </div>
@@ -427,7 +530,7 @@ export default function NewArticlePage() {
                 <MarkdownEditor
                   ref={editorRef}
                   initialValue={form.content}
-                  onChange={(value: string) => setForm((f) => ({ ...f, content: value }))}
+                  onChange={scheduleContentRevision}
                   pluginButtons={pluginButtons}
                   placeholder={t("article.useMarkdown")}
                   minHeight={400}
@@ -512,6 +615,51 @@ export default function NewArticlePage() {
           </Card>
         </div>
       </div>
+
+      <AiContentConfirmDialog
+        open={!!pendingAiContentChange}
+        onOpenChange={(open) => {
+          if (!open) setPendingAiContentChange(null);
+        }}
+        title={t("article.aiContentConfirmTitle")}
+        description={t("article.aiContentConfirmDescription")}
+        originalLabel={t("article.aiOriginalContent")}
+        resultLabel={t("article.aiResultContent")}
+        cancelLabel={t("common.cancel")}
+        applyLabel={t("article.applyAiResult")}
+        original={pendingAiContentChange?.original ?? ""}
+        result={pendingAiContentChange?.result ?? ""}
+        onApply={applyAiContentChange}
+      />
+      <AiRunConfirmDialog
+        open={!!pendingAiRunTask}
+        onOpenChange={(open) => {
+          if (!open) setPendingAiRunTask(null);
+        }}
+        title={t("article.aiRunConfirmTitle")}
+        description={t("article.aiRunConfirmDescription")}
+        cancelLabel={t("common.cancel")}
+        runLabel={t("article.aiRun")}
+        onConfirm={confirmAiRun}
+      />
+      <AiAssistantDialog
+        open={aiAssistantOpen}
+        onOpenChange={setAiAssistantOpen}
+        promptSettings={aiPromptSettings}
+        pendingTask={aiPendingTask}
+        actions={aiAssistantActions}
+        onRun={requestAiRun}
+        labels={{
+          title: t("article.aiAssistant"),
+          description: t("article.aiAssistantDesc"),
+          endpoint: t("article.aiEndpoint"),
+          model: t("article.aiModel"),
+          defaultPrompt: t("article.aiDefaultPrompt"),
+          currentPrompt: t("article.aiCurrentPrompt"),
+          systemPrompt: t("article.aiSystemPrompt"),
+          run: t("article.aiRun"),
+        }}
+      />
     </div>
   );
 }

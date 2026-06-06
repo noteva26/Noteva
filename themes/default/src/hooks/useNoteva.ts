@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type NotevaSDKRef = NonNullable<typeof window.Noteva>;
 export type NotevaArticle = Awaited<ReturnType<NotevaSDKRef["articles"]["get"]>>;
+export type NotevaComment = Awaited<
+  ReturnType<NotevaSDKRef["comments"]["recent"]>
+>[number];
 export type NotevaCategory = Awaited<
   ReturnType<NotevaSDKRef["categories"]["list"]>
 >[number];

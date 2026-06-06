@@ -381,7 +381,17 @@ impl CommentService {
 
     /// Get recent approved comments across all articles
     pub async fn list_recent(&self, limit: i64) -> Result<Vec<CommentWithMeta>> {
-        self.repo.list_recent(limit).await
+        self.repo.list_recent(limit.clamp(1, 50)).await
+    }
+
+    /// Count approved comments across all articles.
+    pub async fn count_approved(&self) -> Result<i64> {
+        self.repo.count_approved().await
+    }
+
+    /// Count pending comments across all articles.
+    pub async fn count_pending(&self) -> Result<i64> {
+        self.repo.count_pending().await
     }
 }
 

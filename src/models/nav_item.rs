@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NavItemType {
-    /// Built-in pages (home, archives, categories, tags)
+    /// Built-in pages (home, archives, categories, tags, about, friendlinks)
     Builtin,
     /// Custom page (links to a Page)
     Page,
@@ -50,7 +50,7 @@ pub struct NavItem {
     pub parent_id: Option<i64>,
     pub title: String,
     pub nav_type: NavItemType,
-    /// For builtin: "home", "archives", "categories", "tags"
+    /// For builtin: "home", "archives", "categories", "tags", "about", "friendlinks"
     /// For page: page slug
     /// For external: full URL
     pub target: String,

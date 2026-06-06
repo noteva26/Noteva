@@ -63,6 +63,8 @@ pub struct Comment {
 pub struct CommentWithMeta {
     pub id: i64,
     pub article_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub article_slug: Option<String>,
     pub user_id: Option<i64>,
     pub parent_id: Option<i64>,
     pub nickname: Option<String>,

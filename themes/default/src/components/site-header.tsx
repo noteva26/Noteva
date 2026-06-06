@@ -47,6 +47,8 @@ interface NavResponseItem extends Partial<Omit<SDKNavItem, "children">>, Injecte
 interface HeaderSiteInfo {
   name: string;
   logo: string;
+  aboutNavEnabled: boolean;
+  friendLinksNavEnabled: boolean;
 }
 
 const BUILTIN_PATHS: Record<string, string> = {
@@ -54,6 +56,9 @@ const BUILTIN_PATHS: Record<string, string> = {
   archives: "/archives",
   categories: "/categories",
   tags: "/tags",
+  about: "/about",
+  friendlinks: "/friendlinks",
+  "friend-links": "/friendlinks",
 };
 
 const BUILTIN_I18N: Record<string, string> = {
@@ -61,13 +66,16 @@ const BUILTIN_I18N: Record<string, string> = {
   archives: "nav.archive",
   categories: "nav.categories",
   tags: "nav.tags",
+  about: "nav.about",
+  friendlinks: "nav.friendLinks",
+  "friend-links": "nav.friendLinks",
 };
 
 function getBuiltinTargetKey(value: string): string | null {
   const target = value.trim();
   if (!target) return null;
 
-  const normalized = target === "/" ? "home" : target.replace(/^\/+/, "");
+  const normalized = target === "/" ? "home" : target.replace(/^\/+/, "").replace(/\/+$/, "");
   return normalized in BUILTIN_PATHS ? normalized : null;
 }
 
@@ -86,6 +94,8 @@ function getInitialSiteInfo(): HeaderSiteInfo {
   return {
     name: config?.site_name || "Noteva",
     logo: config?.site_logo || "/logo.png",
+    aboutNavEnabled: config?.about_nav_enabled === true,
+    friendLinksNavEnabled: config?.friend_links_nav_enabled !== false,
   };
 }
 
@@ -128,10 +138,43 @@ function preloadThemeRoute(href: string | null) {
     case "/tags":
       void import("@/pages/tags");
       break;
+    case "/about":
+      void import("@/pages/about");
+      break;
+    case "/friendlinks":
+    case "/friend-links":
+      void import("@/pages/friend-links");
+      break;
     default:
       void import("@/pages/custom-page");
       break;
   }
+}
+
+function isFriendLinksNavItem(item: NavItem) {
+  const targetUrl = item.target || item.url || "";
+  if (item.type === "builtin") {
+    return getBuiltinTargetKey(targetUrl) === "friendlinks";
+  }
+  const normalized = targetUrl
+    .trim()
+    .split(/[?#]/)[0]
+    ?.replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+  return normalized === "friendlinks" || normalized === "friend-links";
+}
+
+function isAboutNavItem(item: NavItem) {
+  const targetUrl = item.target || item.url || "";
+  if (item.type === "builtin") {
+    return getBuiltinTargetKey(targetUrl) === "about";
+  }
+  const normalized = targetUrl
+    .trim()
+    .split(/[?#]/)[0]
+    ?.replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+  return normalized === "about";
 }
 
 export function SiteHeader() {
@@ -168,6 +211,8 @@ export function SiteHeader() {
           setSiteInfo({
             name: info.name || "Noteva",
             logo: info.logo || "/logo.png",
+            aboutNavEnabled: info.aboutNavEnabled ?? false,
+            friendLinksNavEnabled: info.friendLinksNavEnabled ?? true,
           });
         })
         .catch(() => {});
@@ -202,22 +247,63 @@ export function SiteHeader() {
     };
   }, []);
 
-  const defaultNavItems = useMemo(
-    () => [
+  const defaultNavItems = useMemo(() => {
+    const items = [
       { href: "/", label: t("nav.home") },
       { href: "/archives", label: t("nav.archive") },
       { href: "/categories", label: t("nav.categories") },
       { href: "/tags", label: t("nav.tags") },
-    ],
-    [t]
-  );
+    ];
+
+    if (siteInfo.aboutNavEnabled) {
+      items.push({ href: "/about", label: t("nav.about") });
+    }
+
+    if (siteInfo.friendLinksNavEnabled) {
+      items.push({ href: "/friendlinks", label: t("nav.friendLinks") });
+    }
+
+    return items;
+  }, [siteInfo.aboutNavEnabled, siteInfo.friendLinksNavEnabled, t]);
 
   const rootNavItems = useMemo(
-    () =>
-      navItems
-        .filter((item) => !item.parentId && item.visible !== false)
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
-    [navItems]
+    () => {
+      const items = navItems
+        .filter(
+          (item) =>
+            !item.parentId &&
+            item.visible !== false &&
+            (siteInfo.aboutNavEnabled || !isAboutNavItem(item)) &&
+            (siteInfo.friendLinksNavEnabled || !isFriendLinksNavItem(item))
+        )
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      const hasAboutNav = items.some((item) => isAboutNavItem(item));
+      const hasFriendLinksNav = items.some((item) => isFriendLinksNavItem(item));
+      const additions: NavItem[] = [];
+
+      if (siteInfo.aboutNavEnabled && !hasAboutNav) {
+        additions.push({
+          id: -1002,
+          type: "builtin",
+          target: "about",
+          order: Number.MAX_SAFE_INTEGER - 1,
+          visible: true,
+        });
+      }
+
+      if (siteInfo.friendLinksNavEnabled && !hasFriendLinksNav) {
+        additions.push({
+          id: -1001,
+          type: "builtin",
+          target: "friendlinks",
+          order: Number.MAX_SAFE_INTEGER,
+          visible: true,
+        });
+      }
+
+      return items.length > 0 ? [...items, ...additions] : items;
+    },
+    [navItems, siteInfo.aboutNavEnabled, siteInfo.friendLinksNavEnabled]
   );
 
   const handleLogout = async () => {
@@ -353,7 +439,12 @@ export function SiteHeader() {
             </>
           )}
           {item.children
-            .filter((child) => child.visible !== false)
+            .filter(
+              (child) =>
+                child.visible !== false &&
+                (siteInfo.aboutNavEnabled || !isAboutNavItem(child)) &&
+                (siteInfo.friendLinksNavEnabled || !isFriendLinksNavItem(child))
+            )
             .map((child) => {
               const childHref = getNavHref(child);
               if (!childHref) return null;
@@ -505,7 +596,12 @@ export function SiteHeader() {
                       <div key={item.id} className="flex flex-col gap-1">
                         {renderNavLink(item, true)}
                         {item.children
-                          ?.filter((child) => child.visible !== false)
+                          ?.filter(
+                            (child) =>
+                              child.visible !== false &&
+                              (siteInfo.aboutNavEnabled || !isAboutNavItem(child)) &&
+                              (siteInfo.friendLinksNavEnabled || !isFriendLinksNavItem(child))
+                          )
                           .map((child) => (
                             <div key={child.id} className="pl-4">
                               {renderNavLink(child, true)}

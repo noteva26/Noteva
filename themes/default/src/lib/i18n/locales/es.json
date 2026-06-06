@@ -27,7 +27,8 @@
     "register": "Registrarse",
     "logout": "Cerrar sesión",
     "manage": "Panel",
-    "profile": "Perfil"
+    "profile": "Perfil",
+    "friendLinks": "Enlaces amigos"
   },
   "auth": {
     "login": "Iniciar sesión",
@@ -118,7 +119,21 @@
     "unliked": "Me gusta retirado",
     "likeFailed": "Error al marcar me gusta",
     "authorTag": "Autor",
-    "postingAsAdmin": "Comentando como {name}"
+    "postingAsAdmin": "Comentando como {name}",
+    "captchaLoading": "Cargando verificacion...",
+    "captchaRequired": "Completa la verificacion primero",
+    "captchaSolving": "Verificando...",
+    "captchaLoadFailed": "No se pudo cargar la verificacion",
+    "captchaAuto": "Verificacion automatica al enviar",
+    "captchaPowRequired": "Verifica que eres humano",
+    "captchaPowVerified": "Verificacion completada",
+    "captchaPowRetry": "Verificacion fallida, haz clic para reintentar",
+    "captchaPowExpired": "Verificacion caducada, haz clic para reintentar",
+    "replyingTo": "Respondiendo a {name}",
+    "captchaExpired": "La verificación ha caducado. Verifica de nuevo.",
+    "anonymous": "Anónimo",
+    "admin": "Administrador",
+    "emoji": "Emoji"
   },
   "theme": {
     "light": "Claro",
@@ -144,5 +159,17 @@
   },
   "user": {
     "userBanned": "Esta cuenta ha sido bloqueada y no puede iniciar sesión"
+  },
+  "friendLinks": {
+    "title": "Enlaces amigos",
+    "description": "Una pequena coleccion de sitios y personas conectadas con este blog.",
+    "count": "{count} enlaces",
+    "empty": "No hay enlaces amigos todavia.",
+    "uncategorized": "Sin categoria"
+  },
+  "about": {
+    "title": "Acerca de",
+    "bioTitle": "Perfil",
+    "timeline": "Cronología"
   }
 }

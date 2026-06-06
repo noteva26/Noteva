@@ -1,21 +1,14 @@
-
-
-import { motion, Variants } from "motion/react"
-import { Children, ReactNode } from "react"
+import { Children, type ReactNode } from "react";
+import { motion, type Variants } from "motion/react";
+import { themeSpring } from "@/lib/motion";
 
 interface AnimatedListProps {
-  children: ReactNode
-  className?: string
-  /** 每个子元素之间的延迟时间（秒） */
-  staggerDelay?: number
-  /** 是否启用动画 */
-  animate?: boolean
+  children: ReactNode;
+  className?: string;
+  staggerDelay?: number;
+  animate?: boolean;
 }
 
-/**
- * 列表错开入场动画组件
- * 子元素会像水波一样依次展开
- */
 export function AnimatedList({
   children,
   className,
@@ -23,7 +16,7 @@ export function AnimatedList({
   animate = true,
 }: AnimatedListProps) {
   if (!animate) {
-    return <div className={className}>{children}</div>
+    return <div className={className}>{children}</div>;
   }
 
   const container: Variants = {
@@ -34,20 +27,16 @@ export function AnimatedList({
         staggerChildren: staggerDelay,
       },
     },
-  }
+  };
 
   const item: Variants = {
     hidden: { opacity: 0, y: 12 },
     show: {
       opacity: 1,
       y: 0,
-      transition: {
-        type: "spring" as const,
-        stiffness: 400,
-        damping: 30,
-      },
+      transition: themeSpring,
     },
-  }
+  };
 
   return (
     <motion.div
@@ -60,5 +49,5 @@ export function AnimatedList({
         <motion.div variants={item}>{child}</motion.div>
       ))}
     </motion.div>
-  )
+  );
 }

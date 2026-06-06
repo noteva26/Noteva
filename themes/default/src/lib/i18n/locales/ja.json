@@ -27,7 +27,8 @@
     "register": "登録",
     "logout": "ログアウト",
     "manage": "管理画面",
-    "profile": "プロフィール"
+    "profile": "プロフィール",
+    "friendLinks": "友達リンク"
   },
   "auth": {
     "login": "ログイン",
@@ -118,7 +119,21 @@
     "unliked": "いいねを取り消しました",
     "likeFailed": "いいねに失敗しました",
     "authorTag": "作者",
-    "postingAsAdmin": "{name} としてコメントを投稿"
+    "postingAsAdmin": "{name} として投稿",
+    "captchaLoading": "認証を読み込み中...",
+    "captchaRequired": "先に認証を完了してください",
+    "captchaSolving": "認証中...",
+    "captchaLoadFailed": "認証を読み込めませんでした",
+    "captchaAuto": "送信時に自動で認証します",
+    "captchaPowRequired": "クリックして人間であることを確認",
+    "captchaPowVerified": "認証が完了しました",
+    "captchaPowRetry": "認証に失敗しました。クリックして再試行",
+    "captchaPowExpired": "認証の有効期限が切れました。クリックして再認証",
+    "replyingTo": "{name} へ返信",
+    "captchaExpired": "認証の有効期限が切れました。再度認証してください。",
+    "anonymous": "匿名",
+    "admin": "管理者",
+    "emoji": "絵文字"
   },
   "theme": {
     "light": "ライト",
@@ -144,5 +159,17 @@
   },
   "user": {
     "userBanned": "このアカウントは停止されているためログインできません"
+  },
+  "friendLinks": {
+    "title": "友達リンク",
+    "description": "おすすめのブログやサイトを集めました。",
+    "count": "{count} 件のリンク",
+    "empty": "まだ友達リンクがありません。",
+    "uncategorized": "未分類"
+  },
+  "about": {
+    "title": "アバウト",
+    "bioTitle": "プロフィール",
+    "timeline": "タイムライン"
   }
 }

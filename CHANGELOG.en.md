@@ -4,6 +4,21 @@ English | [简体中文](CHANGELOG.md)
 
 All notable changes to Noteva will be documented in this file.
 
+## [v0.3.5] - 2026-06-06
+
+### Internationalization
+- **New-feature locale quality fixed** - Rechecked strings added for About, friend links, comment settings, Captcha, AI Assistant, content primitives, and dashboard statistics. This fixes cases where keys existed but non-English locale packs still showed English source text, especially on the Japanese About Profile page, Captcha settings page, and default-theme comment form.
+- **Locale native-name encoding fixed** - Fixed admin and default-theme language lists that had real question-mark corruption such as `????`, `Fran?ais`, and `Espa?ol`. Locale native names now use stable Unicode escapes to avoid being corrupted again by terminal or PowerShell encoding differences.
+- **Corrupted locale values repaired** - Fixed real `??` corruption in parts of the Japanese, Korean, Russian, Brazilian Portuguese, German, Simplified Chinese, and Traditional Chinese locale packs, and added same-as-English checks to catch locale values that are present but still untranslated.
+
+### Default Theme
+- **Comment UI copy wired to i18n** - The default theme now localizes anonymous user labels, admin posting labels, emoji loading text, reply targets, captcha expiration, and captcha-required messages, preventing English strings such as `Posting as` and `Please complete the verification first` from appearing in non-English frontends.
+- **Comment captcha rendering stabilized** - The default theme `useTranslation()` hook now returns a stable translation function, reducing unnecessary captcha re-renders or resets caused by changing effect dependencies and making Cap / Turnstile / hCaptcha state display steadier.
+- **Homepage feedback blocks reverted** - Removed the recently added "Popular Articles / Recent Comments" feedback blocks from the default-theme homepage, restoring the lightweight article-flow structure and avoiding extra information panels or comment exposure in the default blog theme.
+
+### Build & Version
+- **Version unified to 0.3.5** - Updated the Rust crate, Cargo.lock, frontend packages, default theme, README version badge, and development metadata.
+
 ## [v0.3.4] - 2026-06-04
 
 ### Default Theme

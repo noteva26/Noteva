@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { getNoteva } from "@/hooks/useNoteva";
 import { useTranslation } from "@/lib/i18n";
+import { getThemeListItemMotion, themeTocMotion } from "@/lib/motion";
 
 interface TocItem {
     level: number;
@@ -70,12 +72,15 @@ export function TocSidebar({ toc }: TocSidebarProps) {
     if (visibleToc.length < 2) return null;
 
     return (
-        <aside className="default-toc-sidebar hidden min-w-0 xl:block">
+        <motion.aside
+            {...themeTocMotion}
+            className="default-toc-sidebar hidden min-w-0 xl:block"
+        >
             <nav className="default-toc-nav">
                 <h4 className="default-toc-title">{t("article.toc")}</h4>
                 <ul className="default-toc-list">
-                    {visibleToc.map((item) => (
-                        <li key={item.id}>
+                    {visibleToc.map((item, index) => (
+                        <motion.li key={item.id} {...getThemeListItemMotion(index, 0.025)}>
                             <button
                                 onClick={() => handleClick(item.id)}
                                 title={item.text}
@@ -89,10 +94,10 @@ export function TocSidebar({ toc }: TocSidebarProps) {
                             >
                                 {item.text}
                             </button>
-                        </li>
+                        </motion.li>
                     ))}
                 </ul>
             </nav>
-        </aside>
+        </motion.aside>
     );
 }

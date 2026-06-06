@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
-import { adminApi, articlesApi, DashboardStats, Article, SystemStats } from "@/lib/api";
+import { adminApi, DashboardStats, Article, AdminComment, SystemStats } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, FolderTree, Tags, Eye, TrendingUp, Activity, HardDrive, Clock, Zap } from "lucide-react";
+import { FileText, FolderTree, Tags, Eye, TrendingUp, Activity, HardDrive, Clock, Zap, MessageSquare, ShieldCheck } from "lucide-react";
 import {
   ResponsiveContainer,
   PieChart,
@@ -22,6 +22,8 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
   const [recentArticles, setRecentArticles] = useState<Article[]>([]);
+  const [popularArticles, setPopularArticles] = useState<Article[]>([]);
+  const [recentComments, setRecentComments] = useState<AdminComment[]>([]);
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
   const locale = useI18nStore((s) => s.locale);
@@ -31,16 +33,24 @@ export default function DashboardPage() {
 
     const loadDashboard = async () => {
       try {
-        const [statsRes, sysStatsRes, articlesRes] = await Promise.all([
+        const [statsRes, sysStatsRes] = await Promise.all([
           adminApi.dashboard(),
           adminApi.systemStats(),
-          articlesApi.list({ per_page: RECENT_ARTICLE_LIMIT }),
         ]);
         if (!active) return;
 
         setStats(statsRes.data);
         setSystemStats(sysStatsRes.data);
-        setRecentArticles((articlesRes.data?.articles || []).slice(0, RECENT_ARTICLE_LIMIT));
+        setRecentArticles(
+          (statsRes.data.recent_published_articles || [])
+            .slice(0, RECENT_ARTICLE_LIMIT)
+        );
+        setPopularArticles(
+          (statsRes.data.popular_articles || []).slice(0, RECENT_ARTICLE_LIMIT)
+        );
+        setRecentComments(
+          (statsRes.data.recent_comments || []).slice(0, RECENT_ARTICLE_LIMIT)
+        );
       } catch (error) {
         console.error(error);
       } finally {
@@ -78,6 +88,14 @@ export default function DashboardPage() {
     }
   }, [locale]);
 
+  const formatDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleString(dateLocale, {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
   const statCards = useMemo(() => [
     {
       title: t("article.totalArticles"),
@@ -103,6 +121,18 @@ export default function DashboardPage() {
       icon: Tags,
       color: "text-orange-500",
     },
+    {
+      title: t("dashboard.totalComments"),
+      value: stats?.total_comments ?? 0,
+      icon: MessageSquare,
+      color: "text-cyan-500",
+    },
+    {
+      title: t("dashboard.pendingComments"),
+      value: stats?.pending_comments ?? 0,
+      icon: ShieldCheck,
+      color: "text-amber-500",
+    },
   ], [stats, t]);
 
   // Only show trend data when there is real article data.
@@ -126,7 +156,7 @@ export default function DashboardPage() {
       </motion.div>
 
       {/* 缁熻鍗＄墖 - 閿欏紑鍏ュ満鍔ㄧ敾 */}
-      <AnimatedGrid className="grid gap-4 md:grid-cols-2 lg:grid-cols-4" staggerDelay={0.08}>
+      <AnimatedGrid className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6" staggerDelay={0.08}>
         {statCards.map((card) => (
           <motion.div
             key={card.title}
@@ -248,6 +278,111 @@ export default function DashboardPage() {
               <FolderTree className="h-4 w-4" />
               <span>{t("manage.categories")} / {t("manage.tags")}</span>
             </Link>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.35 }}
+        className="grid gap-4 md:grid-cols-2"
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" />
+              {t("dashboard.popularArticles")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="space-y-3">
+                {Array.from({ length: RECENT_ARTICLE_LIMIT }, (_, i) => (
+                  <div key={i} className="h-10 skeleton-shimmer rounded" />
+                ))}
+              </div>
+            ) : popularArticles.length > 0 ? (
+              <div className="space-y-2">
+                {popularArticles.map((article, index) => (
+                  <motion.a
+                    key={article.id}
+                    href={`/manage/articles/${article.id}`}
+                    className="flex items-center justify-between gap-3 rounded-lg p-3 hover:bg-muted transition-colors"
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    whileHover={{ x: 4 }}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{article.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {t("dashboard.views", { count: article.view_count ?? 0 })}
+                      </p>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {t("dashboard.comments", { count: article.comment_count ?? 0 })}
+                    </span>
+                  </motion.a>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                size="sm"
+                description={t("article.noArticles")}
+                icon={TrendingUp}
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              {t("dashboard.recentComments")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="space-y-3">
+                {Array.from({ length: RECENT_ARTICLE_LIMIT }, (_, i) => (
+                  <div key={i} className="h-10 skeleton-shimmer rounded" />
+                ))}
+              </div>
+            ) : recentComments.length > 0 ? (
+              <div className="space-y-2">
+                {recentComments.map((comment, index) => (
+                  <motion.a
+                    key={comment.id}
+                    href={`/manage/comments?comment=${comment.id}`}
+                    className="block rounded-lg p-3 hover:bg-muted transition-colors"
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    whileHover={{ x: 4 }}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate text-sm font-medium">
+                        {comment.nickname || t("comment.anonymous")}
+                      </p>
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(comment.created_at)}
+                      </span>
+                    </div>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {comment.content}
+                    </p>
+                  </motion.a>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                size="sm"
+                description={t("comment.noComments")}
+                icon={MessageSquare}
+              />
+            )}
           </CardContent>
         </Card>
       </motion.div>

@@ -454,11 +454,55 @@
     };
   };
 
+  const normalizeFriendLink = (link) => {
+    if (!link) return null;
+    return {
+      id: asNumber(link.id),
+      name: firstValue(link.name, ''),
+      url: firstValue(link.url, ''),
+      logo: firstValue(link.logo, null),
+      description: firstValue(link.description, null),
+      category: firstValue(link.category, null),
+      sortOrder: asNumber(firstValue(link.sortOrder, link.sort_order), 0),
+      status: firstValue(link.status, ''),
+      isRecommended: asBoolean(firstValue(link.isRecommended, link.is_recommended), false),
+      createdAt: firstValue(link.createdAt, link.created_at, ''),
+      updatedAt: firstValue(link.updatedAt, link.updated_at, ''),
+    };
+  };
+
+  const normalizeAboutProfile = (payload = {}) => {
+    const profile = payload.profile || payload;
+    return {
+      enabled: asBoolean(firstValue(profile.enabled, false), false),
+      navEnabled: asBoolean(firstValue(profile.navEnabled, profile.nav_enabled), false),
+      displayName: firstValue(profile.displayName, profile.display_name, ''),
+      avatar: firstValue(profile.avatar, ''),
+      headline: firstValue(profile.headline, ''),
+      bio: firstValue(profile.bio, ''),
+      location: firstValue(profile.location, ''),
+      website: firstValue(profile.website, ''),
+      socialLinks: asArray(firstValue(profile.socialLinks, profile.social_links)).map((link) => ({
+        label: firstValue(link?.label, ''),
+        url: firstValue(link?.url, ''),
+        icon: firstValue(link?.icon, ''),
+      })),
+      timeline: asArray(profile.timeline).map((item) => ({
+        title: firstValue(item?.title, ''),
+        date: firstValue(item?.date, ''),
+        description: firstValue(item?.description, ''),
+      })),
+      extraMarkdown: firstValue(profile.extraMarkdown, profile.extra_markdown, ''),
+      extraHtml: firstValue(payload.extraHtml, payload.extra_html, ''),
+    };
+  };
+
   const normalizeComment = (comment) => {
     if (!comment) return null;
     return {
       id: asNumber(comment.id),
       articleId: firstValue(comment.articleId, comment.article_id, null),
+      articleSlug: firstValue(comment.articleSlug, comment.article_slug, null),
       userId: firstValue(comment.userId, comment.user_id, null),
       parentId: firstValue(comment.parentId, comment.parent_id, null),
       nickname: firstValue(comment.nickname, comment.author?.username, null),
@@ -524,10 +568,13 @@
     showPostNav: asBoolean(firstValue(data.showPostNav, data.show_post_nav), true),
     showRelatedPosts: asBoolean(firstValue(data.showRelatedPosts, data.show_related_posts), true),
     showComments: asBoolean(firstValue(data.showComments, data.show_comments), true),
+    friendLinksNavEnabled: asBoolean(firstValue(data.friendLinksNavEnabled, data.friend_links_nav_enabled), true),
+    aboutNavEnabled: asBoolean(firstValue(data.aboutNavEnabled, data.about_nav_enabled), false),
     stats: {
       totalArticles: asNumber(firstValue(data.stats?.totalArticles, data.stats?.total_articles), 0),
       totalCategories: asNumber(firstValue(data.stats?.totalCategories, data.stats?.total_categories), 0),
       totalTags: asNumber(firstValue(data.stats?.totalTags, data.stats?.total_tags), 0),
+      totalComments: asNumber(firstValue(data.stats?.totalComments, data.stats?.total_comments), 0),
     },
   });
 
@@ -716,6 +763,18 @@
       return normalizeArticleList(await api.get('/articles', queryParams));
     },
 
+    async popular(params = {}) {
+      const limit = Math.min(Math.max(asNumber(firstValue(params.limit, params.pageSize), 5), 1), 20);
+      const result = await this.list({
+        page: 1,
+        pageSize: limit,
+        category: params.category,
+        tag: params.tag,
+        sort: params.sort || 'views',
+      });
+      return result.articles.slice(0, limit);
+    },
+
     async get(slug) {
       const article = normalizeArticle(await api.get(`/articles/${slug}`));
       // 触发文章查看钩子
@@ -821,6 +880,25 @@
   };
 
   // ============================================
+  // 友联 API
+  // ============================================
+  const friendLinks = {
+    async list(params = {}) {
+      const result = await api.get('/friend-links', params);
+      return asArray(result.links || result).map(normalizeFriendLink).filter(Boolean);
+    },
+  };
+
+  // ============================================
+  // About API
+  // ============================================
+  const about = {
+    async get() {
+      return normalizeAboutProfile(await api.get('/about'));
+    },
+  };
+
+  // ============================================
   // 分类 API
   // ============================================
   const categories = {
@@ -864,6 +942,7 @@
     async create(data) {
       // 触发评论创建前钩子
       const processedData = hooks.trigger('comment_before_create', data);
+      const captchaToken = processedData.captchaToken;
 
       const comment = await api.post(`/comments`, {
         article_id: processedData.articleId,
@@ -871,7 +950,7 @@
         parent_id: processedData.parentId,
         nickname: processedData.nickname,
         email: processedData.email,
-        captcha_token: processedData.captchaToken,
+        captcha_token: captchaToken,
       });
 
       // 触发评论创建后钩子
@@ -886,47 +965,757 @@
     },
 
     async recent(limit = 10) {
-      const result = await api.get(`/comments/recent`, { limit });
+      const safeLimit = Math.min(Math.max(asNumber(limit, 10), 1), 50);
+      const result = await api.get(`/comments/recent`, { limit: safeLimit });
       return asArray(result.comments || result).map(normalizeComment).filter(Boolean);
     },
   };
+
+  const POW_K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  ];
+
+  function powRotr(value, bits) {
+    return (value >>> bits) | (value << (32 - bits));
+  }
+
+  function powSha256(input) {
+    const bytes = [];
+    for (let i = 0; i < input.length; i += 1) bytes.push(input.charCodeAt(i) & 0xff);
+    const bitLength = bytes.length * 8;
+    bytes.push(0x80);
+    while ((bytes.length % 64) !== 56) bytes.push(0);
+    bytes.push(0, 0, 0, 0, (bitLength >>> 24) & 0xff, (bitLength >>> 16) & 0xff, (bitLength >>> 8) & 0xff, bitLength & 0xff);
+
+    const h = [
+      0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+      0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    ];
+    const w = new Array(64);
+
+    for (let offset = 0; offset < bytes.length; offset += 64) {
+      for (let i = 0; i < 16; i += 1) {
+        const j = offset + i * 4;
+        w[i] = ((bytes[j] << 24) | (bytes[j + 1] << 16) | (bytes[j + 2] << 8) | bytes[j + 3]) >>> 0;
+      }
+      for (let i = 16; i < 64; i += 1) {
+        const s0 = powRotr(w[i - 15], 7) ^ powRotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+        const s1 = powRotr(w[i - 2], 17) ^ powRotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+        w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+      }
+
+      let [a, b, c, d, e, f, g, hh] = h;
+      for (let i = 0; i < 64; i += 1) {
+        const s1 = powRotr(e, 6) ^ powRotr(e, 11) ^ powRotr(e, 25);
+        const ch = (e & f) ^ (~e & g);
+        const temp1 = (hh + s1 + ch + POW_K[i] + w[i]) >>> 0;
+        const s0 = powRotr(a, 2) ^ powRotr(a, 13) ^ powRotr(a, 22);
+        const maj = (a & b) ^ (a & c) ^ (b & c);
+        const temp2 = (s0 + maj) >>> 0;
+        hh = g;
+        g = f;
+        f = e;
+        e = (d + temp1) >>> 0;
+        d = c;
+        c = b;
+        b = a;
+        a = (temp1 + temp2) >>> 0;
+      }
+
+      h[0] = (h[0] + a) >>> 0;
+      h[1] = (h[1] + b) >>> 0;
+      h[2] = (h[2] + c) >>> 0;
+      h[3] = (h[3] + d) >>> 0;
+      h[4] = (h[4] + e) >>> 0;
+      h[5] = (h[5] + f) >>> 0;
+      h[6] = (h[6] + g) >>> 0;
+      h[7] = (h[7] + hh) >>> 0;
+    }
+
+    const digest = [];
+    for (const word of h) {
+      digest.push((word >>> 24) & 0xff, (word >>> 16) & 0xff, (word >>> 8) & 0xff, word & 0xff);
+    }
+    return digest;
+  }
+
+  function powHasLeadingZeroBits(digest, bits) {
+    let remaining = Number(bits || 0);
+    for (const byte of digest) {
+      if (remaining <= 0) return true;
+      if (remaining >= 8) {
+        if (byte !== 0) return false;
+        remaining -= 8;
+      } else {
+        const mask = (0xff << (8 - remaining)) & 0xff;
+        return (byte & mask) === 0;
+      }
+    }
+    return remaining <= 0;
+  }
+
+  function powMatches(challenge, solution) {
+    const action = challenge.action || 'comment';
+    const bits = asNumber(firstValue(challenge.leadingZeroBits, challenge.leading_zero_bits), 16);
+    const payload = `${challenge.id}:${challenge.nonce}:${action}:${solution}`;
+    return powHasLeadingZeroBits(powSha256(payload), bits);
+  }
+
+  async function solvePowFallback(challenge, options = {}) {
+    const startedAt = Date.now();
+    const batchSize = asNumber(options.batchSize, 1024);
+    let candidate = asNumber(options.start, 0);
+
+    while (true) {
+      for (let i = 0; i < batchSize; i += 1) {
+        const solution = String(candidate);
+        if (powMatches(challenge, solution)) {
+          return {
+            solution,
+            elapsedMs: Date.now() - startedAt,
+            attempts: candidate + 1,
+          };
+        }
+        candidate += 1;
+      }
+      if (typeof options.onProgress === 'function') {
+        options.onProgress({ attempts: candidate, elapsedMs: Date.now() - startedAt });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  const POW_WORKER_SOURCE = `
+    const POW_K = ${JSON.stringify(POW_K)};
+    ${powRotr.toString()}
+    ${powSha256.toString()}
+    ${powHasLeadingZeroBits.toString()}
+    function firstValue(){ for (let i = 0; i < arguments.length; i += 1) if (arguments[i] !== undefined && arguments[i] !== null) return arguments[i]; }
+    function asNumber(value, fallback = 0) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; }
+    ${powMatches.toString()}
+    self.onmessage = function(event) {
+      const challenge = event.data.challenge;
+      const batchSize = Number(event.data.batchSize || 2048);
+      let candidate = Number(event.data.start || 0);
+      const startedAt = Date.now();
+      for (;;) {
+        for (let i = 0; i < batchSize; i += 1) {
+          const solution = String(candidate);
+          if (powMatches(challenge, solution)) {
+            self.postMessage({ type: 'done', solution, elapsedMs: Date.now() - startedAt, attempts: candidate + 1 });
+            return;
+          }
+          candidate += 1;
+        }
+        self.postMessage({ type: 'progress', attempts: candidate, elapsedMs: Date.now() - startedAt });
+      }
+    };
+  `;
+
+  function solvePowInWorker(challenge, options = {}) {
+    return new Promise((resolve, reject) => {
+      if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined') {
+        reject(new Error('Web Worker is not available'));
+        return;
+      }
+
+      const blobUrl = URL.createObjectURL(new Blob([POW_WORKER_SOURCE], { type: 'application/javascript' }));
+      const worker = new Worker(blobUrl);
+      const timeoutMs = asNumber(options.timeoutMs, 30000);
+      let settled = false;
+      const cleanup = () => {
+        worker.terminate();
+        URL.revokeObjectURL(blobUrl);
+      };
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error('Captcha verification timed out'));
+      }, timeoutMs);
+
+      worker.onmessage = (event) => {
+        if (event.data?.type === 'progress') {
+          if (typeof options.onProgress === 'function') options.onProgress(event.data);
+          return;
+        }
+        if (event.data?.type === 'done') {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          cleanup();
+          resolve(event.data);
+        }
+      };
+      worker.onerror = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        cleanup();
+        reject(error);
+      };
+      worker.postMessage({
+        challenge,
+        start: options.start || 0,
+        batchSize: options.batchSize || 2048,
+      });
+    });
+  }
+
+  async function solvePowChallenge(challenge, options = {}) {
+    try {
+      return await solvePowInWorker(challenge, options);
+    } catch {
+      return solvePowFallback(challenge, options);
+    }
+  }
+
+  const POW_CAPTCHA_DEFAULT_LABELS = {
+    verifying: 'Verifying...',
+    verified: 'Verification complete',
+    retry: 'Verification failed, click to retry',
+    expired: 'Verification expired, click to retry',
+    required: 'Click to verify you are human',
+    brand: 'Noteva',
+  };
+
+  const POW_CAPTCHA_ZH_LABELS = {
+    verifying: '正在验证...',
+    verified: '验证完成',
+    retry: '验证失败，点击重试',
+    expired: '验证已过期，点击重新验证',
+    required: '点击验证你是真人',
+    brand: 'Noteva',
+  };
+
+  function isBrokenPowCaptchaLabel(value) {
+    const text = String(value || '').trim();
+    return !text || /^\?+$/.test(text) || /^comment\.captcha/.test(text);
+  }
+
+  function getPowCaptchaLabels(options = {}) {
+    const locale = String(
+      options.locale ||
+        (typeof document !== 'undefined' ? document.documentElement?.lang : '') ||
+        (typeof navigator !== 'undefined' ? navigator.language : '') ||
+        ''
+    );
+    const defaults = locale.toLowerCase().startsWith('zh')
+      ? POW_CAPTCHA_ZH_LABELS
+      : POW_CAPTCHA_DEFAULT_LABELS;
+    const labels = options.labels || {};
+    const merged = { ...defaults };
+
+    for (const key of Object.keys(defaults)) {
+      merged[key] = isBrokenPowCaptchaLabel(labels[key])
+        ? defaults[key]
+        : String(labels[key]);
+    }
+
+    return merged;
+  }
+
+  function applyCapWidgetI18n(capWidget, options = {}) {
+    const labels = options.labels || {};
+    const mappings = {
+      'data-cap-i18n-initial-state': labels.initial || labels.required,
+      'data-cap-i18n-verifying-label': labels.verifying,
+      'data-cap-i18n-solved-label': labels.verified,
+      'data-cap-i18n-error-label': labels.error || labels.retry,
+      'data-cap-i18n-troubleshooting-label': labels.troubleshooting,
+      'data-cap-i18n-wasm-disabled': labels.wasmDisabled,
+      'data-cap-i18n-verify-aria-label': labels.verifyAria || labels.required,
+      'data-cap-i18n-verifying-aria-label': labels.verifyingAria || labels.verifying,
+      'data-cap-i18n-verified-aria-label': labels.verifiedAria || labels.verified,
+      'data-cap-i18n-required-label': labels.required,
+      'data-cap-i18n-error-aria-label': labels.errorAria || labels.error || labels.retry,
+    };
+
+    if (options.locale) {
+      capWidget.setAttribute('lang', String(options.locale));
+    }
+
+    Object.entries(mappings).forEach(([attribute, value]) => {
+      const text = String(value || '').trim();
+      if (text && !isBrokenPowCaptchaLabel(text)) {
+        capWidget.setAttribute(attribute, text);
+      }
+    });
+  }
+
+  function injectPowCaptchaStyle() {
+    if (typeof document === 'undefined' || document.getElementById('noteva-pow-captcha-style')) return;
+
+    const style = document.createElement('style');
+    style.id = 'noteva-pow-captcha-style';
+    style.textContent = `
+      .noteva-pow-captcha {
+        width: min(100%, 28rem);
+        min-height: 4rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        border: 1px solid hsl(var(--border, 214.3 31.8% 91.4%));
+        border-radius: 1rem;
+        background: hsl(var(--card, 0 0% 100%));
+        color: hsl(var(--foreground, 222.2 84% 4.9%));
+        padding: 0.78rem 1rem;
+        font: inherit;
+        text-align: left;
+        box-shadow: 0 1px 2px hsl(var(--foreground, 222.2 84% 4.9%) / 0.04);
+        transition:
+          border-color 160ms ease,
+          background-color 160ms ease,
+          box-shadow 160ms ease,
+          transform 160ms ease;
+      }
+
+      .noteva-pow-captcha:not(:disabled) {
+        cursor: pointer;
+      }
+
+      .noteva-pow-captcha:not(:disabled):hover {
+        border-color: hsl(var(--primary, 222.2 47.4% 11.2%) / 0.45);
+        box-shadow: 0 12px 32px hsl(var(--foreground, 222.2 84% 4.9%) / 0.08);
+        transform: translateY(-1px);
+      }
+
+      .noteva-pow-captcha:focus-visible {
+        outline: 2px solid hsl(var(--ring, 222.2 84% 4.9%) / 0.72);
+        outline-offset: 2px;
+      }
+
+      .noteva-pow-captcha[data-status="solving"] {
+        cursor: wait;
+        border-color: hsl(var(--primary, 222.2 47.4% 11.2%) / 0.42);
+      }
+
+      .noteva-pow-captcha[data-status="ready"] {
+        border-color: hsl(142 68% 42% / 0.42);
+        background: hsl(142 68% 42% / 0.06);
+      }
+
+      .noteva-pow-captcha[data-status="error"],
+      .noteva-pow-captcha[data-status="expired"] {
+        border-color: hsl(var(--destructive, 0 84.2% 60.2%) / 0.42);
+        background: hsl(var(--destructive, 0 84.2% 60.2%) / 0.06);
+      }
+
+      .noteva-pow-captcha-box {
+        width: 1.9rem;
+        height: 1.9rem;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border: 1px solid hsl(var(--border, 214.3 31.8% 91.4%));
+        border-radius: 0.48rem;
+        background: hsl(var(--background, 0 0% 100%));
+        color: hsl(var(--foreground, 222.2 84% 4.9%));
+        transition:
+          border-color 160ms ease,
+          background-color 160ms ease,
+          color 160ms ease;
+      }
+
+      .noteva-pow-captcha[data-status="ready"] .noteva-pow-captcha-box {
+        border-color: hsl(142 68% 42% / 0.58);
+        background: hsl(142 68% 42%);
+        color: white;
+      }
+
+      .noteva-pow-captcha[data-status="error"] .noteva-pow-captcha-box,
+      .noteva-pow-captcha[data-status="expired"] .noteva-pow-captcha-box {
+        border-color: hsl(var(--destructive, 0 84.2% 60.2%) / 0.56);
+        color: hsl(var(--destructive, 0 84.2% 60.2%));
+      }
+
+      .noteva-pow-captcha-check {
+        width: 0.48rem;
+        height: 0.82rem;
+        border-right: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        transform: rotate(42deg) translateY(-0.06rem);
+      }
+
+      .noteva-pow-captcha-spinner {
+        width: 1rem;
+        height: 1rem;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 999px;
+        animation: notevaPowSpin 720ms linear infinite;
+      }
+
+      .noteva-pow-captcha-alert {
+        font-size: 1rem;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .noteva-pow-captcha-label {
+        min-width: 0;
+        flex: 1;
+        font-size: 0.95rem;
+        font-weight: 600;
+        line-height: 1.35;
+      }
+
+      .noteva-pow-captcha-brand {
+        flex: none;
+        color: hsl(var(--muted-foreground, 215.4 16.3% 46.9%));
+        font-size: 0.78rem;
+        text-decoration: underline;
+        text-underline-offset: 0.16rem;
+      }
+
+      @keyframes notevaPowSpin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .noteva-pow-captcha,
+        .noteva-pow-captcha-box {
+          transition-duration: 0.01ms;
+        }
+
+        .noteva-pow-captcha-spinner {
+          animation-duration: 1.6s;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
 
   const captcha = {
     _config: null,
     _scriptPromises: {},
     _widgets: new Map(),
 
+    _clearPowTimer(widget) {
+      if (widget?.expireTimer) {
+        clearTimeout(widget.expireTimer);
+        widget.expireTimer = null;
+      }
+    },
+
+    _expirePowWidget(element, widget) {
+      if (!widget || widget.status !== 'ready') return;
+
+      widget.token = '';
+      this._clearPowTimer(widget);
+      this._setPowWidgetStatus(element, widget, 'expired');
+      if (typeof widget.options?.expiredCallback === 'function') {
+        widget.options.expiredCallback();
+      }
+    },
+
+    _setPowWidgetStatus(element, widget, status) {
+      if (!element || !widget?.button) return;
+
+      const labels = widget.labels || POW_CAPTCHA_DEFAULT_LABELS;
+      const labelByStatus = {
+        idle: labels.required,
+        required: labels.required,
+        solving: labels.verifying,
+        ready: labels.verified,
+        expired: labels.expired,
+        error: labels.retry,
+      };
+
+      widget.status = status;
+      widget.button.dataset.status = status;
+      widget.button.disabled = status === 'solving';
+      widget.button.setAttribute('aria-busy', status === 'solving' ? 'true' : 'false');
+      widget.label.textContent = labelByStatus[status] || labels.required;
+      widget.icon.textContent = '';
+
+      if (status === 'ready') {
+        const check = document.createElement('span');
+        check.className = 'noteva-pow-captcha-check';
+        check.setAttribute('aria-hidden', 'true');
+        widget.icon.appendChild(check);
+      } else if (status === 'solving') {
+        const spinner = document.createElement('span');
+        spinner.className = 'noteva-pow-captcha-spinner';
+        spinner.setAttribute('aria-hidden', 'true');
+        widget.icon.appendChild(spinner);
+      } else if (status === 'error' || status === 'expired') {
+        const alert = document.createElement('span');
+        alert.className = 'noteva-pow-captcha-alert';
+        alert.setAttribute('aria-hidden', 'true');
+        alert.textContent = '!';
+        widget.icon.appendChild(alert);
+      }
+    },
+
+    _renderPowWidget(element, widget, options = {}) {
+      injectPowCaptchaStyle();
+      element.innerHTML = '';
+
+      const labels = getPowCaptchaLabels(options);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'noteva-pow-captcha';
+      button.dataset.status = 'idle';
+      button.setAttribute('aria-live', 'polite');
+
+      const icon = document.createElement('span');
+      icon.className = 'noteva-pow-captcha-box';
+      icon.setAttribute('aria-hidden', 'true');
+
+      const label = document.createElement('span');
+      label.className = 'noteva-pow-captcha-label';
+
+      const brand = document.createElement('span');
+      brand.className = 'noteva-pow-captcha-brand';
+      brand.textContent = labels.brand || 'Noteva';
+
+      button.append(icon, label, brand);
+      element.appendChild(button);
+
+      Object.assign(widget, {
+        action: options.action || 'comment',
+        button,
+        icon,
+        label,
+        labels,
+        options,
+        status: 'idle',
+        token: '',
+      });
+
+      button.addEventListener('click', () => {
+        if (widget.status === 'solving' || widget.status === 'ready') return;
+        this.solve({
+          ...widget.options,
+          action: widget.action,
+          container: element,
+          force: true,
+        }).catch(() => {});
+      });
+
+      this._setPowWidgetStatus(element, widget, 'idle');
+    },
+
     async getConfig() {
       if (!this._config) {
         const config = await api.get('/captcha/config');
         this._config = {
           ...config,
+          provider: config.provider || 'none',
           siteKey: config.siteKey || config.site_key || '',
           site_key: config.site_key || config.siteKey || '',
+          capBaseUrl: firstValue(config.capBaseUrl, config.cap_base_url, ''),
+          cap_base_url: firstValue(config.cap_base_url, config.capBaseUrl, ''),
+          capEndpoint: firstValue(config.capEndpoint, config.cap_endpoint, ''),
+          cap_endpoint: firstValue(config.cap_endpoint, config.capEndpoint, ''),
+          pow: config.pow ? {
+            difficulty: config.pow.difficulty || 'normal',
+            leadingZeroBits: asNumber(firstValue(config.pow.leadingZeroBits, config.pow.leading_zero_bits), 16),
+            challengeTtlSeconds: asNumber(firstValue(config.pow.challengeTtlSeconds, config.pow.challenge_ttl_seconds), 120),
+            tokenTtlSeconds: asNumber(firstValue(config.pow.tokenTtlSeconds, config.pow.token_ttl_seconds), 300),
+            autoSolve: asBoolean(firstValue(config.pow.autoSolve, config.pow.auto_solve), true),
+          } : null,
         };
       }
       return this._config;
     },
 
     async loadScript(provider) {
+      if (provider !== 'turnstile' && provider !== 'hcaptcha' && provider !== 'cap') return Promise.resolve();
       if (this._scriptPromises[provider]) return this._scriptPromises[provider];
-      const src = provider === 'turnstile'
-        ? 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
-        : 'https://js.hcaptcha.com/1/api.js?render=explicit';
+      const scripts = provider === 'turnstile'
+        ? [{ src: 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit' }]
+        : provider === 'hcaptcha'
+          ? [{ src: 'https://js.hcaptcha.com/1/api.js?render=explicit' }]
+          : [
+              { src: 'https://cdn.jsdelivr.net/npm/@cap.js/widget@3' },
+              { src: 'https://cdn.jsdelivr.net/npm/cap-widget', type: 'module' },
+            ];
       this._scriptPromises[provider] = new Promise((resolve, reject) => {
-        if ((provider === 'turnstile' && window.turnstile) || (provider === 'hcaptcha' && window.hcaptcha)) {
+        if (
+          (provider === 'turnstile' && window.turnstile) ||
+          (provider === 'hcaptcha' && window.hcaptcha) ||
+          (provider === 'cap' && typeof customElements !== 'undefined' && customElements.get?.('cap-widget'))
+        ) {
           resolve();
           return;
         }
-        const script = document.createElement('script');
-        script.src = src;
-        script.async = true;
-        script.defer = true;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error(`Failed to load ${provider} captcha script`));
-        document.head.appendChild(script);
+
+        let index = 0;
+        let settled = false;
+        const resolveOnce = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        const rejectOnce = (error) => {
+          if (settled) return;
+          settled = true;
+          reject(error);
+        };
+        const loadNext = () => {
+          if (settled) return;
+          const current = scripts[index];
+          if (!current) {
+            rejectOnce(new Error(`Failed to load ${provider} captcha script`));
+            return;
+          }
+
+          const script = document.createElement('script');
+          script.src = current.src;
+          if (current.type) script.type = current.type;
+          script.async = true;
+          script.defer = true;
+          script.onload = () => {
+            if (provider !== 'cap' || typeof customElements === 'undefined') {
+              resolveOnce();
+              return;
+            }
+
+            if (customElements.get?.('cap-widget')) {
+              resolveOnce();
+              return;
+            }
+
+            const timeout = setTimeout(() => {
+              script.remove();
+              index += 1;
+              loadNext();
+            }, 1500);
+
+            customElements.whenDefined('cap-widget').then(() => {
+              clearTimeout(timeout);
+              resolveOnce();
+            }).catch(() => {
+              clearTimeout(timeout);
+              script.remove();
+              index += 1;
+              loadNext();
+            });
+          };
+          script.onerror = () => {
+            script.remove();
+            index += 1;
+            loadNext();
+          };
+          document.head.appendChild(script);
+        };
+
+        loadNext();
       });
       return this._scriptPromises[provider];
+    },
+
+    _renderCapWidget(element, widget, options = {}) {
+      const capEndpoint = firstValue(
+        options.capEndpoint,
+        options.cap_endpoint,
+        widget.capEndpoint,
+        ''
+      );
+      if (!capEndpoint) return null;
+
+      element.innerHTML = '';
+      const capWidget = document.createElement('cap-widget');
+      capWidget.setAttribute('data-cap-api-endpoint', capEndpoint);
+      if (options.theme) capWidget.setAttribute('data-theme', options.theme);
+      if (options.size) capWidget.setAttribute('data-size', options.size);
+      applyCapWidgetI18n(capWidget, options);
+
+      const readCapToken = (event) => {
+        const detail = event?.detail;
+        return typeof detail === 'string'
+          ? detail
+          : firstValue(
+              detail?.token,
+              detail?.response,
+              detail?.value,
+              detail?.solution,
+              event?.token,
+              event?.response,
+              capWidget.token,
+              capWidget.value,
+              capWidget.getAttribute?.('token'),
+              capWidget.getAttribute?.('value'),
+              ''
+            );
+      };
+      const handleSolve = (event) => {
+        const token = readCapToken(event);
+        widget.token = token || '';
+        if (widget.token && typeof options.callback === 'function') {
+          options.callback(widget.token);
+        }
+      };
+      const handleError = (event) => {
+        widget.token = '';
+        if (typeof options.errorCallback === 'function') {
+          options.errorCallback(event?.detail || event);
+        }
+      };
+      const handleExpired = () => {
+        widget.token = '';
+        if (typeof options.expiredCallback === 'function') {
+          options.expiredCallback();
+        }
+      };
+      const handleProgress = (event) => {
+        if (typeof options.progressCallback === 'function') {
+          options.progressCallback(event?.detail || event);
+        }
+      };
+      const handleReset = () => {
+        widget.token = '';
+        if (typeof options.resetCallback === 'function') {
+          options.resetCallback();
+        }
+      };
+
+      capWidget.addEventListener('solve', handleSolve);
+      capWidget.addEventListener('solved', handleSolve);
+      capWidget.addEventListener('success', handleSolve);
+      capWidget.addEventListener('verified', handleSolve);
+      capWidget.addEventListener('verify', handleSolve);
+      capWidget.addEventListener('token', handleSolve);
+      capWidget.addEventListener('error', handleError);
+      capWidget.addEventListener('expire', handleExpired);
+      capWidget.addEventListener('expired', handleExpired);
+      capWidget.addEventListener('progress', handleProgress);
+      capWidget.addEventListener('challenge', handleProgress);
+      capWidget.addEventListener('reset', handleReset);
+      element.appendChild(capWidget);
+
+      Object.assign(widget, {
+        id: capWidget,
+        element: capWidget,
+        token: '',
+        cleanup() {
+          capWidget.removeEventListener('solve', handleSolve);
+          capWidget.removeEventListener('solved', handleSolve);
+          capWidget.removeEventListener('success', handleSolve);
+          capWidget.removeEventListener('verified', handleSolve);
+          capWidget.removeEventListener('verify', handleSolve);
+          capWidget.removeEventListener('token', handleSolve);
+          capWidget.removeEventListener('error', handleError);
+          capWidget.removeEventListener('expire', handleExpired);
+          capWidget.removeEventListener('expired', handleExpired);
+          capWidget.removeEventListener('progress', handleProgress);
+          capWidget.removeEventListener('challenge', handleProgress);
+          capWidget.removeEventListener('reset', handleReset);
+        },
+      });
+
+      return capWidget;
     },
 
     async render(container, options = {}) {
@@ -939,7 +1728,31 @@
       }
       const provider = options.provider || config.provider;
       const siteKey = options.siteKey || config.siteKey || config.site_key;
-      if (!provider || provider === 'none' || !siteKey) return null;
+      if (!provider || provider === 'none') return null;
+      if (provider === 'noteva_pow') {
+        const previous = this._widgets.get(element);
+        if (previous?.provider === 'noteva_pow') this._clearPowTimer(previous);
+        const widget = { provider, id: null, token: '' };
+        this._widgets.set(element, widget);
+        this._renderPowWidget(element, widget, options);
+        return { provider, element };
+      }
+      if (provider === 'cap') {
+        const previous = this._widgets.get(element);
+        if (previous?.cleanup) previous.cleanup();
+        const capEndpoint = firstValue(
+          options.capEndpoint,
+          options.cap_endpoint,
+          config.capEndpoint,
+          config.cap_endpoint
+        );
+        if (!capEndpoint) return null;
+        await this.loadScript(provider);
+        const widget = { provider, id: null, token: '', capEndpoint };
+        this._widgets.set(element, widget);
+        return this._renderCapWidget(element, widget, { ...options, capEndpoint });
+      }
+      if (!siteKey) return null;
       await this.loadScript(provider);
       const widgetOptions = {
         sitekey: siteKey,
@@ -958,6 +1771,8 @@
       const element = typeof container === 'string' ? document.querySelector(container) : container;
       const widget = element ? this._widgets.get(element) : null;
       if (!widget) return '';
+      if (widget.provider === 'noteva_pow') return widget.token || '';
+      if (widget.provider === 'cap') return widget.token || widget.element?.token || widget.element?.value || '';
       if (widget.provider === 'turnstile' && window.turnstile) return window.turnstile.getResponse(widget.id) || '';
       if (widget.provider === 'hcaptcha' && window.hcaptcha) return window.hcaptcha.getResponse(widget.id) || '';
       return '';
@@ -967,6 +1782,17 @@
       const element = typeof container === 'string' ? document.querySelector(container) : container;
       const widget = element ? this._widgets.get(element) : null;
       if (!widget) return;
+      if (widget.provider === 'noteva_pow') {
+        widget.token = '';
+        this._clearPowTimer(widget);
+        this._setPowWidgetStatus(element, widget, 'idle');
+        return;
+      }
+      if (widget.provider === 'cap') {
+        widget.token = '';
+        if (widget.element?.reset) widget.element.reset();
+        return;
+      }
       if (widget.provider === 'turnstile' && window.turnstile) window.turnstile.reset(widget.id);
       if (widget.provider === 'hcaptcha' && window.hcaptcha) window.hcaptcha.reset(widget.id);
     },
@@ -975,9 +1801,118 @@
       const element = typeof container === 'string' ? document.querySelector(container) : container;
       const widget = element ? this._widgets.get(element) : null;
       if (!widget) return;
+      if (widget.provider === 'noteva_pow') {
+        this._clearPowTimer(widget);
+        element.innerHTML = '';
+        this._widgets.delete(element);
+        return;
+      }
+      if (widget.provider === 'cap') {
+        if (widget.cleanup) widget.cleanup();
+        element.innerHTML = '';
+        this._widgets.delete(element);
+        return;
+      }
       if (widget.provider === 'turnstile' && window.turnstile?.remove) window.turnstile.remove(widget.id);
       if (widget.provider === 'hcaptcha' && window.hcaptcha?.remove) window.hcaptcha.remove(widget.id);
       this._widgets.delete(element);
+    },
+
+    async createChallenge(options = {}) {
+      const result = await api.post('/captcha/challenge', {
+        action: options.action || 'comment',
+      });
+      return result.challenge || result;
+    },
+
+    async verifyPow(options = {}) {
+      const result = await api.post('/captcha/verify', {
+        action: options.action || 'comment',
+        challenge_id: options.challengeId || options.challenge_id,
+        solution: options.solution,
+        elapsed_ms: options.elapsedMs || options.elapsed_ms,
+      });
+      return {
+        token: result.token || '',
+        action: result.action || options.action || 'comment',
+        expiresAt: result.expiresAt || result.expires_at || '',
+      };
+    },
+
+    async solve(options = {}) {
+      const config = await this.getConfig();
+      if (!config.enabled || config.provider === 'none') return '';
+      if (config.provider !== 'noteva_pow') {
+        return this.getToken(options.container);
+      }
+
+      const action = options.action || 'comment';
+      const element = typeof options.container === 'string'
+        ? document.querySelector(options.container)
+        : options.container;
+      const widget = element ? this._widgets.get(element) : null;
+
+      if (widget?.provider === 'noteva_pow' && widget.token && !options.force) {
+        return widget.token;
+      }
+
+      if (widget?.provider === 'noteva_pow') {
+        widget.options = {
+          ...(widget.options || {}),
+          ...options,
+        };
+        widget.action = action;
+        widget.token = '';
+        this._clearPowTimer(widget);
+        this._setPowWidgetStatus(element, widget, 'solving');
+      }
+
+      try {
+        const challenge = await this.createChallenge({ action });
+        const solved = await solvePowChallenge(challenge, options);
+        const verified = await this.verifyPow({
+          action,
+          challengeId: challenge.id,
+          solution: solved.solution,
+          elapsedMs: solved.elapsedMs,
+        });
+
+        if (element) {
+          const current = this._widgets.get(element) || { provider: 'noteva_pow', id: null };
+          current.token = verified.token;
+          current.action = action;
+          this._widgets.set(element, current);
+
+          if (current.provider === 'noteva_pow') {
+            this._clearPowTimer(current);
+            this._setPowWidgetStatus(element, current, 'ready');
+
+            const expiresAt = verified.expiresAt ? new Date(verified.expiresAt).getTime() : 0;
+            const delay = expiresAt > Date.now()
+              ? Math.max(0, expiresAt - Date.now())
+              : asNumber(config.pow?.tokenTtlSeconds, 300) * 1000;
+            current.expireTimer = setTimeout(() => {
+              this._expirePowWidget(element, current);
+            }, Math.max(1000, delay));
+
+            if (typeof current.options?.callback === 'function') {
+              current.options.callback(verified.token);
+            }
+          }
+        }
+
+        return verified.token;
+      } catch (error) {
+        if (widget?.provider === 'noteva_pow') {
+          widget.token = '';
+          this._clearPowTimer(widget);
+          this._setPowWidgetStatus(element, widget, 'error');
+          if (typeof widget.options?.errorCallback === 'function') {
+            widget.options.errorCallback(error);
+          }
+        }
+        throw error;
+      }
     },
   };
 
@@ -2851,6 +3786,8 @@
     theme,
     articles,
     pages,
+    friendLinks,
+    about,
     categories,
     tags,
     comments,

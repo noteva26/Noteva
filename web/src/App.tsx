@@ -15,6 +15,8 @@ const ArticleNewPage = lazy(managePageLoaders.articleNew);
 const ArticleEditPage = lazy(managePageLoaders.articleEdit);
 const TaxonomyPage = lazy(managePageLoaders.taxonomy);
 const PagesPage = lazy(managePageLoaders.pages);
+const AboutPage = lazy(managePageLoaders.about);
+const FriendLinksPage = lazy(managePageLoaders.friendLinks);
 const NavPage = lazy(managePageLoaders.nav);
 const CommentsPage = lazy(managePageLoaders.comments);
 const CommentSettingsPage = lazy(managePageLoaders.commentSettings);
@@ -54,6 +56,8 @@ export default function App() {
             <Route path="categories" element={<Navigate to="/manage/taxonomy" replace />} />
             <Route path="tags" element={<Navigate to="/manage/taxonomy" replace />} />
             <Route path="pages" element={<PagesPage />} />
+            <Route path="about" element={<AboutPage />} />
+            <Route path="friend-links" element={<FriendLinksPage />} />
             <Route path="nav" element={<NavPage />} />
             <Route path="comments" element={<CommentsPage />} />
             <Route path="comments/settings" element={<CommentSettingsPage />} />

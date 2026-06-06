@@ -13,8 +13,9 @@ use noteva::{
         self,
         repositories::{
             SettingsRepository, SqlxArticleRepository, SqlxCategoryRepository,
-            SqlxCommentRepository, SqlxNavItemRepository, SqlxPageRepository,
-            SqlxSessionRepository, SqlxSettingsRepository, SqlxTagRepository, SqlxUserRepository,
+            SqlxCommentRepository, SqlxFriendLinkRepository, SqlxNavItemRepository,
+            SqlxPageRepository, SqlxSessionRepository, SqlxSettingsRepository, SqlxTagRepository,
+            SqlxUserRepository,
         },
     },
     plugin::{
@@ -22,7 +23,8 @@ use noteva::{
         ShortcodeManager,
     },
     services::{
-        article::ArticleService, category::CategoryService, comment::CommentService,
+        about::AboutService, article::ArticleService, captcha_pow::CaptchaPowStore,
+        category::CategoryService, comment::CommentService, friend_link::FriendLinkService,
         markdown::MarkdownRenderer, nav_item::NavItemService, page::PageService,
         settings::SettingsService, tag::TagService, user::UserService,
     },
@@ -85,6 +87,7 @@ async fn main() -> Result<()> {
     let settings_repo = SqlxSettingsRepository::new(pool.clone());
     let page_repo = SqlxPageRepository::boxed(pool.clone());
     let nav_repo = SqlxNavItemRepository::boxed(pool.clone());
+    let friend_link_repo = SqlxFriendLinkRepository::boxed(pool.clone());
 
     // Initialize services with hook support
     let user_service = Arc::new(UserService::new(user_repo.clone(), session_repo));
@@ -109,6 +112,8 @@ async fn main() -> Result<()> {
         hook_manager.clone(),
     ));
     let nav_service = Arc::new(NavItemService::new(nav_repo, cache.clone()));
+    let friend_link_service = Arc::new(FriendLinkService::new(friend_link_repo, cache.clone()));
+    let about_service = Arc::new(AboutService::new(settings_service.clone()));
 
     // Create comment service with hooks and settings support
     let comment_repo = Arc::new(SqlxCommentRepository::new(pool.clone()));
@@ -188,6 +193,7 @@ async fn main() -> Result<()> {
     let request_stats = Arc::new(RequestStats::new());
 
     let rate_limiter = Arc::new(noteva::services::LoginRateLimiter::new());
+    let captcha_pow_store = Arc::new(CaptchaPowStore::new());
     let two_factor_challenges =
         Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
 
@@ -200,6 +206,8 @@ async fn main() -> Result<()> {
         tag_service,
         settings_service,
         comment_service,
+        about_service,
+        friend_link_service,
         theme_engine: Arc::new(std::sync::RwLock::new(theme_engine)),
         upload_config: Arc::new(config.upload.clone()),
         page_service,
@@ -209,6 +217,7 @@ async fn main() -> Result<()> {
         shortcode_manager: shortcode_manager_arc,
         request_stats,
         rate_limiter: rate_limiter.clone(),
+        captcha_pow_store,
         wasm_runtime: wasm_runtime.clone(),
         wasm_registry: wasm_registry.clone(),
         two_factor_challenges,

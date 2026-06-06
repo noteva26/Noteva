@@ -27,7 +27,8 @@
     "register": "Inscription",
     "logout": "Déconnexion",
     "manage": "Tableau de bord",
-    "profile": "Profil"
+    "profile": "Profil",
+    "friendLinks": "Liens amis"
   },
   "auth": {
     "login": "Connexion",
@@ -118,7 +119,21 @@
     "unliked": "Mention retirée",
     "likeFailed": "Échec de l'action",
     "authorTag": "Auteur",
-    "postingAsAdmin": "Publication en tant que {name}"
+    "postingAsAdmin": "Publication en tant que {name}",
+    "captchaLoading": "Chargement de la verification...",
+    "captchaRequired": "Veuillez terminer la verification d'abord",
+    "captchaSolving": "Verification...",
+    "captchaLoadFailed": "Impossible de charger la verification",
+    "captchaAuto": "Verification automatique lors de l envoi",
+    "captchaPowRequired": "Verifier que vous etes humain",
+    "captchaPowVerified": "Verification terminee",
+    "captchaPowRetry": "Verification echouee, cliquez pour reessayer",
+    "captchaPowExpired": "Verification expiree, cliquez pour reessayer",
+    "replyingTo": "Réponse à {name}",
+    "captchaExpired": "La vérification a expiré. Veuillez recommencer.",
+    "anonymous": "Anonyme",
+    "admin": "Admin",
+    "emoji": "Emoji"
   },
   "theme": {
     "light": "Clair",
@@ -144,5 +159,17 @@
   },
   "user": {
     "userBanned": "Ce compte a été banni et ne peut pas se connecter"
+  },
+  "friendLinks": {
+    "title": "Liens amis",
+    "description": "Une petite collection de sites et de personnes lies a ce blog.",
+    "count": "{count} liens",
+    "empty": "Aucun lien ami pour le moment.",
+    "uncategorized": "Sans categorie"
+  },
+  "about": {
+    "title": "À propos",
+    "bioTitle": "Profil",
+    "timeline": "Chronologie"
   }
 }

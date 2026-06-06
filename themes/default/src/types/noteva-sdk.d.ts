@@ -72,6 +72,7 @@ interface NotevaArticle {
 interface NotevaComment {
   id: number;
   articleId?: number | null;
+  articleSlug?: string | null;
   userId?: number | null;
   parentId?: number | null;
   nickname?: string | null;
@@ -118,10 +119,13 @@ interface NotevaSiteInfo {
   showPostNav: boolean;
   showRelatedPosts: boolean;
   showComments: boolean;
+  friendLinksNavEnabled: boolean;
+  aboutNavEnabled: boolean;
   stats: {
     totalArticles: number;
     totalCategories: number;
     totalTags: number;
+    totalComments: number;
   };
 }
 
@@ -236,10 +240,60 @@ interface NotevaPageContext {
   customPage: NotevaPage | null;
 }
 
-interface NotevaCaptchaConfig {
-  provider: "none" | "turnstile" | "hcaptcha";
-  siteKey: string;
+interface NotevaFriendLink {
+  id: number;
+  name: string;
+  url: string;
+  logo?: string | null;
+  description?: string | null;
+  category?: string | null;
+  sortOrder: number;
+  status: string;
+  isRecommended: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface NotevaAboutSocialLink {
+  label: string;
+  url: string;
+  icon: string;
+}
+
+interface NotevaAboutTimelineItem {
+  title: string;
+  date: string;
+  description: string;
+}
+
+interface NotevaAboutProfile {
   enabled: boolean;
+  navEnabled: boolean;
+  displayName: string;
+  avatar: string;
+  headline: string;
+  bio: string;
+  location: string;
+  website: string;
+  socialLinks: NotevaAboutSocialLink[];
+  timeline: NotevaAboutTimelineItem[];
+  extraMarkdown: string;
+  extraHtml: string;
+}
+
+interface NotevaCaptchaConfig {
+  provider: "none" | "noteva_pow" | "turnstile" | "hcaptcha" | "cap";
+  siteKey: string;
+  capBaseUrl?: string;
+  capEndpoint?: string;
+  enabled: boolean;
+  pow?: {
+    difficulty: "low" | "normal" | "high" | string;
+    leadingZeroBits: number;
+    challengeTtlSeconds: number;
+    tokenTtlSeconds: number;
+    autoSolve: boolean;
+  } | null;
 }
 
 interface NotevaSDK {
@@ -292,6 +346,13 @@ interface NotevaSDK {
       keyword?: string;
       sort?: "date" | "views" | "comments" | "latest" | string;
     }): Promise<NotevaArticleListResult>;
+    popular(params?: {
+      limit?: number;
+      pageSize?: number;
+      category?: string;
+      tag?: string;
+      sort?: "views" | "comments" | "date" | string;
+    }): Promise<NotevaArticle[]>;
     get(slug: string): Promise<NotevaArticle>;
     related(slug: string, params?: { limit?: number }): Promise<NotevaArticleLink[]>;
     archives(): Promise<NotevaArchiveEntry[]>;
@@ -301,6 +362,14 @@ interface NotevaSDK {
   pages: {
     list(): Promise<NotevaPage[]>;
     get(slug: string): Promise<NotevaPage>;
+  };
+
+  friendLinks: {
+    list(params?: Record<string, string | number | boolean | undefined>): Promise<NotevaFriendLink[]>;
+  };
+
+  about: {
+    get(): Promise<NotevaAboutProfile>;
   };
 
   categories: {
@@ -328,22 +397,70 @@ interface NotevaSDK {
 
   captcha: {
     getConfig(): Promise<NotevaCaptchaConfig>;
-    loadScript(provider: "turnstile" | "hcaptcha"): Promise<void>;
+    loadScript(provider: "turnstile" | "hcaptcha" | "cap"): Promise<void>;
     render(
       container: string | HTMLElement,
       options?: {
-        provider?: "turnstile" | "hcaptcha";
+        provider?: "noteva_pow" | "turnstile" | "hcaptcha" | "cap";
+        action?: "comment" | string;
         siteKey?: string;
+        capEndpoint?: string;
         theme?: "light" | "dark" | "auto";
         size?: "normal" | "compact";
+        labels?: Partial<{
+          initial: string;
+          verifying: string;
+          verified: string;
+          retry: string;
+          expired: string;
+          required: string;
+          error: string;
+          troubleshooting: string;
+          wasmDisabled: string;
+          verifyAria: string;
+          verifyingAria: string;
+          verifiedAria: string;
+          errorAria: string;
+          brand: string;
+        }>;
+        locale?: string;
         callback?: (token: string) => void;
+        progressCallback?: (progress?: unknown) => void;
+        resetCallback?: () => void;
         expiredCallback?: () => void;
-        errorCallback?: () => void;
+        errorCallback?: (error?: unknown) => void;
       }
     ): Promise<unknown>;
     getToken(container?: string | HTMLElement): string;
     reset(container?: string | HTMLElement): void;
     destroy(container?: string | HTMLElement): void;
+    createChallenge(options?: { action?: "comment" | string }): Promise<{
+      id: string;
+      action: string;
+      nonce: string;
+      algorithm: "sha256" | string;
+      difficulty: string;
+      leading_zero_bits?: number;
+      leadingZeroBits?: number;
+      expires_at?: string;
+      expiresAt?: string;
+    }>;
+    verifyPow(options: {
+      action?: "comment" | string;
+      challengeId?: string;
+      challenge_id?: string;
+      solution: string;
+      elapsedMs?: number;
+      elapsed_ms?: number;
+    }): Promise<{ token: string; action: string; expiresAt: string }>;
+    solve(options?: {
+      action?: "comment" | string;
+      container?: string | HTMLElement;
+      timeoutMs?: number;
+      batchSize?: number;
+      force?: boolean;
+      onProgress?: (progress: { attempts: number; elapsedMs: number }) => void;
+    }): Promise<string>;
   };
 
   interactions: {

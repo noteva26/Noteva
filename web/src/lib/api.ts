@@ -360,6 +360,30 @@ export const siteApi = {
   getInfo: () => api.get<SiteSettings>("/site/info"),
 };
 
+// Friend links API
+export const friendLinksApi = {
+  list: () => api.get<{ links: FriendLink[] }>("/admin/friend-links"),
+
+  create: (data: CreateFriendLinkInput) =>
+    api.post<{ link: FriendLink }>("/admin/friend-links", data),
+
+  update: (id: number, data: UpdateFriendLinkInput) =>
+    api.put<{ link: FriendLink }>(`/admin/friend-links/${id}`, data),
+
+  delete: (id: number) => api.delete(`/admin/friend-links/${id}`),
+
+  updateOrder: (items: Array<{ id: number; sort_order: number }>) =>
+    api.put<void>("/admin/friend-links/order", { items }),
+};
+
+// Built-in about/profile API
+export const aboutApi = {
+  get: () => api.get<AboutProfileResponse>("/admin/about"),
+
+  update: (data: AboutProfileInput) =>
+    api.put<AboutProfileResponse>("/admin/about", data),
+};
+
 // Plugins API
 export const pluginsApi = {
   list: () => api.get<PluginListResponse>("/admin/plugins"),
@@ -507,6 +531,75 @@ export interface Category {
   created_at: string;
 }
 
+export interface FriendLink {
+  id: number;
+  name: string;
+  url: string;
+  logo?: string | null;
+  description?: string | null;
+  category?: string | null;
+  sort_order: number;
+  status: "pending" | "approved" | "rejected" | "hidden" | string;
+  is_recommended: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateFriendLinkInput {
+  name: string;
+  url: string;
+  logo?: string | null;
+  description?: string | null;
+  category?: string | null;
+  sort_order?: number;
+  status?: string;
+  is_recommended?: boolean;
+}
+
+export interface UpdateFriendLinkInput {
+  name?: string;
+  url?: string;
+  logo?: string | null;
+  description?: string | null;
+  category?: string | null;
+  sort_order?: number;
+  status?: string;
+  is_recommended?: boolean;
+}
+
+export interface AboutSocialLink {
+  label: string;
+  url: string;
+  icon: string;
+}
+
+export interface AboutTimelineItem {
+  title: string;
+  date: string;
+  description: string;
+}
+
+export interface AboutProfile {
+  enabled: boolean;
+  nav_enabled: boolean;
+  display_name: string;
+  avatar: string;
+  headline: string;
+  bio: string;
+  location: string;
+  website: string;
+  social_links: AboutSocialLink[];
+  timeline: AboutTimelineItem[];
+  extra_markdown: string;
+}
+
+export type AboutProfileInput = AboutProfile;
+
+export interface AboutProfileResponse {
+  profile: AboutProfile;
+  extra_html: string;
+}
+
 export interface CategoryTree extends Category {
   children: CategoryTree[];
 }
@@ -541,6 +634,11 @@ export interface DashboardStats {
   published_articles: number;
   total_categories: number;
   total_tags: number;
+  total_comments: number;
+  pending_comments: number;
+  popular_articles: Article[];
+  recent_published_articles: Article[];
+  recent_comments: AdminComment[];
 }
 
 export interface SystemStats {

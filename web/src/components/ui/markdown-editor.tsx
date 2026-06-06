@@ -19,7 +19,7 @@ import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language"
 import { api, uploadApi, filesApi, type FileInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { LayoutGrid, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clipboard, ImagePlus, LayoutGrid, Loader2, Star } from "lucide-react";
 import { useI18nStore, type Locale, t as i18nT } from "@/lib/i18n";
 import { sanitizeHtml } from "@/lib/sanitize-html";
 import { enhanceRenderedContentPrimitives } from "@/lib/content-primitives";
@@ -58,6 +58,7 @@ interface MarkdownEditorProps {
     pluginButtons?: PluginEditorButton[];
     placeholder?: string;
     minHeight?: number;
+    onSetThumbnail?: (url: string) => void;
 }
 
 type EmojiPickerPlacement =
@@ -66,6 +67,29 @@ type EmojiPickerPlacement =
 
 const EMOJI_PICKER_WIDTH = 360;
 const EMOJI_PICKER_HEIGHT = 320;
+type UploadStatus =
+    | { type: "idle" }
+    | { type: "uploading"; message: string; detail?: string }
+    | { type: "success"; message: string; detail?: string }
+    | { type: "error"; message: string; detail?: string };
+
+function UploadStatusIcon({ status }: { status: UploadStatus }) {
+    if (status.type === "success") {
+        return <CheckCircle2 className="h-4 w-4" />;
+    }
+    if (status.type === "error") {
+        return <AlertCircle className="h-4 w-4" />;
+    }
+    return <Loader2 className="h-4 w-4 animate-spin" />;
+}
+
+function uploadStatusClass(status: UploadStatus) {
+    return status.type === "success"
+        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+        : status.type === "error"
+            ? "border-destructive/30 bg-destructive/10 text-destructive"
+            : "border-primary/30 bg-primary/10 text-primary";
+}
 
 // ── Toolbar button definitions ──────────────────────────────
 // Inline SVG icons (16×16) for toolbar - keeps bundle small
@@ -92,6 +116,12 @@ const icons = {
     plugin: <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>,
     hr: <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="2" y1="12" x2="22" y2="12" /></svg>,
 };
+
+function formatFileSize(size: number) {
+    return size < 1024 * 1024
+        ? `${(size / 1024).toFixed(size < 1024 ? 1 : 0)} KB`
+        : `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
 
 // ── Theme compartment for live dark/light switching ─────────
 const themeCompartment = new Compartment();
@@ -140,7 +170,7 @@ function insertText(view: EditorView, text: string) {
 
 // ── Component ───────────────────────────────────────────────
 const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
-    ({ initialValue = "", onChange, pluginButtons = [], placeholder, minHeight = 400 }, ref) => {
+    ({ initialValue = "", onChange, pluginButtons = [], placeholder, minHeight = 400, onSetThumbnail }, ref) => {
         const editorContainerRef = useRef<HTMLDivElement>(null);
         const viewRef = useRef<EditorView | null>(null);
         const onChangeRef = useRef(onChange);
@@ -149,7 +179,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         const showPreviewRef = useRef(false);
         const mobileTabRef = useRef<"edit" | "preview">("edit");
         const fetchPreviewRef = useRef<(content: string) => void>(() => { });
-        const handleFileUploadRef = useRef<(file: File, options?: { directInsertImage?: boolean }) => Promise<void>>(async () => { });
+        const handleFileUploadRef = useRef<(file: File, options?: { directInsertImage?: boolean; source?: "manual" | "paste" | "drop" }) => Promise<void>>(async () => { });
         const locale = useI18nStore((s) => s.locale);
 
         const [showPreview, setShowPreview] = useState(false);
@@ -178,6 +208,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         const wrapperRef = useRef<HTMLDivElement>(null);
         const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
         const [isDragOver, setIsDragOver] = useState(false);
+        const [uploadStatus, setUploadStatus] = useState<UploadStatus>({ type: "idle" });
+        const uploadStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         const uploadPanelRef = useRef<HTMLDivElement>(null);
         const uploadButtonRef = useRef<HTMLButtonElement>(null);
         const fileInputRef = useRef<HTMLInputElement>(null);
@@ -261,6 +293,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 if (librarySearchTimerRef.current) {
                     clearTimeout(librarySearchTimerRef.current);
                 }
+                if (uploadStatusTimerRef.current) {
+                    clearTimeout(uploadStatusTimerRef.current);
+                }
             };
         }, []);
 
@@ -318,7 +353,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                     if (item.kind === "file") {
                         e.preventDefault();
                         const file = item.getAsFile();
-                        if (file) await handleFileUploadRef.current(file, { directInsertImage: true });
+                        if (file) await handleFileUploadRef.current(file, { directInsertImage: true, source: "paste" });
                         break;
                     }
                 }
@@ -329,7 +364,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 if (!files || files.length === 0) return;
                 e.preventDefault();
                 for (const file of Array.from(files)) {
-                    await handleFileUploadRef.current(file, { directInsertImage: true });
+                    await handleFileUploadRef.current(file, { directInsertImage: true, source: "drop" });
                 }
             };
 
@@ -420,9 +455,23 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
         const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
         const BLOCKED_EXTENSIONS = [".exe", ".bat", ".sh", ".cmd", ".msi", ".dll", ".com", ".scr"];
 
-        const handleFileUpload = async (file: File, options: { directInsertImage?: boolean } = {}) => {
+        const scheduleUploadStatusClear = (delay = 2600) => {
+            if (uploadStatusTimerRef.current) {
+                clearTimeout(uploadStatusTimerRef.current);
+            }
+            uploadStatusTimerRef.current = setTimeout(() => {
+                setUploadStatus({ type: "idle" });
+                uploadStatusTimerRef.current = null;
+            }, delay);
+        };
+
+        const handleFileUpload = async (file: File, options: { directInsertImage?: boolean; source?: "manual" | "paste" | "drop" } = {}) => {
             const view = viewRef.current;
             if (!view) return;
+            if (uploadStatusTimerRef.current) {
+                clearTimeout(uploadStatusTimerRef.current);
+                uploadStatusTimerRef.current = null;
+            }
 
             // Validate file size
             if (file.size > MAX_UPLOAD_SIZE) {
@@ -431,6 +480,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                     ? `${(file.size / 1024).toFixed(1)}KB`
                     : `${(file.size / 1024 / 1024).toFixed(1)}MB`;
                 toast.error(i18nT("editor.fileTooLarge").replace("{max}", maxStr).replace("{size}", sizeStr) || `File too large: ${sizeStr} (max ${maxStr})`);
+                setUploadStatus({ type: "error", message: i18nT("editor.uploadFailed") });
+                scheduleUploadStatusClear(4200);
                 return;
             }
 
@@ -438,10 +489,21 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
             const ext = ("." + file.name.split(".").pop()?.toLowerCase()) || "";
             if (BLOCKED_EXTENSIONS.includes(ext)) {
                 toast.error(i18nT("editor.fileTypeBlocked").replace("{ext}", ext) || `File type ${ext} is not allowed`);
+                setUploadStatus({ type: "error", message: i18nT("editor.uploadFailed") });
+                scheduleUploadStatusClear(4200);
                 return;
             }
 
+            const isDirectPaste = options.directInsertImage && options.source === "paste";
+            const isDirectDrop = options.directInsertImage && options.source === "drop";
+            const uploadingMessage = isDirectPaste
+                ? i18nT("editor.pasteUploading")
+                : isDirectDrop
+                    ? i18nT("editor.dropUploading")
+                    : i18nT("editor.uploading");
+
             setUploading(true);
+            setUploadStatus({ type: "uploading", message: uploadingMessage, detail: file.name });
             try {
                 const isImage = file.type.startsWith("image/");
                 const { data } = isImage ? await uploadApi.image(file) : await uploadApi.file(file);
@@ -450,19 +512,27 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                         insertText(view, `![${file.name}](${data.url})`);
                         setPendingImage(null);
                         setUploadPanelOpen(false);
+                        toast.success(i18nT("editor.uploadInserted"));
+                        setUploadStatus({ type: "success", message: i18nT("editor.uploadInserted"), detail: file.name });
+                        scheduleUploadStatusClear();
                     } else {
                         setPendingImage({ name: file.name, url: data.url });
                         setImageSize("100%");
+                        setUploadStatus({ type: "success", message: i18nT("editor.uploadReady"), detail: file.name });
                     }
                 } else {
-                    const sizeStr = data.size < 1024 * 1024
-                        ? `${(data.size / 1024).toFixed(1)} KB`
-                        : `${(data.size / 1024 / 1024).toFixed(1)} MB`;
+                    const sizeStr = formatFileSize(data.size);
                     insertText(view, `[file name="${file.name}" size="${sizeStr}" url="${data.url}" /]`);
                     setUploadPanelOpen(false);
+                    toast.success(i18nT("editor.uploadInserted"));
+                    setUploadStatus({ type: "success", message: i18nT("editor.uploadInserted"), detail: file.name });
+                    scheduleUploadStatusClear();
                 }
             } catch (error) {
                 console.error("Upload failed:", error);
+                toast.error(i18nT("editor.uploadFailed"));
+                setUploadStatus({ type: "error", message: i18nT("editor.uploadFailed") });
+                scheduleUploadStatusClear(4200);
             } finally {
                 setUploading(false);
             }
@@ -480,6 +550,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
             }
             setPendingImage(null);
             setUploadPanelOpen(false);
+            toast.success(i18nT("editor.inserted"));
         };
 
         // Load library files
@@ -519,12 +590,26 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 setPendingImage({ name: file.name, url: file.url });
                 setImageSize("100%");
             } else {
-                const sizeStr = file.size < 1024 * 1024
-                    ? `${(file.size / 1024).toFixed(1)} KB`
-                    : `${(file.size / 1024 / 1024).toFixed(1)} MB`;
+                const sizeStr = formatFileSize(file.size);
                 insertText(view, `[file name="${file.name}" size="${sizeStr}" url="${file.url}" /]`);
                 setUploadPanelOpen(false);
+                toast.success(i18nT("editor.inserted"));
             }
+        };
+
+        const copyFileUrl = async (url: string) => {
+            try {
+                await navigator.clipboard.writeText(url);
+                toast.success(i18nT("editor.urlCopied"));
+            } catch {
+                toast.error(i18nT("editor.urlCopyFailed"));
+            }
+        };
+
+        const setThumbnailFromFile = (url: string) => {
+            onSetThumbnail?.(url);
+            setUploadPanelOpen(false);
+            toast.success(i18nT("editor.thumbnailSet"));
         };
 
         // ── Toolbar handlers ────────────────────────────────────
@@ -678,11 +763,13 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
 
         const editorAreaStyle = isFullscreen ? undefined : { height: `${minHeight}px` };
         const editorPaneStyle = { height: "100%" };
+        const floatingUploadStatus =
+            uploadStatus.type !== "idle" && !uploadPanelOpen ? uploadStatus : null;
 
         return (
             <div
                 ref={wrapperRef}
-                className={`border rounded-md overflow-hidden bg-card ${isFullscreen ? "fixed inset-0 z-50 rounded-none border-none flex flex-col" : ""
+                className={`relative border rounded-md overflow-hidden bg-card ${isFullscreen ? "fixed inset-0 z-50 rounded-none border-none flex flex-col" : ""
                     }`}
             >
                 {/* Toolbar */}
@@ -712,25 +799,45 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                             active={contentMenuOpen}
                         />
                         {contentMenuOpen && (
-                            <div className="absolute top-full left-0 mt-1 z-50 bg-popover border rounded-md shadow-md py-1 min-w-[190px]">
+                            <div className="absolute top-full left-0 mt-1 z-50 w-64 rounded-md border bg-popover p-2 shadow-md">
                                 {[
-                                    { label: i18nT("editor.imageGrid"), action: tb.imageGrid },
-                                    { label: i18nT("editor.spoiler"), action: tb.spoiler },
-                                    { label: i18nT("editor.date"), action: tb.date },
-                                    { label: i18nT("editor.dateRange"), action: tb.dateRange },
-                                    { label: i18nT("editor.articleCard"), action: tb.articleCard },
-                                    { label: i18nT("editor.articleCardTitle"), action: tb.articleCardTitle },
-                                ].map((item) => (
-                                    <button
-                                        key={item.label}
-                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
-                                        onClick={() => {
-                                            item.action();
-                                            setContentMenuOpen(false);
-                                        }}
-                                    >
-                                        {item.label}
-                                    </button>
+                                    {
+                                        heading: i18nT("editor.contentMediaGroup"),
+                                        items: [{ label: i18nT("editor.imageGrid"), action: tb.imageGrid }],
+                                    },
+                                    {
+                                        heading: i18nT("editor.contentTextGroup"),
+                                        items: [
+                                            { label: i18nT("editor.spoiler"), action: tb.spoiler },
+                                            { label: i18nT("editor.date"), action: tb.date },
+                                            { label: i18nT("editor.dateRange"), action: tb.dateRange },
+                                        ],
+                                    },
+                                    {
+                                        heading: i18nT("editor.contentReferenceGroup"),
+                                        items: [
+                                            { label: i18nT("editor.articleCard"), action: tb.articleCard },
+                                            { label: i18nT("editor.articleCardTitle"), action: tb.articleCardTitle },
+                                        ],
+                                    },
+                                ].map((group) => (
+                                    <div key={group.heading} className="py-1">
+                                        <div className="px-2 pb-1 text-[11px] font-medium uppercase text-muted-foreground">
+                                            {group.heading}
+                                        </div>
+                                        {group.items.map((item) => (
+                                            <button
+                                                key={item.label}
+                                                className="w-full rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                                                onClick={() => {
+                                                    item.action();
+                                                    setContentMenuOpen(false);
+                                                }}
+                                            >
+                                                {item.label}
+                                            </button>
+                                        ))}
+                                    </div>
                                 ))}
                             </div>
                         )}
@@ -750,7 +857,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                         {uploadPanelOpen && (
                             <div
                                 ref={uploadPanelRef}
-                                className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 w-80 bg-popover border rounded-lg shadow-lg"
+                                className="absolute top-full left-1/2 z-50 mt-2 w-[22rem] -translate-x-1/2 overflow-hidden rounded-lg border bg-popover shadow-lg transition-all duration-150"
                             >
                                 {/* Image resize picker */}
                                 {pendingImage ? (
@@ -774,6 +881,10 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                                         <div className="flex gap-2">
                                             <Button size="sm" className="flex-1" onClick={() => insertImageWithSize(pendingImage.name, pendingImage.url, imageSize)}>
                                                 {i18nT("editor.insertImage")}
+                                            </Button>
+                                            <Button size="sm" variant="outline" onClick={() => copyFileUrl(pendingImage.url)}>
+                                                <Clipboard className="mr-2 h-3.5 w-3.5" />
+                                                {i18nT("editor.copyUrl")}
                                             </Button>
                                             <Button size="sm" variant="ghost" onClick={() => setPendingImage(null)}>
                                                 {i18nT("common.cancel")}
@@ -802,35 +913,46 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                                         </div>
                                         <div className="p-4">
                                             {uploadTab === "upload" ? (
-                                                /* Dropzone */
-                                                <div
-                                                    className={`relative flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${isDragOver
-                                                        ? "border-primary bg-primary/5"
-                                                        : "border-muted-foreground/30 hover:border-primary/50 hover:bg-accent/50"
-                                                        }`}
-                                                    onClick={() => fileInputRef.current?.click()}
-                                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
-                                                    onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); }}
-                                                    onDrop={async (e) => {
-                                                        e.preventDefault(); e.stopPropagation(); setIsDragOver(false);
-                                                        const files = e.dataTransfer?.files;
-                                                        if (files) for (const file of Array.from(files)) await handleFileUpload(file);
-                                                    }}
-                                                >
-                                                    {uploading ? (
-                                                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                                                    ) : (
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground">
-                                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                                            <polyline points="17 8 12 3 7 8" />
-                                                            <line x1="12" y1="3" x2="12" y2="15" />
-                                                        </svg>
-                                                    )}
-                                                    <div className="text-center">
-                                                        <p className="text-sm font-medium">{i18nT("editor.dropzoneTitle")}</p>
-                                                        <p className="text-xs text-muted-foreground mt-1">{i18nT("editor.dropzoneHint")}</p>
+                                                <>
+                                                    <div
+                                                        className={`relative flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${isDragOver
+                                                            ? "border-primary bg-primary/5"
+                                                            : "border-muted-foreground/30 hover:border-primary/50 hover:bg-accent/50"
+                                                            }`}
+                                                        onClick={() => fileInputRef.current?.click()}
+                                                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
+                                                        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); }}
+                                                        onDrop={async (e) => {
+                                                            e.preventDefault(); e.stopPropagation(); setIsDragOver(false);
+                                                            const files = e.dataTransfer?.files;
+                    if (files) for (const file of Array.from(files)) await handleFileUpload(file, { source: "drop" });
+                                                        }}
+                                                    >
+                                                        {uploading ? (
+                                                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                                        ) : (
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground">
+                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                                                <polyline points="17 8 12 3 7 8" />
+                                                                <line x1="12" y1="3" x2="12" y2="15" />
+                                                            </svg>
+                                                        )}
+                                                        <div className="text-center">
+                                                            <p className="text-sm font-medium">
+                                                                {uploading ? i18nT("editor.uploading") : isDragOver ? i18nT("editor.dropzoneActive") : i18nT("editor.dropzoneTitle")}
+                                                            </p>
+                                                            <p className="text-xs text-muted-foreground mt-1">
+                                                                {i18nT("editor.dropzoneHint")}
+                                                            </p>
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                    {uploadStatus.type !== "idle" && (
+                                                        <div className={`mt-3 flex items-center gap-2 rounded-md border px-3 py-2 text-xs ${uploadStatusClass(uploadStatus)}`}>
+                                                            <UploadStatusIcon status={uploadStatus} />
+                                                            <span>{uploadStatus.message}</span>
+                                                        </div>
+                                                    )}
+                                                </>
                                             ) : (
                                                 /* Library browser */
                                                 <div>
@@ -853,25 +975,60 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                                                             <p className="text-xs text-muted-foreground text-center py-4">{i18nT("common.noData")}</p>
                                                         ) : (
                                                             libraryFiles.map((file) => (
-                                                                <button
+                                                                <div
                                                                     key={file.name}
-                                                                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent text-left transition-colors"
-                                                                    onClick={() => insertLibraryFile(file)}
+                                                                    className="rounded-md border bg-background p-2 transition-colors hover:bg-accent/40"
                                                                 >
-                                                                    {file.is_image ? (
-                                                                        <img src={file.url} alt={file.name} className="w-8 h-8 object-cover rounded border shrink-0" />
-                                                                    ) : (
-                                                                        <div className="w-8 h-8 rounded border bg-muted flex items-center justify-center shrink-0">
-                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                                                                    <div className="flex items-center gap-2">
+                                                                        {file.is_image ? (
+                                                                            <img src={file.url} alt={file.name} className="h-12 w-12 shrink-0 rounded border object-cover" />
+                                                                        ) : (
+                                                                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded border bg-muted">
+                                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                                                                            </div>
+                                                                        )}
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <p className="truncate text-xs font-medium">{file.name}</p>
+                                                                            <p className="text-[10px] text-muted-foreground">
+                                                                                {formatFileSize(file.size)}
+                                                                            </p>
                                                                         </div>
-                                                                    )}
-                                                                    <div className="min-w-0 flex-1">
-                                                                        <p className="text-xs truncate">{file.name}</p>
-                                                                        <p className="text-[10px] text-muted-foreground">
-                                                                            {file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(0)} KB` : `${(file.size / 1024 / 1024).toFixed(1)} MB`}
-                                                                        </p>
                                                                     </div>
-                                                                </button>
+                                                                    <div className="mt-2 grid grid-cols-2 gap-1">
+                                                                        <Button
+                                                                            type="button"
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            className="h-7 px-2 text-xs"
+                                                                            onClick={() => insertLibraryFile(file)}
+                                                                        >
+                                                                            <ImagePlus className="mr-1.5 h-3.5 w-3.5" />
+                                                                            {file.is_image ? i18nT("editor.insertImage") : i18nT("editor.insertFile")}
+                                                                        </Button>
+                                                                        <Button
+                                                                            type="button"
+                                                                            size="sm"
+                                                                            variant="ghost"
+                                                                            className="h-7 px-2 text-xs"
+                                                                            onClick={() => copyFileUrl(file.url)}
+                                                                        >
+                                                                            <Clipboard className="mr-1.5 h-3.5 w-3.5" />
+                                                                            {i18nT("editor.copyUrl")}
+                                                                        </Button>
+                                                                        {file.is_image && onSetThumbnail ? (
+                                                                            <Button
+                                                                                type="button"
+                                                                                size="sm"
+                                                                                variant="ghost"
+                                                                                className="col-span-2 h-7 px-2 text-xs"
+                                                                                onClick={() => setThumbnailFromFile(file.url)}
+                                                                            >
+                                                                                <Star className="mr-1.5 h-3.5 w-3.5" />
+                                                                                {i18nT("editor.setThumbnail")}
+                                                                            </Button>
+                                                                        ) : null}
+                                                                    </div>
+                                                                </div>
                                                             ))
                                                         )}
                                                     </div>
@@ -975,6 +1132,26 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
                 </div>
 
                 <FileInput />
+
+                {floatingUploadStatus && (
+                    <div
+                        className={`pointer-events-none absolute right-3 top-12 z-40 flex max-w-[min(24rem,calc(100%-1.5rem))] items-start gap-3 rounded-lg border px-3.5 py-3 text-xs shadow-xl backdrop-blur ${uploadStatusClass(floatingUploadStatus)}`}
+                        role="status"
+                        aria-live="polite"
+                    >
+                        <span className="mt-0.5 shrink-0">
+                            <UploadStatusIcon status={floatingUploadStatus} />
+                        </span>
+                        <span className="min-w-0">
+                            <span className="block font-medium">{floatingUploadStatus.message}</span>
+                            {floatingUploadStatus.detail ? (
+                                <span className="mt-0.5 block truncate text-muted-foreground">
+                                    {floatingUploadStatus.detail}
+                                </span>
+                            ) : null}
+                        </span>
+                    </div>
+                )}
 
                 {/* Emoji picker portal */}
                 {emojiPickerOpen &&

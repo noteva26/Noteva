@@ -27,7 +27,8 @@
     "register": "註冊",
     "logout": "登出",
     "manage": "管理後台",
-    "profile": "個人主頁"
+    "profile": "個人主頁",
+    "friendLinks": "友鏈"
   },
   "auth": {
     "login": "登入",
@@ -88,6 +89,7 @@
     "emailOptional": "電子郵件（可選，用於顯示頭像）",
     "submit": "發表評論",
     "reply": "回覆",
+    "replyingTo": "正在回覆 {name}",
     "noComments": "暫無評論，來發表第一條評論吧",
     "loginRequired": "請登入後發表評論",
     "contentRequired": "請輸入評論內容",
@@ -101,7 +103,17 @@
     "postingAsAdmin": "以 {name} 身份發表評論",
     "captchaLoading": "正在載入驗證...",
     "captchaRequired": "請先完成驗證",
-    "captchaLoadFailed": "驗證元件載入失敗"
+    "captchaSolving": "正在驗證...",
+    "captchaLoadFailed": "驗證元件載入失敗",
+    "captchaExpired": "驗證已過期，請重新驗證",
+    "captchaAuto": "發表時將自動完成驗證",
+    "captchaPowRequired": "點擊驗證你是真人",
+    "captchaPowVerified": "驗證完成",
+    "captchaPowRetry": "驗證失敗，點擊重試",
+    "captchaPowExpired": "驗證已過期，點擊重新驗證",
+    "anonymous": "匿名",
+    "admin": "管理員",
+    "emoji": "表情"
   },
   "theme": {
     "light": "淺色",
@@ -147,5 +159,17 @@
     "updateFailed": "更新失敗",
     "passwordChanged": "密碼修改成功",
     "passwordChangeFailed": "密碼修改失敗"
+  },
+  "friendLinks": {
+    "title": "友鏈",
+    "description": "一些與這個部落格相關的站點和朋友。",
+    "count": "{count} 個友鏈",
+    "empty": "暫無友鏈。",
+    "uncategorized": "未分類"
+  },
+  "about": {
+    "title": "關於",
+    "bioTitle": "簡介",
+    "timeline": "時間線"
   }
 }

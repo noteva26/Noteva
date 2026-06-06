@@ -31,6 +31,10 @@ pub struct SiteInfoResponse {
     pub show_related_posts: bool,
     /// Whether the comments section is shown (default: true)
     pub show_comments: bool,
+    /// Whether the built-in friend-links page appears in theme navigation.
+    pub friend_links_nav_enabled: bool,
+    /// Whether the built-in about page appears in theme navigation.
+    pub about_nav_enabled: bool,
     pub stats: SiteStats,
 }
 
@@ -40,6 +44,7 @@ pub struct SiteStats {
     pub total_articles: i64,
     pub total_categories: i64,
     pub total_tags: i64,
+    pub total_comments: i64,
 }
 
 /// Request for rendering markdown content
@@ -136,6 +141,7 @@ async fn get_site_info(State(state): State<AppState>) -> Json<SiteInfoResponse> 
         .await
         .map(|t| t.len() as i64)
         .unwrap_or(0);
+    let total_comments = state.comment_service.count_approved().await.unwrap_or(0);
 
     // Display toggles. Default to ON (true) when unset, so existing sites
     // keep their current behavior after upgrading.
@@ -173,6 +179,15 @@ async fn get_site_info(State(state): State<AppState>) -> Json<SiteInfoResponse> 
             .ok()
             .flatten(),
     );
+    let friend_links_nav_enabled = read_toggle(
+        state
+            .settings_service
+            .get("friend_links_nav_enabled")
+            .await
+            .ok()
+            .flatten(),
+    );
+    let about_nav_enabled = state.about_service.is_nav_enabled().await;
 
     Json(SiteInfoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -191,10 +206,13 @@ async fn get_site_info(State(state): State<AppState>) -> Json<SiteInfoResponse> 
         show_post_nav,
         show_related_posts,
         show_comments,
+        friend_links_nav_enabled,
+        about_nav_enabled,
         stats: SiteStats {
             total_articles,
             total_categories,
             total_tags,
+            total_comments,
         },
     })
 }

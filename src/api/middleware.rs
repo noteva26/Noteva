@@ -108,6 +108,8 @@ pub struct AppState {
     pub tag_service: Arc<crate::services::tag::TagService>,
     pub settings_service: Arc<crate::services::settings::SettingsService>,
     pub comment_service: Arc<crate::services::comment::CommentService>,
+    pub about_service: Arc<crate::services::about::AboutService>,
+    pub friend_link_service: Arc<crate::services::friend_link::FriendLinkService>,
     pub theme_engine: Arc<std::sync::RwLock<crate::theme::ThemeEngine>>,
     pub upload_config: Arc<crate::config::UploadConfig>,
     pub page_service: Arc<crate::services::page::PageService>,
@@ -117,6 +119,7 @@ pub struct AppState {
     pub shortcode_manager: Arc<ShortcodeManager>,
     pub request_stats: Arc<RequestStats>,
     pub rate_limiter: Arc<crate::services::LoginRateLimiter>,
+    pub captcha_pow_store: Arc<crate::services::captcha_pow::CaptchaPowStore>,
     pub wasm_runtime: Arc<tokio::sync::RwLock<crate::plugin::PluginRuntime>>,
     pub wasm_registry: Arc<tokio::sync::RwLock<crate::plugin::wasm_bridge::WasmPluginRegistry>>,
     pub two_factor_challenges: TwoFactorChallengeStore,
@@ -561,6 +564,7 @@ pub async fn demo_guard(request: Request, next: Next) -> Result<Response, ApiErr
         "/api/v1/auth/logout",   // Logout
         "/api/v1/auth/register", // Register (let users try the flow)
         "/api/v1/auth/2fa",      // 2FA verify (part of login flow)
+        "/api/v1/captcha/",      // Captcha challenge/verify for public comments
         "/api/v1/comments",      // Post comments (demo interaction)
         "/api/v1/like",          // Like/unlike (demo interaction)
         "/api/v1/view/",         // View count increment (not real data)
@@ -654,6 +658,7 @@ pub async fn csrf_protection(request: Request, next: Next) -> Result<Response, A
         "/api/v1/auth/login",
         "/api/v1/auth/register",
         "/api/v1/auth/has-admin",
+        "/api/v1/captcha/",      // public captcha challenge/verify
         "/api/v1/comments",      // public comment posting (uses its own auth)
         "/api/v1/like",          // public like
         "/api/v1/view/",         // public view count

@@ -27,7 +27,8 @@
     "register": "Register",
     "logout": "Logout",
     "manage": "Dashboard",
-    "profile": "Profile"
+    "profile": "Profile",
+    "friendLinks": "Friend Links"
   },
   "auth": {
     "login": "Login",
@@ -108,6 +109,7 @@
     "emailOptional": "Email (optional, for avatar)",
     "submit": "Submit",
     "reply": "Reply",
+    "replyingTo": "Replying to {name}",
     "noComments": "No comments yet. Be the first to comment!",
     "loginRequired": "Please login to comment",
     "contentRequired": "Please enter comment content",
@@ -121,7 +123,17 @@
     "postingAsAdmin": "Posting as {name}",
     "captchaLoading": "Loading verification...",
     "captchaRequired": "Please complete the verification first",
-    "captchaLoadFailed": "Failed to load verification"
+    "captchaSolving": "Verifying...",
+    "captchaLoadFailed": "Failed to load verification",
+    "captchaExpired": "Verification expired. Please verify again.",
+    "captchaAuto": "Will verify automatically when you submit",
+    "captchaPowRequired": "Verify you're human",
+    "captchaPowVerified": "Verification complete",
+    "captchaPowRetry": "Verification failed, click to retry",
+    "captchaPowExpired": "Verification expired, click to retry",
+    "anonymous": "Anonymous",
+    "admin": "Admin",
+    "emoji": "Emoji"
   },
   "theme": {
     "light": "Light",
@@ -147,5 +159,17 @@
   },
   "user": {
     "userBanned": "This account has been banned and cannot login"
+  },
+  "friendLinks": {
+    "title": "Friend Links",
+    "description": "A small collection of sites and people connected with this blog.",
+    "count": "{count} links",
+    "empty": "No friend links yet.",
+    "uncategorized": "Uncategorized"
+  },
+  "about": {
+    "title": "About",
+    "bioTitle": "Profile",
+    "timeline": "Timeline"
   }
 }

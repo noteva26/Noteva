@@ -17,16 +17,16 @@ export interface LocaleInfo {
 
 // Built-in locales
 export const builtinLocales: LocaleInfo[] = [
-  { code: "zh-CN", name: "Simplified Chinese", nativeName: "简体中文" },
-  { code: "zh-TW", name: "Traditional Chinese", nativeName: "繁體中文" },
+  { code: "zh-CN", name: "Simplified Chinese", nativeName: "\u7b80\u4f53\u4e2d\u6587" },
+  { code: "zh-TW", name: "Traditional Chinese", nativeName: "\u7e41\u9ad4\u4e2d\u6587" },
   { code: "en", name: "English", nativeName: "English" },
-  { code: "ja", name: "Japanese", nativeName: "日本語" },
-  { code: "ko", name: "Korean", nativeName: "한국어" },
-  { code: "fr", name: "French", nativeName: "Français" },
+  { code: "ja", name: "Japanese", nativeName: "\u65e5\u672c\u8a9e" },
+  { code: "ko", name: "Korean", nativeName: "\ud55c\uad6d\uc5b4" },
+  { code: "fr", name: "French", nativeName: "Fran\u00e7ais" },
   { code: "de", name: "German", nativeName: "Deutsch" },
-  { code: "es", name: "Spanish", nativeName: "Español" },
-  { code: "pt-BR", name: "Portuguese (Brazil)", nativeName: "Português (Brasil)" },
-  { code: "ru", name: "Russian", nativeName: "Русский" },
+  { code: "es", name: "Spanish", nativeName: "Espa\u00f1ol" },
+  { code: "pt-BR", name: "Portuguese (Brazil)", nativeName: "Portugu\u00eas (Brasil)" },
+  { code: "ru", name: "Russian", nativeName: "\u0420\u0443\u0441\u0441\u043a\u0438\u0439" },
   { code: "it", name: "Italian", nativeName: "Italiano" },
 ];
 

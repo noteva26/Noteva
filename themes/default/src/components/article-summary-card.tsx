@@ -66,7 +66,9 @@ export function ArticleSummaryCard({
   };
   const thumbnail = article.thumbnail || article.coverImage || "";
   const publishedAt = article.publishedAt || article.createdAt;
-  const excerpt = article.excerpt || stripMarkup(article.content).trim().slice(0, 180);
+  const summary = String(article.summary || "").trim();
+  const excerpt =
+    summary || article.excerpt || stripMarkup(article.content).trim().slice(0, 180);
   const isPinned = Boolean(article.isPinned);
   const formattedDate = publishedAt ? formatArticleDate(publishedAt, dateLocale) : "";
   const highlightedTitle = sanitizeHtml(highlightSearchText(article.title, highlightQuery));

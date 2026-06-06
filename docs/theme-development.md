@@ -218,6 +218,7 @@ Noteva.articles
 Noteva.pages
 Noteva.categories
 Noteva.tags
+Noteva.friendLinks
 Noteva.comments
 Noteva.captcha
 Noteva.interactions
@@ -529,6 +530,94 @@ const tags = await Noteva.tags.list();
 const tag = await Noteva.tags.get("rust");
 ```
 
+## System built-in friend links
+
+Noteva 0.3.4 adds friend links as a built-in public data source. Themes should use the SDK instead of reading the legacy `friendlinks` plugin settings or hardcoding `/api/v1/friend-links`.
+
+```ts
+const links = await Noteva.friendLinks.list();
+```
+
+Friend link fields use SDK `camelCase` names:
+
+```ts
+{
+  id: 1,
+  name: "Noteva",
+  url: "https://github.com/noteva26/Noteva",
+  logo: "",
+  description: "Lightweight blog system",
+  category: "Recommended",
+  sortOrder: 0,
+  status: "approved",
+  isRecommended: false,
+  createdAt: "2026-01-01T00:00:00Z",
+  updatedAt: "2026-01-01T00:00:00Z"
+}
+```
+
+The public SDK/API only returns approved visible links. `pending`, `rejected`, and `hidden` records are admin-only. Default theme maps the built-in navigation target `friendlinks` to `/friendlinks`; custom themes should do the same if they support built-in navigation targets.
+
+Recommended rendering rules:
+
+- Group by `category`, falling back to an uncategorized group.
+- Render `logo` when present; use a text/initial fallback when the image fails.
+- Use `target="_blank"` with `rel="noopener noreferrer"` for external friend links.
+- Provide an empty state when the list is empty.
+
+Legacy migration path:
+
+- The old `plugins/friendlinks` plugin is kept for compatibility and is not removed automatically.
+- Admin users can open `/manage/friend-links` and use "Import legacy plugin" to import `links_data` from the loaded legacy plugin settings into the built-in `friend_links` table.
+
+## System built-in About profile
+
+Noteva provides a lightweight built-in About/Profile data source for themes. Themes should read it through the SDK instead of hardcoding `/api/v1/about`:
+
+```ts
+const about = await Noteva.about.get();
+```
+
+SDK fields use `camelCase` names:
+
+```ts
+{
+  enabled: true,
+  navEnabled: true,
+  displayName: "Noteva",
+  avatar: "/uploads/avatar.png",
+  headline: "A short public intro",
+  bio: "Public biography text",
+  location: "Shanghai",
+  website: "https://example.com",
+  socialLinks: [
+    { label: "GitHub", url: "https://github.com/example", icon: "github" }
+  ],
+  timeline: [
+    { date: "2026", title: "Started writing", description: "..." }
+  ],
+  extraMarkdown: "## More",
+  extraHtml: "<h2>More</h2>"
+}
+```
+
+About/Profile is intentionally separate from login account data. The public API does not expose account email, password hash, role, TOTP, or other security fields. `extraHtml` is rendered by Noteva's Markdown pipeline, including content components and shortcodes, so themes can safely display the provided HTML after their usual client-side sanitization.
+
+Built-in navigation target:
+
+```ts
+const navItem = { type: "builtin", target: "about" };
+```
+
+Recommended theme behavior:
+
+- Map built-in target `about` to `/about`.
+- Respect `site.aboutNavEnabled` from `Noteva.site.getInfo()` when auto-adding a default About navigation item.
+- If a theme owns `/about`, fall back to `Noteva.pages.get("about")` when `Noteva.about.get()` returns 404, so existing custom About pages continue to work.
+- Keep the layout lightweight: profile card, public bio, social links, optional timeline, optional `extraHtml`.
+- The import skips duplicate URLs and invalid entries. It does not disable or delete the plugin, so users can verify the built-in page before removing the old plugin manually.
+
+
 分类和标签统一使用 `articleCount` 表示文章数量。
 
 ## 评论
@@ -553,7 +642,7 @@ const comment = await Noteva.comments.create({
 
 ### 评论验证码
 
-Noteva 0.3.4 起，评论验证码是 Theme Runtime SDK 的稳定能力。后台评论设置如果启用了 Turnstile 或 hCaptcha，公开评论表单必须渲染验证码，并把 token 传给 `Noteva.comments.create()` 的 `captchaToken` 字段：
+Noteva 0.3.4 起，评论验证码是 Theme Runtime SDK 的稳定能力。后台评论设置如果启用了 Cap、Turnstile 或 hCaptcha，公开评论表单必须渲染验证码，并把 token 传给 `Noteva.comments.create()` 的 `captchaToken` 字段：
 
 ```ts
 const config = await Noteva.captcha.getConfig();
@@ -591,11 +680,11 @@ if (config.enabled) {
 
 相关方法：
 
-- `Noteva.captcha.getConfig()`：读取公开验证码配置，只返回 `enabled`、`provider` 和 `siteKey`，不会暴露 secret。
-- `Noteva.captcha.render(container, options)`：按配置加载并渲染 Turnstile / hCaptcha。
+- `Noteva.captcha.getConfig()`：读取公开验证码配置，只返回 `enabled`、`provider`、`siteKey` 以及 Cap 所需的公开 `capBaseUrl` / `capEndpoint`，不会暴露 secret。
+- `Noteva.captcha.render(container, options)`：按配置渲染验证码。Cap 会加载 `@cap.js/widget` 并渲染 `<cap-widget>`；Turnstile / hCaptcha 会加载第三方组件。`noteva_pow` 仅保留为旧版本兼容 provider，新主题不要再主动使用。
 - `Noteva.captcha.getToken(container)`：从已渲染组件读取当前 token，可作为 callback 状态的兜底。
 - `Noteva.captcha.reset(container)`：提交成功、提交失败或 token 过期后重置组件。
-- `Noteva.captcha.destroy(container)`：组件卸载时销毁第三方验证码实例。
+- `Noteva.captcha.destroy(container)`：组件卸载时销毁验证码实例。
 
 主题不要根据“当前用户已登录”“Demo 模式”或“管理员身份”跳过验证码显示。只要 `config.enabled` 为 `true`，后端评论接口就会校验 `captchaToken`。
 
@@ -1009,6 +1098,106 @@ Noteva.errors.isValidation(error);
   </body>
 </html>
 ```
+
+## Legacy Noteva Built-in Captcha
+
+`provider: "noteva_pow"` is kept only for older sites and older themes. New sites should use `provider: "cap"`, which is the default recommended captcha provider.
+
+If a legacy site still has `captcha_provider = "noteva_pow"` in settings, current Noteva maps that public configuration to `provider: "cap"` so themes can keep using the normal SDK rendering path. Do not implement the old hash loop, call `/captcha/challenge`, or call `/captcha/verify` from a new theme.
+
+## Cap Captcha Provider
+
+Noteva supports `provider: "cap"` through the default Noteva Cap service or a self-hosted Cap instance. The default service Base URL, Site Key, and Secret Key are built into the backend/admin defaults, so users who do not want to deploy their own captcha service can use Cap directly. Themes should still call `Noteva.captcha.render()` instead of embedding Cap script tags manually:
+
+```ts
+const config = await Noteva.captcha.getConfig();
+const container = document.querySelector("#comment-captcha");
+
+let captchaToken = "";
+
+if (config.enabled && config.provider === "cap") {
+  await Noteva.captcha.render(container, {
+    provider: "cap",
+    callback(token) {
+      captchaToken = token;
+    },
+    expiredCallback() {
+      captchaToken = "";
+    },
+    errorCallback() {
+      captchaToken = "";
+    }
+  });
+}
+```
+
+Admin settings store the Cap Base URL, Site Key, and Secret Key. The public SDK config exposes only the Base URL derived widget endpoint and Site Key. The Secret Key is used only by the server when verifying comment submissions. Themes and plugins must never read or hardcode it.
+
+Captcha SDK methods:
+
+- `Noteva.captcha.getConfig()`: read the public captcha config.
+- `Noteva.captcha.render(container, options)`: render Cap, Turnstile, hCaptcha, or a legacy compatibility widget from the public config.
+- `Noteva.captcha.getToken(container)`: read the current widget token as a fallback when callback state is not available.
+- `Noteva.captcha.reset(container)`: reset the current widget after submit success, submit failure, or token expiration.
+- `Noteva.captcha.destroy(container)`: destroy a widget when the comment component unmounts.
+
+The returned token must still be submitted through `Noteva.comments.create({ captchaToken })`. Do not reuse tokens; the backend consumes each token once.
+
+## Light Stats SDK
+
+Noteva exposes only lightweight content feedback for themes. This is intentionally not a visitor-tracking or analytics system.
+
+Available fields and methods:
+
+```ts
+const site = await Noteva.site.getInfo();
+site.stats.totalArticles;
+site.stats.totalCategories;
+site.stats.totalTags;
+site.stats.totalComments; // approved comments, including replies
+
+const popular = await Noteva.articles.popular({ limit: 5 });
+const recentComments = await Noteva.comments.recent(5);
+```
+
+Limits:
+
+- `Noteva.articles.popular({ limit })` clamps the public list size to a small SDK-side maximum and uses the normal article list cache path.
+- `Noteva.comments.recent(limit)` is clamped by the SDK and by the public API.
+- `totalComments` means approved public comments across the site, including nested replies.
+- Do not build heavy dashboards, visitor fingerprints, online counters, or tracking pixels into a theme by default.
+
+Recommended theme use:
+
+- Show popular articles and recent comments as a compact optional block, usually after the main article feed or in a quiet sidebar.
+- Keep the block small, generally 5 items or fewer.
+- Use `Noteva.urls.article(article)` for popular article links.
+- Recent comments currently expose `articleId`; if a theme needs a canonical article URL, either use the public article resolver or link through the configured article URL pattern after resolving the article.
+
+## Route Priority And Slug Conflicts
+
+Themes should keep route priority predictable and avoid using article slugs that conflict with system pages.
+
+Recommended priority:
+
+1. Theme-owned framework routes and static assets.
+2. Built-in system pages: `/`, `/archives`, `/categories`, `/tags`, `/about`, `/friendlinks`.
+3. Custom pages loaded through `Noteva.pages.get(slug)`.
+4. Article routes loaded through `Noteva.articles.get()` or `Noteva.articles.resolve()`.
+5. Plugin-injected page slots or plugin public routes.
+
+Built-in page behavior:
+
+- `about` and `friendlinks` are system-level targets. Themes should map built-in nav items to `/about` and `/friendlinks`.
+- If built-in About is disabled, a theme may fall back to `Noteva.pages.get("about")` so existing custom About pages continue to work.
+- If built-in Friend Links navigation is disabled, themes should not auto-add a default friend-links nav item.
+- Existing site navigation is not force-rewritten during upgrade. Users can enable built-in nav switches or manually add nav entries.
+
+Slug guidance:
+
+- Avoid article and custom-page slugs such as `archives`, `categories`, `tags`, `about`, `friendlinks`, `api`, `manage`, `uploads`, and `plugins`.
+- Fixed public API routes must be registered before dynamic article slug routes. Theme code should treat `/api/v1/articles/archives` as a fixed API route and never as an article slug.
+- Plugin pages should not overwrite built-in system pages unless the user explicitly installs and configures that behavior.
 
 ## 规则
 
